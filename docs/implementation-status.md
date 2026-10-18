@@ -1,4 +1,20 @@
-# PR comment follow-up and current local verification
+# Latest review follow-up: initial exchange rejection
+
+The [additional initial-exchange finding](https://github.com/ufaruq/toolbox/pull/2#discussion_r4306002633) is fixed. A definitive `tokens.ErrInvalidGrant` (including wrapped errors) now resolves its exact initial intent into a non-dispatchable, empty cleanup generation. Disconnect can complete without inventing a credential to revoke. Timeouts, malformed responses and other unknown outcomes retain the uncertainty fence and cannot be replayed.
+
+- Passed: formatting, `go vet ./...`, `go build ./...`, and full `go test -race -count=1 ./...`: **301 tests/subtests passed, zero failures or skips**, with actual PostgreSQL 17.11 and OpenBao 2.4.1.
+- Passed: dedicated initial-rejection regressions and the full OAuth race suite. Coverage includes cancellation, disconnect, callback replay, failed persistence, committed writes with lost responses, competing generations and exact-operation reconciliation.
+- Passed: both Chromium fixture browser scripts and API smoke checks against the rebuilt PostgreSQL/OpenBao-backed service. These use synthetic identity and Google.
+- Passed: independent review found no further actionable defect in this fix.
+- Failed then fixed: the initial-exchange rejection regression reproduced the unresolved intent before the change. No check remains failing in the final local run.
+- Blocked: GitHub API access still prevents inline replies and thread resolution.
+- Unrun: production owner OIDC and live Google OAuth/Drive; fixture passes do not close those release gates. Nothing was merged or deployed.
+
+Check hosted CI against the final pushed commit independently. Earlier results below are historical and superseded by this section.
+
+---
+
+# Previous six-comment follow-up and local verification
 
 All six comments on `3738412` are addressed:
 
