@@ -124,3 +124,23 @@ Checked locally: focused security and strict JSON tests pass with official check
 ## Release gates
 
 Production human OIDC provider/hosting remain unselected. Real Google client/Picker configuration, positive and negative PKCE enforcement, restricted downloads and document fidelity require a separately authorized test project and account. Fixture tests are not live Google validation. No deployment, merge, live credential generation or OAuth application provisioning is included.
+
+---
+
+## Later initial-exchange follow-up
+
+Preserved from application checkpoint `621fc2599bdae96661c001999fa0cc311a0e09af` before PR #2 merged. The section below describes that pre-merge checkpoint; current merge and verification status is on the [status page](../implementation-status.md).
+
+# Latest review follow-up: initial exchange rejection
+
+The [additional initial-exchange finding](https://github.com/ufaruq/toolbox/pull/2#discussion_r4306002633) is fixed. A definitive `tokens.ErrInvalidGrant` (including wrapped errors) now resolves its exact initial intent into a non-dispatchable, empty cleanup generation. Disconnect can complete without inventing a credential to revoke. Timeouts, malformed responses and other unknown outcomes retain the uncertainty fence and cannot be replayed.
+
+- Passed: formatting, `go vet ./...`, `go build ./...`, and full `go test -race -count=1 ./...`: **301 tests/subtests passed, zero failures or skips**, with actual PostgreSQL 17.11 and OpenBao 2.4.1.
+- Passed: dedicated initial-rejection regressions and the full OAuth race suite. Coverage includes cancellation, disconnect, callback replay, failed persistence, committed writes with lost responses, competing generations and exact-operation reconciliation.
+- Passed: both Chromium fixture browser scripts and API smoke checks against the rebuilt PostgreSQL/OpenBao-backed service. These use synthetic identity and Google.
+- Passed: independent review found no further actionable defect in this fix.
+- Failed then fixed: the initial-exchange rejection regression reproduced the unresolved intent before the change. No check remains failing in the final local run.
+- Blocked: GitHub API access still prevents inline replies and thread resolution.
+- Unrun: production owner OIDC and live Google OAuth/Drive; fixture passes do not close those release gates. Nothing was merged or deployed.
+
+Check hosted CI against the final pushed commit independently. Earlier results below are historical and superseded by this section.

@@ -182,6 +182,10 @@ explicitly approve new delegation.
   bundle. This applies to the intent and response writes. No blind write or
   code-exchange retry occurs. Unknown exchange outcomes remain fenced by the
   unresolved intent and keep provider cleanup pending.
+- A definitive initial `invalid_grant` rejection resolves that same CAS-bound
+  intent into an empty cleanup-only generation, even after caller cancellation.
+  No credential is invented for revocation; disconnect can finish. Timeouts,
+  malformed responses and other unknown outcomes retain the uncertainty fence.
 - If the post-exchange lock cannot be reacquired, the service uses a fresh bounded
   detached deadline to attempt CAS persistence of the known response as
   cleanup-only. A competing generation is never overwritten. If activation fails
@@ -235,7 +239,7 @@ rejection, fixed token/JWKS/revocation endpoints, redirect refusal, and durable
 exchange-intent/cleanup races. Coverage includes late responses after disconnect,
 caller cancellation or session expiry, post-exchange lock loss, uncertain writes,
 and competing generations. They use synthetic credentials and do not contact
-Google. The recorded verification at `f6e9c7c` includes 280 Go tests/subtests with
+Google. The recorded verification at `621fc25` includes 301 Go tests/subtests with
 real PostgreSQL/OpenBao and Chromium fixture checks; see
 [implementation evidence](implementation-status.md) for scope and provenance.
 This documentation update does not rerun those application checks.

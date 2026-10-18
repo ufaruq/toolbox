@@ -180,13 +180,14 @@ func (s *Service) Complete(ctx context.Context, ownerID, sessionID, state, code 
 		return none, err
 	}
 	exchanged, exchangeErr := s.provider.Exchange(ctx, code, secret.Verifier, tx.NonceHash)
-	if exchangeErr != nil && exchanged.AccessToken == "" && exchanged.RefreshToken == "" {
+	if exchangeErr != nil && !errors.Is(exchangeErr, tokens.ErrInvalidGrant) && exchanged.AccessToken == "" && exchanged.RefreshToken == "" {
 		// An unknown provider outcome cannot be declared cleaned or retried.
 		return none, exchangeErr
 	}
 
-	// A successful provider response remains cleanup material after cancellation,
-	// session loss or disconnect. Persist it with a bounded detached context.
+	// Known credentials and definitive invalid_grant rejections resolve the
+	// intent even after cancellation, session loss or disconnect. Persist them
+	// with a bounded detached context; a rejected exchange can never activate.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	bundle := intent

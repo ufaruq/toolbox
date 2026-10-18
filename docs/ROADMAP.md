@@ -2,14 +2,14 @@
 
 This is the current index of remaining work. It supersedes the pending-work lists in the [historical checkpoint ledger](history/implementation-checkpoints.md). Technical requirements live in the linked references; verification results live in [implementation status](implementation-status.md).
 
-The application baseline is [PR #2](https://github.com/ufaruq/toolbox/pull/2) at `f6e9c7cbb0aaeed07ee9eaaf84a70fa9246a8536`. The documentation follow-up is based on that checkpoint. A completed item below describes implemented behavior at that revision, not a production deployment. Unchecked items need implementation, validation or an explicit recorded decision.
+The application baseline is [PR #2](https://github.com/ufaruq/toolbox/pull/2) at `621fc2599bdae96661c001999fa0cc311a0e09af`. PR #2 has merged into `main` at `6279f3aab67465aadf5b1ee07f50ed8a99d4bcb4`; this documentation follow-up now targets `main`. A completed item below describes implemented behavior at that revision, not a production deployment. Unchecked items need implementation, validation or an explicit recorded decision.
 
 ## Completed baseline
 
 - [x] Go service, trusted owner approval UI and custom HTTP agent API for one tool: reading an approved native Google document as plain text.
 - [x] Separate owner sessions, agent credentials, provider connections and exact-document grants; short-lived delegation tokens, live authorization checks, expiry, revocation and disconnect.
 - [x] PostgreSQL and OpenBao adapters, audit records, OAuth/PKCE transaction handling, Google OAuth/Drive library adapters, refresh coordination and credential cleanup. The executable wires simulated identity and Google providers only.
-- [x] Regressions for the refresh/disconnect lifecycle and all six comments on `3738412`, including stale UI review responses, JWT expiry rounding and missing invocation audits.
+- [x] Regressions for the refresh/disconnect lifecycle, all six comments on `3738412`, and the later definitive initial-exchange rejection on `f6e9c7c`, including stale UI review responses, JWT expiry rounding and missing invocation audits.
 - [x] Fixture API, race, real PostgreSQL/OpenBao and Chromium checks, with CI and masked screenshot artifacts. See the [evidence and its limits](implementation-status.md); production OIDC and live Google have not passed.
 
 ## Milestones and dependencies

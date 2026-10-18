@@ -10,16 +10,15 @@ The runnable service is a local fixture: owner sign-in and Google are simulated.
 - [Implementation status](docs/implementation-status.md): revision-specific verification and its limits.
 - [Handoff](docs/HANDOFF.md): how to continue without confusing historical checkpoints with current tasks.
 - [Design PR #1](https://github.com/ufaruq/toolbox/pull/1): merged architecture and design artifacts.
-- [Implementation PR #2](https://github.com/ufaruq/toolbox/pull/2): the application baseline for this documentation follow-up.
+- [Implementation PR #2](https://github.com/ufaruq/toolbox/pull/2): merged application baseline.
 
 ## Run the local fixture
 
-Requires Go **1.27.2** and a free loopback port. No Google account or credentials are needed. Until PR #2 merges, select its implementation branch after cloning:
+Requires Go **1.27.2** and a free loopback port. No Google account or credentials are needed. PR #2 has merged; the implementation is available on `main`:
 
 ```sh
 git clone https://github.com/ufaruq/toolbox.git
 cd toolbox
-git switch feat/user-delegated-drive-mvp
 TOOLBOX_MODE=fixture go run ./cmd/toolbox
 ```
 

@@ -4,9 +4,9 @@ Read [implementation status](implementation-status.md) for verification evidence
 
 ## Baseline and branch state
 
-The reviewed application checkpoint is `f6e9c7cbb0aaeed07ee9eaaf84a70fa9246a8536` on `feat/user-delegated-drive-mvp`, [PR #2](https://github.com/ufaruq/toolbox/pull/2). The user marked that PR ready for review; preserve its current status. [Design PR #1](https://github.com/ufaruq/toolbox/pull/1) has merged. This documentation follow-up is based on PR #2 and adds no application behavior.
+The reviewed application checkpoint is `621fc2599bdae96661c001999fa0cc311a0e09af`, merged through [PR #2](https://github.com/ufaruq/toolbox/pull/2) into `main` at `6279f3aab67465aadf5b1ee07f50ed8a99d4bcb4`. [Design PR #1](https://github.com/ufaruq/toolbox/pull/1) has also merged. This documentation follow-up targets `main` and adds no application behavior.
 
-At that checkpoint, the refresh/disconnect regression and all six later review findings were fixed. The recorded local checks and hosted CI passed; see the status page for exact scope. GitHub API access was blocked in the working environment, so the code fixes did not reply to or resolve review threads. Check remote state before treating a recorded PR status as current.
+At that checkpoint, the refresh/disconnect regression, the six later review findings and the additional initial-exchange rejection finding were fixed. The recorded local checks and hosted CI passed; see the status page for exact scope. GitHub API access was blocked in the working environment, so the code fixes did not reply to or resolve review threads. Check remote state before treating a recorded PR status as current.
 
 ## What can run today
 
@@ -22,4 +22,4 @@ Follow the [README](../README.md#run-the-local-fixture) to run it and the [brows
 4. Scope each implementation PR to a roadmap deliverable and its acceptance checks. Keep optional MCP/client or additional-provider work distinct from the initial pilot gates.
 5. Update the roadmap, current verification evidence and this entry point when a milestone changes. Record passed, failed, blocked and unrun checks against the tested revision; maintain a separate record for fixture and live-provider results.
 
-No live Google account/app provisioning, production human OIDC acceptance, hosted pilot, merge or deployment is evidenced by the fixture checkpoint. Production operation still depends on M1–M3; larger workloads and multiple replicas need the applicable M4 work.
+No live Google account/app provisioning, production human OIDC acceptance, hosted pilot or deployment is evidenced by the fixture checkpoint. Production operation still depends on M1–M3; larger workloads and multiple replicas need the applicable M4 work.
