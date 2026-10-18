@@ -67,27 +67,18 @@ case "$1" in
   compose up -d --wait postgres-test openbao
   compose exec -T openbao bao write secret/config cas_required=true max_versions=3
   compose run --rm --build tests
+  compose run --rm --build host-checks traversal
+  compose run --rm host-checks ordering
   compose run --rm --build browser
-  # Remove only old synthetic handshake markers, never credential/key files.
-  for marker in restart-ready restart-done restart-passed; do
-    [[ ! -f ".evidence/$marker" ]] || unlink ".evidence/$marker"
-  done
-  worker=$(compose run -d --no-deps browser python deployment/persistence.py)
-  ready=0
-  for ((attempt=0; attempt<120; attempt++)); do
-    if [[ -f .evidence/restart-ready ]]; then ready=1; break; fi
-    sleep 1
-  done
-  [[ $ready == 1 ]] || { docker logs "$worker"; exit 1; }
+  mkdir -p .deploy/verification
+  [[ ! -f .deploy/verification/restart.json ]] || unlink .deploy/verification/restart.json
+  compose run --rm -T --no-deps browser python deployment/persistence.py before
   compose restart postgres
   compose up -d --wait postgres
   compose restart app
   compose up -d --wait app
-  touch .evidence/restart-done
-  result=$(docker wait "$worker")
-  docker logs "$worker"
-  [[ "$result" == 0 && -f .evidence/restart-passed ]]
-  docker rm "$worker" >/dev/null
+  # A newly created probe joins the app's new network namespace after restart.
+  compose run --rm -T --no-deps browser python deployment/persistence.py after
   ;;
  status) compose ps ;;
  stop) compose stop ;;

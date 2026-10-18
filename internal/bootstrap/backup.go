@@ -24,6 +24,15 @@ func InitBackups(dir string) error {
 		}
 		return nil
 	}
+	// Public-only is the expected state after moving the identity offline.
+	if _, err := os.Lstat(private); os.IsNotExist(err) {
+		if recipient, e := os.ReadFile(public); e == nil {
+			if _, e = age.ParseX25519Recipient(strings.TrimSpace(string(recipient))); e != nil {
+				return ErrBootstrap
+			}
+			return nil
+		}
+	}
 	if _, err := os.Lstat(private); !os.IsNotExist(err) {
 		return ErrBootstrap
 	}

@@ -36,7 +36,7 @@ services:
     build: {context: .., dockerfile: deploy/Dockerfile.browser}
     user: "${TOOLBOX_UID:-1000}:${TOOLBOX_GID:-1000}"
     network_mode: service:app
-    volumes: [../.evidence:/evidence]
+    volumes: [../.evidence:/evidence, ../.deploy/verification:/state]
     shm_size: 512m
   terraform:
     profiles: [verify]
@@ -44,6 +44,11 @@ services:
     working_dir: /infra
     user: "${TOOLBOX_UID:-1000}:${TOOLBOX_GID:-1000}"
     volumes: [../infra/gcp/vm:/infra]
+
+  host-checks:
+    profiles: [verify]
+    image: toolbox-host-checks:local
+    build: {context: .., dockerfile: deploy/Dockerfile.host-checks}
 
 networks:
   verification: {internal: true}

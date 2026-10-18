@@ -40,3 +40,27 @@ func TestInitPersistsSecretsAndRefusesPartialState(t *testing.T) {
 		t.Fatal("partial state silently regenerated")
 	}
 }
+
+func TestBackupRecipientSupportsOfflineIdentity(t *testing.T) {
+	dir := t.TempDir()
+	if err := InitBackups(dir); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, "backup-recipient"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(dir, "backup-identity")); err != nil {
+		t.Fatal(err)
+	}
+	if err = InitBackups(dir); err != nil {
+		t.Fatal("offline custody broke repeated preparation", err)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "backup-recipient"))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("recipient changed", err)
+	}
+	if _, err = os.Stat(filepath.Join(dir, "backup-identity")); !os.IsNotExist(err) {
+		t.Fatal("private recovery identity regenerated")
+	}
+}

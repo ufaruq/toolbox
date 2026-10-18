@@ -1,0 +1,5 @@
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd && rm -rf /var/lib/apt/lists/*
+COPY infra/gcp/vm/prepare-host.sh /src/prepare-host.sh
+COPY tests/deployment/host_bootstrap.sh /test/host_bootstrap.sh
+ENTRYPOINT ["bash", "/test/host_bootstrap.sh"]
