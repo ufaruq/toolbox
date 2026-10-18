@@ -74,5 +74,7 @@ The PostgreSQL snapshot adapter is deliberately low-throughput and serializes al
 - [Handoff and exact remaining work](docs/HANDOFF.md)
 - [Google configuration and release gates](docs/google-setup.md)
 - [Storage guarantees and limitations](docs/storage.md)
+- [Proposed MCP service connectors with Docker Gateway](docs/superpowers/specs/2026-10-18-mcp-service-connectors-design.md)
+- [MCP service connector validation and implementation plan](docs/superpowers/plans/2026-10-18-mcp-service-connectors.md)
 
 No merge, deployment or live OAuth application provisioning has been performed.
