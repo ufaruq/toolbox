@@ -9,6 +9,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,8 @@ type PostgresConfig struct {
 	Envelope *Envelope
 }
 type Postgres struct {
+	healthMu         sync.Mutex
+	healthGood       time.Time
 	pool             *pgxpool.Pool
 	envelope         *Envelope
 	current, history string
@@ -47,8 +50,14 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(731541642)"); err != nil {
 		return ErrUnavailable
 	}
-	if _, err = tx.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+name); err != nil {
+	var exists bool
+	if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1)", schema).Scan(&exists); err != nil {
 		return ErrUnavailable
+	}
+	if !exists {
+		if _, err = tx.Exec(ctx, "CREATE SCHEMA "+name); err != nil {
+			return ErrUnavailable
+		}
 	}
 	if _, err = tx.Exec(ctx, "CREATE TABLE IF NOT EXISTS "+name+".migrations (version integer PRIMARY KEY, checksum text NOT NULL)"); err != nil {
 		return ErrUnavailable
@@ -90,6 +99,9 @@ func NewPostgres(ctx context.Context, c PostgresConfig) (*Postgres, error) {
 	}
 	name := pgx.Identifier{c.Schema}.Sanitize()
 	s := &Postgres{pool: c.Pool, envelope: c.Envelope, current: name + ".current_secrets", history: name + ".secret_versions"}
+	if err := s.checkMigrations(ctx); err != nil {
+		return nil, err
+	}
 	if err := s.Ping(ctx); err != nil {
 		return nil, err
 	}
@@ -97,7 +109,7 @@ func NewPostgres(ctx context.Context, c PostgresConfig) (*Postgres, error) {
 }
 func (s *Postgres) Ping(ctx context.Context) error {
 	var n int
-	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM "+s.current+" WHERE false").Scan(&n); err != nil {
+	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM "+s.current+" c JOIN "+s.history+" v ON c.path=v.path AND c.version=v.version WHERE false").Scan(&n); err != nil {
 		return ErrUnavailable
 	}
 	return nil
@@ -192,3 +204,51 @@ func (s *Postgres) DeleteJSON(ctx context.Context, path string) error {
 
 var _ tokens.SecretStore = (*Postgres)(nil)
 var _ tokens.JSONStore = (*Postgres)(nil)
+
+// CheckWrapper authenticates a persisted deployment sentinel, detecting a lost
+// or replaced root key. Successful decrypt checks are cached for five minutes;
+// primary SQL is still checked on every probe. Real secret reads never use this cache.
+func (s *Postgres) CheckWrapper(ctx context.Context) error {
+	if err := s.Ping(ctx); err != nil {
+		return err
+	}
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	if time.Since(s.healthGood) < 5*time.Minute {
+		return nil
+	}
+	var value map[string]string
+	_, err := s.GetJSON(ctx, "health/key-check", &value)
+	if errors.Is(err, tokens.ErrNotFound) {
+		_, err = s.PutJSON(ctx, "health/key-check", map[string]string{"check": "toolbox-readiness-v1"}, 0)
+		if err != nil && !errors.Is(err, tokens.ErrCAS) {
+			return ErrUnavailable
+		}
+		_, err = s.GetJSON(ctx, "health/key-check", &value)
+	}
+	if err != nil || value["check"] != "toolbox-readiness-v1" {
+		return ErrUnavailable
+	}
+	s.healthGood = time.Now()
+	return nil
+}
+
+func (s *Postgres) checkMigrations(ctx context.Context) error {
+	table := pgx.Identifier{s.envelope.schema}.Sanitize() + ".migrations"
+	var count int
+	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 2 {
+		return ErrUnavailable
+	}
+	for i, file := range []string{"schema.sql", "retention.sql"} {
+		body, err := schemaFiles.ReadFile(file)
+		if err != nil {
+			return ErrUnavailable
+		}
+		sum := sha256.Sum256(body)
+		var stored string
+		if err = s.pool.QueryRow(ctx, "SELECT checksum FROM "+table+" WHERE version=$1", i+1).Scan(&stored); err != nil || stored != hex.EncodeToString(sum[:]) {
+			return ErrUnavailable
+		}
+	}
+	return nil
+}

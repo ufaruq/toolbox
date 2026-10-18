@@ -152,3 +152,57 @@ func TestPostgresCancelledWriteAndMigrationChecksum(t *testing.T) {
 		t.Fatal("changed migration checksum accepted")
 	}
 }
+
+func TestMigrateWithSchemaOwnerWithoutDatabaseCreate(t *testing.T) {
+	admin := testPostgres(t)
+	ctx := context.Background()
+	role := fmt.Sprintf("migration_%d", time.Now().UnixNano())
+	schema := role + "_sec"
+	if _, err := admin.pool.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.pool.Exec(ctx, "CREATE SCHEMA "+pgx.Identifier{schema}.Sanitize()+" AUTHORIZATION "+pgx.Identifier{role}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.pool.Exec(ctx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
+		_, _ = admin.pool.Exec(ctx, "DROP OWNED BY "+pgx.Identifier{role}.Sanitize())
+		_, _ = admin.pool.Exec(ctx, "DROP ROLE "+pgx.Identifier{role}.Sanitize())
+	})
+	cfg := admin.pool.Config()
+	cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
+		_, err := c.Exec(ctx, "SET ROLE "+pgx.Identifier{role}.Sanitize())
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err = Migrate(ctx, pool, schema); err != nil {
+		t.Fatal("schema owner migration failed", err)
+	}
+}
+
+func TestReadinessRejectsReplacedLocalRoot(t *testing.T) {
+	s := testPostgres(t)
+	ctx := context.Background()
+	if err := s.CheckWrapper(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wrapper, err := NewLocalWrapper(bytes.Repeat([]byte{99}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := NewEnvelope(wrapper, s.envelope.deployment, s.envelope.schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := NewPostgres(ctx, PostgresConfig{Pool: s.pool, Schema: s.envelope.schema, Envelope: envelope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = changed.CheckWrapper(ctx); err != ErrUnavailable {
+		t.Fatal("replacement root key accepted", err)
+	}
+}

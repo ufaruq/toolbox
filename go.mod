@@ -4,8 +4,10 @@ go 1.27.2
 
 require (
 	cloud.google.com/go/kms v1.35.0
+	filippo.io/age v1.2.1
 	github.com/googleapis/gax-go/v2 v2.23.0
 	github.com/jackc/pgx/v5 v5.7.6
+	golang.org/x/sys v0.47.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -35,7 +37,6 @@ require (
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/api v0.287.1 // indirect

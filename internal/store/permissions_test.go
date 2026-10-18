@@ -68,3 +68,20 @@ func TestRuntimePermissions(t *testing.T) {
 		t.Fatal("runtime cannot load metadata", err)
 	}
 }
+
+func TestPreflightRejectsPrivilegedOwnerAndUnknownMigrations(t *testing.T) {
+	p := testPostgres(t)
+	ctx := context.Background()
+	if err := p.RuntimeSafe(ctx); err == nil {
+		t.Fatal("database owner accepted as runtime")
+	}
+	if err := p.CheckMigrations(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.pool.Exec(ctx, "INSERT INTO toolbox_migrations(name,checksum) VALUES('999_future.sql','future')"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.CheckMigrations(ctx); err == nil {
+		t.Fatal("old binary accepted unknown migration")
+	}
+}

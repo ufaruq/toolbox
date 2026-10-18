@@ -4,6 +4,16 @@ Controlled, user-delegated access to external tools and data. This draft impleme
 
 > **WIP: not ready to merge or deploy.** The full implementation is preserved for continuation. The reviewed cleanup defects are fixed and locally verified, including fixture browser E2E. Production human OIDC and live Google verification remain unfinished. See [handoff](docs/HANDOFF.md) and [verification status](docs/implementation-status.md).
 
+## Persistent Docker verification and GCP setup
+
+```sh
+make deploy-init
+make deploy-up
+make deploy-test
+```
+
+This stack preserves signing/pepper keys and encrypted PostgreSQL credentials across restarts. Production defaults to GCP KMS; local tests use real encryption with a persistent local key. See the [Docker/GCP instructions](docs/deployment-docker.md) for `make gcp-init`, `gcp-plan`, `gcp-apply`, `gcp-publish` and `gcp-prepare`, plus [backup and recovery](docs/recovery-docker.md). Terraform setup does not enable unfinished production authentication. The [PostgreSQL decision](docs/superpowers/specs/2026-10-18-gcp-deployment-design.md#database-decision) records why Spanner was deferred.
+
 ## Run the mock-only local service
 
 Requires Go **1.27.2** and a free loopback port. No Google account or credentials are needed.
@@ -56,13 +66,15 @@ The test role needs schema creation/drop and permission to terminate its own tes
 
 ## Layout
 
-- `cmd/toolbox`: explicit fixture-only executable
+- `cmd/toolbox`: fixture, deployment preflight, migration and maintenance commands; production serve is gated
 - `internal/server`: disjoint owner/agent API, trusted approval UI, dispatch gate and final live check
 - `internal/security`: agent credential hashing and scoped Ed25519 delegation tokens
 - `internal/oauth`: one-use bound OAuth flow, fixed Google adapter and fixture provider
 - `internal/connectors`: static manifest, immutable fixed Drive plans and bounded executor
 - `internal/tokens`: OpenBao CAS, refresh intent/coordinator, generation-aware retries and cleanup
 - `internal/store`: PostgreSQL/memory repositories, relational constraints and audit
+- `internal/secretstore`: encrypted credential generations with GCP KMS/local key wrappers
+- `deploy`, `infra/gcp/vm`, `scripts`: portable Compose, Terraform and operator workflow
 - `internal/app`: wiring and full API acceptance tests
 
 The PostgreSQL snapshot adapter is deliberately low-throughput and serializes all application transactions. It needs scoped queries before a larger deployment. No multi-replica production readiness is claimed.

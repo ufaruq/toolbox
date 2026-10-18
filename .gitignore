@@ -2,3 +2,6 @@ bin/
 .env
 *.key
 coverage.out
+.deploy/
+.evidence/
+__pycache__/

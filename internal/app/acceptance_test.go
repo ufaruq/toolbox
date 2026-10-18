@@ -25,6 +25,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/oauth"
+	"github.com/ufaruq/toolbox/internal/recovery"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
@@ -368,4 +369,15 @@ func postgresFullAPIFlow(t *testing.T, encrypted bool) {
 	h.invoke("doc-A", 200)
 	h.call("POST", "/v1/grants/"+h.grant+"/revoke", map[string]any{}, "", "", 200)
 	h.invoke("doc-A", 403)
+}
+
+func TestRecoveryBlocksPreRestoreAuthority(t *testing.T) {
+	h := newHarness(t, nil)
+	h.approve()
+	h.invoke("doc-A", 200)
+	if _, err := recovery.Invalidate(context.Background(), h.repo); err != nil {
+		t.Fatal(err)
+	}
+	h.invoke("doc-A", 401)
+	h.call("GET", "/v1/session", nil, "", "", 403)
 }

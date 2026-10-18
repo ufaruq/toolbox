@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +18,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/oauth"
+	"github.com/ufaruq/toolbox/internal/runtimecfg"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
@@ -27,23 +27,19 @@ import (
 
 func main() {
 	if e := run(); e != nil {
-		log.Print("Toolbox startup or shutdown failed; check documented configuration and dependency availability.")
+		log.Printf("Toolbox command failed: %v", e)
 		os.Exit(1)
 	}
 }
-func run() error {
+func runLegacy() error {
 	if os.Getenv("TOOLBOX_MODE") != "fixture" {
 		return errors.New("only explicitly selected fixture mode is supported")
 	}
-	addr := os.Getenv("TOOLBOX_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:8080"
+	cfg, e := runtimecfg.Load(os.Getenv)
+	if e != nil {
+		return e
 	}
-	host, _, e := net.SplitHostPort(addr)
-	if e != nil || !(host == "127.0.0.1" || host == "localhost" || host == "::1") {
-		return errors.New("fixture server must bind loopback")
-	}
-	origin := "http://" + addr
+	addr, origin := cfg.Addr, cfg.Origin
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	var repo domain.Repository = store.NewMemory()

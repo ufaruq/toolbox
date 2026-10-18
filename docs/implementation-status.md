@@ -1,5 +1,8 @@
 # Latest review follow-up: initial exchange rejection
 
+Deployment preparation now includes a persistent Docker/PostgreSQL stack, production-default KMS/local verification wrappers, key rotation, role separation, cleanup/retention, encrypted backup/restore and Make/Terraform tooling. See [deployment instructions](deployment-docker.md) and [recovery](recovery-docker.md). Production OIDC/live Google gates remain unfinished; cloud provisioning and live KMS are not locally verified.
+
+
 The [additional initial-exchange finding](https://github.com/ufaruq/toolbox/pull/2#discussion_r4306002633) is fixed. A definitive `tokens.ErrInvalidGrant` (including wrapped errors) now resolves its exact initial intent into a non-dispatchable, empty cleanup generation. Disconnect can complete without inventing a credential to revoke. Timeouts, malformed responses and other unknown outcomes retain the uncertainty fence and cannot be replayed.
 
 - Passed: formatting, `go vet ./...`, `go build ./...`, and full `go test -race -count=1 ./...`: **301 tests/subtests passed, zero failures or skips**, with actual PostgreSQL 17.11 and OpenBao 2.4.1.

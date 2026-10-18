@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+cd "$(dirname "$0")/.."
+export TOOLBOX_UID="$(id -u)" TOOLBOX_GID="$(id -g)"
+[[ -f .deploy/backups/latest-database.json ]] || { echo 'Create a backup first.' >&2; exit 1; }
+# Read only the artifact basename from a fixed manifest using a container. No
+# plaintext snapshot is written to the host or the production database.
+export TOOLBOX_BACKUP_FILE
+TOOLBOX_BACKUP_FILE=$(docker compose -f deploy/compose.yaml run --rm -T backup-decrypt backup-latest)
+[[ "$TOOLBOX_BACKUP_FILE" =~ ^database-[A-Za-z0-9_-]+\.age$ ]] || { echo 'Invalid backup manifest.' >&2; exit 2; }
+# A fresh project and a fresh named volume are mandatory. Existing drill volumes
+# are never overwritten. Operators can delete old drill resources explicitly.
+drill="toolbox-drill-$(date -u +%Y%m%d%H%M%S)-$$"
+docker compose -p "$drill" -f deploy/compose.yaml up -d --wait postgres
+docker compose -p "$drill" -f deploy/compose.yaml run --rm provision
+docker compose -p "$drill" -f deploy/compose.yaml exec -T postgres psql -U postgres -d toolbox -v ON_ERROR_STOP=1 -c 'GRANT CREATE ON DATABASE toolbox TO toolbox_migrate' -c 'DROP SCHEMA toolbox,toolbox_credentials CASCADE' >/dev/null
+docker compose -p "$drill" -f deploy/compose.yaml run --rm -T backup-decrypt backup-verify
+# Pipe failure is propagated. A partially restored drill stays isolated and is
+# never promoted; running authentication is not started during this procedure.
+docker compose -p "$drill" -f deploy/compose.yaml run --rm -T backup-decrypt | docker compose -p "$drill" -f deploy/compose.yaml exec -T postgres pg_restore -U postgres -d toolbox --role=toolbox_migrate --no-owner --exit-on-error
+docker compose -p "$drill" -f deploy/compose.yaml exec -T postgres psql -U postgres -d toolbox -v ON_ERROR_STOP=1 -c 'REVOKE CREATE ON DATABASE toolbox FROM toolbox_migrate' >/dev/null
+docker compose -p "$drill" -f deploy/compose.yaml run --rm recover
+docker compose -p "$drill" -f deploy/compose.yaml exec -T postgres psql -U postgres -d toolbox -v ON_ERROR_STOP=1 <<'SQL'
+DO $$ BEGIN
+IF EXISTS(SELECT 1 FROM toolbox.credentials WHERE status<>'revoked')
+OR EXISTS(SELECT 1 FROM toolbox.grants WHERE payload->'RevokedAt'='null'::jsonb)
+OR EXISTS(SELECT 1 FROM toolbox.sessions WHERE (payload->>'ExpiresAt')::timestamptz>clock_timestamp())
+OR EXISTS(SELECT 1 FROM toolbox.connections WHERE status NOT IN ('disconnecting','disconnected'))
+THEN RAISE EXCEPTION 'restored authority was not invalidated'; END IF;
+END $$;
+SQL
+docker compose -p "$drill" -f deploy/compose.yaml stop postgres
+echo "PASS: authenticated backup restored and authority invalidated in isolated project $drill (volume retained for inspection)."
