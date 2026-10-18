@@ -19,9 +19,10 @@ Select and implement this integration before enabling a production server. Do no
 replace it with a user ID from JSON, an unverified JWT claim, a trusted-looking
 header, or fixture login.
 
-The Google account connected for Drive can differ from the Toolbox sign-in
-account. `oauth.Service` takes the authenticated owner and session IDs from the
-server and checks the active owner, session ownership and DB-time expiry. It does
+By default, the Google account connected for Drive can differ from the Toolbox
+sign-in account. Deployments requiring the same corporate person must explicitly
+use the corporate linking mode described below. `oauth.Service` takes the
+authenticated owner and session IDs from the server and checks the active owner, session ownership and DB-time expiry. It does
 not create or authenticate Toolbox users. It records Google's validated `sub` as
 the connection identity; email is not an account key. The owner UI should show
 which Google account is connected before approving any delegation.
@@ -34,7 +35,8 @@ These are operator steps, not actions performed by this implementation:
    integrating the real selection UI, Google Picker API.
 2. Configure the consent screen and limited test users. Request only `openid` and
    `https://www.googleapis.com/auth/drive.file`. No `drive.readonly`, broad `drive`,
-   `email`, or `profile` fallback is implemented.
+   or `profile` fallback is implemented. The corporate mode below explicitly adds
+   `email`; it does not change the default or fixture request.
 3. Create a web-application OAuth client. Register the **exact** configured
    callback URI. The fixture server currently uses
    `http://127.0.0.1:8080/oauth/callback`; use the actual configured local port.
@@ -81,9 +83,10 @@ Also verify that the exact `openid` plus `drive.file` request returns the requir
 ID token and exact granted scopes. Google's current OIDC endpoint reference says
 its scope list includes `openid` plus `profile` or `email`; this differs from the
 minimal design adopted here and must be resolved by the real-project spike and
-review. The implementation intentionally does not add personal-data scopes. If
-the minimal request does not work, treat the scope/identity design as blocked and
-obtain review before changing it.
+review. The default implementation does not add personal-data scopes. If the
+minimal request does not work, treat the default scope/identity design as blocked
+and obtain review before changing it. Corporate mode is a separate explicit
+identity-scope choice; it still needs the real-project PKCE and scope spike.
 
 If either negative test succeeds, do not set the flag. Revise the architecture or
 client arrangement and review the result. Do not omit the challenge, switch to
@@ -116,6 +119,88 @@ This shows the library API, not an assertion that live server configuration is
 wired or production owner login is complete. The same `provider` implements
 `tokens.Provider` for coordinated refresh and revocation. There is no SDK token
 source performing background refresh outside that coordinator.
+
+### Optional corporate Workspace account linking
+
+Corporate linking is an opt-in library policy, not currently enabled by the
+fixture command. For a trusted Toolbox owner mapped to `ufaruq@company.com`, the
+policy permits that exact verified Workspace mailbox and signed hosted domain
+`company.com`. A colleague at the same domain, a personal account, missing or
+false `email_verified`, missing `hd`, and either identity mismatch are denied.
+A domain allowlist or a Google `login_hint` alone does not establish the person.
+
+Enable both parts in reviewed server code:
+
+```go
+provider, err := oauth.NewGoogleProvider(oauth.GoogleConfig{
+    ClientID:      configuredClientID,
+    ClientSecret:  injectedClientSecret,
+    CallbackURL:   "https://toolbox.example/oauth/callback",
+    PKCEValidated: validatedForThisActualGoogleClient,
+    IdentityScopes: true,
+})
+if err != nil {
+    return err
+}
+// trustedDirectory implements oauth.TrustedOwnerIdentityResolver. It receives
+// only an already authenticated Toolbox owner ID, then reads an independently
+// trusted identity source or an explicit reviewed server configuration mapping.
+service, err := oauth.NewCorporateService(repo, bao, provider, trustedDirectory)
+```
+
+`TrustedOwnerIdentityResolver.ResolveCorporateIdentity(ctx, ownerID)` returns
+`oauth.CorporateIdentity{Email: "ufaruq@company.com", HostedDomain: "company.com"}`
+only when its trusted source proves that this owner is the permitted corporate
+person. An OIDC-backed resolver must validate the owner IdP, verified mailbox and
+binding to the stored stable owner issuer/subject; alternatively, an operator can
+maintain an explicit owner-ID-to-corporate-identity configuration. Never construct
+this mapping from request JSON, query parameters, a forwarded email header,
+`login_hint`, or the Google account being connected. Unmapped owners, unavailable
+sources and invalid configuration must return an error. Resolution honors a
+five-second context deadline. The policy is evaluated at completion against the
+transaction's validated owner; it is not a replacement for owner authentication.
+The service rechecks the live owner session before activation.
+
+`IdentityScopes: true` changes the authorization request and exact accepted scope
+set to `openid email https://www.googleapis.com/auth/drive.file`. This requests
+additional personal identity data and requires explicit deployment consent/review.
+`NewService` refuses this mode; `NewCorporateService` refuses a provider without
+this exact contract or a missing resolver. The default provider and fixture still
+request exactly `openid` and `drive.file`. Unknown, additional, duplicate or missing
+granted scopes fail closed. The email contract also survives refresh: omitted
+refresh scope fields retain the stored contract; a changed explicit scope set is
+rejected. The token manager cannot add email scopes to an existing default grant.
+
+The provider validates the ID-token signature, issuer, audience, authorized party,
+nonce and lifetime before exposing the signed email claims. The policy requires
+boolean true `email_verified`, a valid canonical ASCII mailbox and hosted domain,
+exact expected mailbox and `hd`, and matching mailbox/hosted domains. Local parts
+are case-sensitive; there is no alias, dot or plus-address folding. Workspace
+aliases whose mailbox domain differs from `hd` are rejected by this strict mode;
+supporting them would require a separately reviewed explicit mapping policy.
+Google issuer/provider and stable `sub` remain the account identity. Email and
+hosted-domain claims are transient authorization evidence, never a database key.
+This does not add organization membership or tenant isolation.
+
+A rejection after Google issues credentials persists them only as a cleanup bundle
+and keeps the connection pending. No grant or access lease is created. Use the
+existing explicit disconnect/cleanup lifecycle to revoke the known credential;
+automatic account-wide revocation is avoided because it can affect other grants.
+Resolver timeout/cancellation also retains a fresh detached cleanup write budget.
+
+This branch supplies no production owner IdP integration, trusted directory,
+server configuration mapping, public deployment or real Google acceptance.
+The fixture supplies none of these and must not be described as enforcing this
+policy. Existing connections are not retroactively revalidated; a strict rollout
+must retire or explicitly review earlier connections and create new policy-checked
+connections. Complete a live test with the intended Google Workspace tenant and
+client before claiming enforcement in production. Confirm the exact returned
+scope names (including any provider canonicalization of `email` to a URI) and
+signed mailbox/`hd` behavior; an unreviewed alias is rejected by the exact scope
+contract. The existing fixture HTTP callback accepts only `state` and `code`;
+Google may also return `scope`, `authuser`, `hd` or `prompt`. Production callback
+integration must explicitly review and handle these provider fields without using
+them as identity evidence. No live results are claimed here.
 
 The trusted owner endpoint calls:
 
@@ -200,7 +285,11 @@ callback replay and races, missing/mismatched fixture PKCE, missing refresh toke
 scope mismatch, initial secret failures, reconciliation of a confirmed write,
 new-identity reconnect, signed ID-token claim failures, signature/algorithm/key URL
 rejection, fixed token/JWKS/revocation endpoints, and redirect refusal. They use
-synthetic credentials and do not contact Google.
+synthetic credentials and do not contact Google. Corporate tests also cover an
+allowed exact Workspace identity; same-domain colleague, personal/different-domain
+and missing/unverified identities; trusted resolver failure/timeout; stale owner,
+session and transaction bindings; spoofed query/JSON/consent hints; cleanup-only
+persistence and revocation; and default versus corporate refresh scope contracts.
 
 Before a live pilot, also complete real owner OIDC integration, the PKCE spike,
 Google Picker selection under the chosen app identity, Drive metadata plus

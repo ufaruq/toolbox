@@ -76,3 +76,9 @@ The PostgreSQL snapshot adapter is deliberately low-throughput and serializes al
 - [Storage guarantees and limitations](docs/storage.md)
 
 No merge, deployment or live OAuth application provisioning has been performed.
+
+Corporate deployments can opt into exact-person Google Workspace linking through
+`oauth.NewCorporateService` and an independently trusted owner identity resolver.
+This explicitly adds the Google email identity scope and fails closed on mismatched
+signed mailbox or hosted-domain claims. The fixture does not enable that policy;
+see [configuration, trust boundaries and live release gates](docs/google-setup.md#optional-corporate-workspace-account-linking).

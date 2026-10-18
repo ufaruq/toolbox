@@ -271,6 +271,113 @@ func TestOwnerCSRFAndApprovalReplay(t *testing.T) {
 	h.csrf = csrf
 	h.invoke("doc-A", 200)
 }
+
+func TestGoogleStartRejectsClientSuppliedIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, wantError string
+		body                  map[string]any
+	}{
+		{"email body", "/v1/connections/google/start", "INVALID_SCHEMA", map[string]any{"email": "attacker@example.com"}},
+		{"domain body", "/v1/connections/google/start", "INVALID_SCHEMA", map[string]any{"domain": "example.com"}},
+		{"login hint body", "/v1/connections/google/start", "INVALID_SCHEMA", map[string]any{"login_hint": "attacker@example.com"}},
+		{"email query", "/v1/connections/google/start?email=attacker%40example.com", "INVALID_QUERY", map[string]any{}},
+		{"login hint query", "/v1/connections/google/start?login_hint=attacker%40example.com", "INVALID_QUERY", map[string]any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, nil)
+			var connections, transactions int
+			if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+				connections, transactions = len(st.Connections), len(st.OAuth)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			v := h.call("POST", tc.path, tc.body, "", "", 400)
+			if v["error"] != tc.wantError {
+				t.Fatalf("identity input reached OAuth setup: %v", v)
+			}
+			// Rejected identity input must not allocate OAuth state or a connection.
+			if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+				if len(st.Connections) != connections || len(st.OAuth) != transactions {
+					t.Fatal("rejected start created OAuth state or a connection")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestGoogleCallbackRejectsClientSuppliedIdentityBeforeCompletion(t *testing.T) {
+	h := newHarness(t, nil)
+	v := h.call("POST", "/v1/connections/google/start", map[string]any{}, "", "", 200)
+	// Capture the genuine provider callback before the browser follows it.
+	client := *h.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Get(v["authorization_url"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("fixture consent returned %d", resp.StatusCode)
+	}
+	callback, err := resp.Location()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transactionID, _, err := security.CredentialParts(callback.Query().Get("state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := h.secrets.Reads.Load()
+	for _, field := range []string{"email", "login_hint", "hd"} {
+		t.Run(field, func(t *testing.T) {
+			spoofed := *callback
+			query := spoofed.Query()
+			query.Set(field, "attacker@example.com")
+			spoofed.RawQuery = query.Encode()
+			v := h.call("GET", spoofed.RequestURI(), nil, "", "", 400)
+			if v["error"] != "INVALID_CALLBACK" {
+				t.Fatalf("spoofed identity was not rejected by callback schema: %v", v)
+			}
+			// Schema rejection must precede state consumption and token exchange.
+			if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+				tx, ok := st.OAuth[transactionID]
+				if !ok || tx.Consumed || st.Connections[tx.ConnectionID].Status != "pending" {
+					t.Fatal("spoofed callback consumed or completed OAuth state")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if h.secrets.Reads.Load() != reads {
+				t.Fatal("spoofed callback crossed the credential boundary")
+			}
+		})
+	}
+	resp, err = client.Get(callback.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
+		t.Fatalf("original callback failed after schema rejections: status=%d location=%q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	// The untouched callback still links the provider-issued identity.
+	if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+		tx := st.OAuth[transactionID]
+		c := st.Connections[tx.ConnectionID]
+		if !tx.Consumed || c.Status != "active" || c.Subject != "fixture-google-account" {
+			t.Fatal("original callback did not activate the provider-issued identity")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDisconnectBlocksAndCleansUp(t *testing.T) {
 	h := newHarness(t, nil)
 	h.approve()
