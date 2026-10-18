@@ -5,6 +5,7 @@ package oauth
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,9 +26,11 @@ var (
 	ErrConfiguration = errors.New("INVALID_OAUTH_CONFIGURATION")
 )
 
-// ExchangeResult contains a verified provider identity. Implementations must verify
-// the signature and issuer, audience, expiry, and expected nonce before returning.
-// Do not serialize this value into an API response or logs.
+// ExchangeResult contains provider credentials and, on success, a verified identity.
+// Implementations must verify signature, issuer, audience, expiry, and nonce before
+// returning success. A rejected response may retain known credentials with an error
+// exclusively for cleanup; callers must never activate that result. Never serialize
+// this value into an API response or logs.
 type ExchangeResult struct {
 	Subject, ClientID, AccessToken, RefreshToken string
 	Expiry                                       time.Time
@@ -169,50 +172,101 @@ func (s *Service) Complete(ctx context.Context, ownerID, sessionID, state, code 
 	if secret.TransactionID != tx.ID || secret.ConnectionID != tx.ConnectionID || !secret.ExpiresAt.Equal(tx.ExpiresAt) || !validVerifier(secret.Verifier) {
 		return none, ErrCallback
 	}
-	exchanged, err := s.provider.Exchange(ctx, code, secret.Verifier, tx.NonceHash)
+	// Fence the non-idempotent exchange at the stable credential path before it
+	// can issue credentials. Disconnect cleanup must see an unresolved operation
+	// rather than mistake an absent bundle for completed provider cleanup.
+	intent, intentVersion, err := s.prepareExchange(ctx, tx, ownerID, sessionID)
 	if err != nil {
 		return none, err
 	}
-	if !validSubject(exchanged.Subject) || exchanged.ClientID != s.provider.ClientID() || exchanged.AccessToken == "" {
-		return none, ErrIdentity
-	}
-	if !exactScopes(exchanged.Scopes) {
-		return none, ErrScope
+	exchanged, exchangeErr := s.provider.Exchange(ctx, code, secret.Verifier, tx.NonceHash)
+	if exchangeErr != nil && exchanged.AccessToken == "" && exchanged.RefreshToken == "" {
+		// An unknown provider outcome cannot be declared cleaned or retried.
+		return none, exchangeErr
 	}
 
-	// Serialize persistence with refresh/disconnect cleanup, and recheck lifecycle
-	// both before the secret write and during activation. No DB transaction spans
-	// network I/O; the bounded session advisory lock intentionally spans the write.
-	unlock, err := s.repo.LockConnection(ctx, tx.ConnectionID)
+	// A successful provider response remains cleanup material after cancellation,
+	// session loss or disconnect. Persist it with a bounded detached context.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	unlock, err := s.repo.LockConnection(cleanupCtx, tx.ConnectionID)
 	if err != nil {
 		return none, ErrPersistence
 	}
+	bundle := intent
+	bundle.Subject, bundle.Generation = exchanged.Subject, 1
+	bundle.AccessToken, bundle.RefreshToken, bundle.Expiry = exchanged.AccessToken, exchanged.RefreshToken, exchanged.Expiry
+	bundle.Scopes = append([]string(nil), exchanged.Scopes...)
+	bundle.State = tokens.StateActive
+	var version int64
+	persisted := false
 	defer func() {
-		if unlock() != nil {
-			result = domain.Connection{}
-			resultErr = ErrPersistence
+		lockErr := unlock()
+		if persisted && bundle.State == tokens.StateActive && (resultErr != nil || lockErr != nil) {
+			// An uncertain DB activation or lost advisory session must not leave
+			// dispatchable credentials. Resolve only our exact response version.
+			cleanup := cleanupExchangeBundle(bundle)
+			if _, cleanupErr := s.persistExchangeBundle(cleanupCtx, cleanup, version); cleanupErr != nil {
+				resultErr = ErrPersistence
+			}
+			_ = s.repo.Transact(cleanupCtx, func(st *domain.State) error {
+				c, ok := st.Connections[tx.ConnectionID]
+				if ok && c.Status == "active" && c.Epoch == bundle.Epoch && c.Subject == bundle.Subject && c.ClientID == bundle.ClientID {
+					c.Status = "needs_reauth"
+					st.Connections[c.ID] = c
+				}
+				return nil
+			})
+		}
+		if lockErr != nil {
+			result, resultErr = none, ErrPersistence
 		}
 	}()
+
 	var current domain.Connection
-	err = s.repo.Transact(ctx, func(st *domain.State) error {
-		c, ok := st.Connections[tx.ConnectionID]
-		if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != 1 || !liveSession(st, ownerID, sessionID) {
-			return domain.ErrDenied
-		}
-		if !st.Now.Before(exchanged.Expiry) {
-			return ErrIdentity
-		}
-		current = c
-		return nil
-	})
-	if err != nil {
-		return none, err
+	resultErr = exchangeErr
+	if resultErr == nil && (!validSubject(exchanged.Subject) || exchanged.ClientID != s.provider.ClientID() || exchanged.AccessToken == "") {
+		resultErr = ErrIdentity
 	}
-	if exchanged.RefreshToken == "" {
-		// An access token alone cannot establish a durable offline connection.
-		err = s.repo.Transact(ctx, func(st *domain.State) error {
+	if resultErr == nil && !exactScopes(exchanged.Scopes) {
+		resultErr = ErrScope
+	}
+	if resultErr == nil {
+		resultErr = ctx.Err()
+	}
+	if resultErr == nil {
+		resultErr = s.repo.Transact(cleanupCtx, func(st *domain.State) error {
 			c, ok := st.Connections[tx.ConnectionID]
-			if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != current.Epoch {
+			if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != intent.Epoch || c.ClientID != intent.ClientID || !liveSession(st, ownerID, sessionID) {
+				return domain.ErrDenied
+			}
+			if !st.Now.Before(exchanged.Expiry) {
+				return ErrIdentity
+			}
+			current = c
+			return nil
+		})
+	}
+	if resultErr == nil && exchanged.RefreshToken == "" {
+		resultErr = ErrReauth
+	}
+	if resultErr != nil {
+		bundle = cleanupExchangeBundle(bundle)
+	}
+	version, err = s.persistExchangeBundle(cleanupCtx, bundle, intentVersion)
+	if err != nil {
+		return none, ErrPersistence
+	}
+	persisted = true
+	if resultErr != nil {
+		if !errors.Is(resultErr, ErrReauth) {
+			return none, resultErr
+		}
+		// An access-only response remains available for revocation, but cannot
+		// establish a durable offline connection or dispatch an access lease.
+		err = s.repo.Transact(cleanupCtx, func(st *domain.State) error {
+			c, ok := st.Connections[tx.ConnectionID]
+			if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != intent.Epoch || c.ClientID != intent.ClientID || !liveSession(st, ownerID, sessionID) {
 				return domain.ErrDenied
 			}
 			c.Subject, c.Status, c.Scopes = exchanged.Subject, "needs_reauth", append([]string(nil), exchanged.Scopes...)
@@ -226,20 +280,9 @@ func (s *Service) Complete(ctx context.Context, ownerID, sessionID, state, code 
 		}
 		return current, ErrReauth
 	}
-	bundle := tokens.Bundle{ConnectionID: current.ID, Subject: exchanged.Subject, ClientID: s.provider.ClientID(), Epoch: current.Epoch, Generation: 1, OperationID: security.ID(), AccessToken: exchanged.AccessToken, RefreshToken: exchanged.RefreshToken, Expiry: exchanged.Expiry, Scopes: append([]string(nil), exchanged.Scopes...), State: "active"}
-	version, err := s.secrets.Put(ctx, tokens.Path(current.ID), bundle, 0)
-	if err != nil {
-		// A timeout may hide a committed CAS. Accept only this exact operation and
-		// complete bundle from the authoritative stable path, never a stale pointer.
-		observed, observedVersion, readErr := s.secrets.Get(ctx, tokens.Path(current.ID))
-		if readErr != nil || !sameInitialBundle(observed, bundle) {
-			return none, ErrPersistence
-		}
-		version = observedVersion
-	}
-	err = s.repo.Transact(ctx, func(st *domain.State) error {
+	err = s.repo.Transact(cleanupCtx, func(st *domain.State) error {
 		c, ok := st.Connections[tx.ConnectionID]
-		if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != bundle.Epoch || !liveSession(st, ownerID, sessionID) || !st.Now.Before(bundle.Expiry) {
+		if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != bundle.Epoch || c.ClientID != bundle.ClientID || !liveSession(st, ownerID, sessionID) || ctx.Err() != nil || !st.Now.Before(bundle.Expiry) {
 			return domain.ErrDenied
 		}
 		c.Subject, c.SecretVersion, c.Scopes, c.Status = bundle.Subject, version, append([]string(nil), bundle.Scopes...), "active"
@@ -254,9 +297,59 @@ func (s *Service) Complete(ctx context.Context, ownerID, sessionID, state, code 
 	return current, nil
 }
 
+// prepareExchange serializes creation of the durable intent with disconnect
+// cleanup, then releases the lock before the provider request. A lost session
+// cannot dispatch a request whose fence was not durably confirmed.
+func (s *Service) prepareExchange(ctx context.Context, tx domain.OAuthTransaction, ownerID, sessionID string) (intent tokens.Bundle, version int64, resultErr error) {
+	unlock, err := s.repo.LockConnection(ctx, tx.ConnectionID)
+	if err != nil {
+		return intent, 0, ErrPersistence
+	}
+	defer func() {
+		if unlock() != nil {
+			resultErr = ErrPersistence
+		}
+	}()
+	err = s.repo.Transact(ctx, func(st *domain.State) error {
+		c, ok := st.Connections[tx.ConnectionID]
+		if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != 1 || c.ClientID != s.provider.ClientID() || !liveSession(st, ownerID, sessionID) {
+			return domain.ErrDenied
+		}
+		intent = tokens.Bundle{ConnectionID: c.ID, ClientID: c.ClientID, Epoch: c.Epoch, OperationID: security.ID(), State: tokens.StateRefreshing}
+		return nil
+	})
+	if err != nil {
+		return intent, 0, err
+	}
+	version, err = s.persistExchangeBundle(ctx, intent, 0)
+	return intent, version, err
+}
+
+func cleanupExchangeBundle(bundle tokens.Bundle) tokens.Bundle {
+	bundle.State = tokens.StateCleanup
+	if bundle.RefreshToken != "" {
+		bundle.AccessToken = ""
+	}
+	bundle.Expiry = time.Time{}
+	return bundle
+}
+
+func (s *Service) persistExchangeBundle(ctx context.Context, bundle tokens.Bundle, cas int64) (int64, error) {
+	version, err := s.secrets.Put(ctx, tokens.Path(bundle.ConnectionID), bundle, cas)
+	if err == nil {
+		return version, nil
+	}
+	// Reconcile only this exact operation at a strictly newer CAS generation.
+	observed, observedVersion, readErr := s.secrets.Get(ctx, tokens.Path(bundle.ConnectionID))
+	if readErr != nil || observedVersion <= cas || !sameInitialBundle(observed, bundle) {
+		return 0, ErrPersistence
+	}
+	return observedVersion, nil
+}
+
 func transactionPath(id string) string { return "oauth-transactions/" + id }
 func sameInitialBundle(a, b tokens.Bundle) bool {
-	return a.ConnectionID == b.ConnectionID && a.Subject == b.Subject && a.ClientID == b.ClientID && a.Epoch == b.Epoch && a.Generation == b.Generation && a.OperationID == b.OperationID && a.AccessToken == b.AccessToken && a.RefreshToken == b.RefreshToken && a.Expiry.Equal(b.Expiry) && a.State == "active" && exactScopes(a.Scopes)
+	return a.ConnectionID == b.ConnectionID && a.Subject == b.Subject && a.ClientID == b.ClientID && a.Epoch == b.Epoch && a.Generation == b.Generation && a.OperationID == b.OperationID && a.AccessToken == b.AccessToken && a.RefreshToken == b.RefreshToken && a.Expiry.Equal(b.Expiry) && a.State == b.State && slices.Equal(a.Scopes, b.Scopes)
 }
 func exactScopes(scopes []string) bool {
 	return len(scopes) == 2 && domain.HasScope(scopes, domain.DriveScope) && domain.HasScope(scopes, "openid")

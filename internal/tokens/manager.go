@@ -28,6 +28,9 @@ type RefreshResult struct {
 
 // Provider must use fixed OAuth endpoints, bounded requests and no refresh
 // retries: a timeout may already have rotated the refresh token at the provider.
+// Refresh must return known credentials from a successful response even when
+// validation rejects it. A non-nil error makes that result cleanup-only; it can
+// never authorize an access lease. An unknown response returns an empty result.
 type Provider interface {
 	Refresh(context.Context, string) (RefreshResult, error)
 	Revoke(context.Context, string) error
@@ -208,9 +211,9 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 		}
 		return Lease{}, e
 	}
-	result, e := m.Provider.Refresh(ctx, bundle.RefreshToken)
+	result, refreshErr := m.Provider.Refresh(ctx, bundle.RefreshToken)
 	authorizationAfterRefresh := authorize(ctx)
-	if e != nil {
+	if refreshErr != nil && result.AccessToken == "" && result.RefreshToken == "" {
 		m.markReauth(ctx, conn)
 		return Lease{}, ErrReauth
 	}
@@ -226,16 +229,23 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 	next.OperationID = op
 	if result.RefreshToken != "" {
 		next.RefreshToken = result.RefreshToken
+	} else if refreshErr != nil && result.AccessToken != "" {
+		// A rejected response can have an absent or malformed refresh credential.
+		// Revoke its known new access token rather than claiming cleanup solely
+		// from an old refresh token that the provider may already have rotated.
+		next.RefreshToken = ""
 	}
 	if len(result.Scopes) > 0 {
 		next.Scopes = append([]string(nil), result.Scopes...)
 	}
-	validResponse := result.AccessToken != "" && result.Expiry.After(m.now()) && domain.HasScope(next.Scopes, domain.DriveScope)
+	validResponse := refreshErr == nil && result.AccessToken != "" && result.Expiry.After(m.now()) && validRefreshScopes(next.Scopes)
 	if activationErr != nil || !validResponse {
 		next.State = StateCleanup
-		// The refresh credential is sufficient for cleanup; never retain a usable
-		// access lease in this state.
-		next.AccessToken = ""
+		// Prefer the known refresh credential for cleanup. Otherwise retain the
+		// known access token only in this non-dispatchable state for revocation.
+		if next.RefreshToken != "" {
+			next.AccessToken = ""
+		}
 		next.Expiry = time.Time{}
 	}
 	newVersion, putErr := m.Secrets.Put(liveCtx, Path(id), next, version)
@@ -272,6 +282,13 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 	}
 	return Lease{Token: next.AccessToken, Generation: next.Generation}, nil
 }
+
+func validRefreshScopes(scopes []string) bool {
+	// Stored credentials can omit the identity scope. The refresh must
+	// still contain Drive read access and must never introduce broader authority.
+	return len(scopes) == 1 && scopes[0] == domain.DriveScope || len(scopes) == 2 && domain.HasScope(scopes, domain.DriveScope) && domain.HasScope(scopes, "openid")
+}
+
 func matches(b Bundle, c domain.Connection) bool {
 	return b.ConnectionID == c.ID && b.Subject == c.Subject && b.ClientID == c.ClientID && b.Epoch == c.Epoch && b.Epoch > 0 && b.Generation > 0 && b.OperationID != "" && b.State == StateActive && domain.HasScope(b.Scopes, domain.DriveScope)
 }

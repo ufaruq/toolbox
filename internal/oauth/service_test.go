@@ -103,11 +103,11 @@ func TestCompleteDurableAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if connection.Status != "active" || connection.Subject != "google-account-123" || connection.SecretVersion != 1 {
+	if connection.Status != "active" || connection.Subject != "google-account-123" || connection.SecretVersion != 2 {
 		t.Fatalf("unexpected connection: %+v", connection)
 	}
 	bundle, version, err := h.secrets.Get(context.Background(), tokens.Path(connection.ID))
-	if err != nil || version != 1 || bundle.OperationID == "" || bundle.Generation != 1 || bundle.State != "active" || bundle.RefreshToken == "" || bundle.Subject != connection.Subject {
+	if err != nil || version != 2 || bundle.OperationID == "" || bundle.Generation != 1 || bundle.State != "active" || bundle.RefreshToken == "" || bundle.Subject != connection.Subject {
 		t.Fatal("missing durable bundle", err)
 	}
 	if _, err := h.secrets.GetJSON(context.Background(), verifierPath, &secret); !errors.Is(err, tokens.ErrNotFound) {
@@ -186,8 +186,8 @@ func TestMissingRefreshTokenNeverActive(t *testing.T) {
 	if !errors.Is(err, ErrReauth) || connection.Status != "needs_reauth" || h.connection(t, start.ConnectionID).Status != "needs_reauth" {
 		t.Fatal("missing refresh token activated", err)
 	}
-	if _, _, err := h.secrets.Get(context.Background(), tokens.Path(start.ConnectionID)); !errors.Is(err, tokens.ErrNotFound) {
-		t.Fatal("incomplete bundle stored")
+	if bundle, _, err := h.secrets.Get(context.Background(), tokens.Path(start.ConnectionID)); err != nil || bundle.State != tokens.StateCleanup || bundle.AccessToken == "" || bundle.RefreshToken != "" {
+		t.Fatal("access-only response was not retained exclusively for cleanup", err)
 	}
 }
 func TestScopeMismatchNeverActive(t *testing.T) {
@@ -325,8 +325,8 @@ func TestLostConnectionLockNeverReturnsSuccess(t *testing.T) {
 	if !errors.Is(err, ErrPersistence) || connection.ID != "" {
 		t.Fatal("lost lock returned success", err)
 	}
-	if h.provider.ExchangeCalls() != 1 {
-		t.Fatal("exchange count changed")
+	if h.provider.ExchangeCalls() != 0 {
+		t.Fatal("lost pre-exchange lock dispatched provider exchange")
 	}
 	if _, err = h.service.Complete(context.Background(), "owner", "session", state, code); !errors.Is(err, ErrCallback) {
 		t.Fatal("lost lock made code replayable", err)
@@ -411,7 +411,7 @@ func TestDBActivationFailureLeavesDurableBlockedOrphan(t *testing.T) {
 		t.Fatal("failed DB activation committed")
 	}
 	bundle, version, err := h.secrets.Get(context.Background(), tokens.Path(start.ConnectionID))
-	if err != nil || version != 1 || bundle.RefreshToken == "" {
+	if err != nil || version != 3 || bundle.State != tokens.StateCleanup || bundle.AccessToken != "" || bundle.RefreshToken == "" {
 		t.Fatal("durable outcome lost", err)
 	}
 	if _, err := h.service.Complete(context.Background(), "owner", "session", state, code); !errors.Is(err, ErrCallback) {

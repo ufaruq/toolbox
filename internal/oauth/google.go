@@ -149,18 +149,24 @@ func (p *GoogleProvider) Exchange(ctx context.Context, code, verifier, nonceHash
 	}
 	start := p.now()
 	response, err := p.tokenRequest(ctx, url.Values{"client_id": {p.clientID}, "client_secret": {p.clientSecret}, "redirect_uri": {p.callbackURL}, "code": {code}, "grant_type": {"authorization_code"}, "code_verifier": {verifier}}, false)
-	if err != nil {
+	if err != nil && response.AccessToken == "" && response.RefreshToken == "" {
 		return none, err
+	}
+	// Parsed credentials from a successful token response remain cleanup material
+	// even if validation fails. A non-nil error never authorizes activation.
+	result := ExchangeResult{ClientID: p.clientID, AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: strings.Fields(response.Scope)}
+	if err != nil {
+		return result, err
 	}
 	subject, err := p.verifyIDToken(ctx, response.IDToken, nonceHash)
 	if err != nil {
-		return none, err
+		return result, err
 	}
-	scopes := strings.Fields(response.Scope)
-	if !exactScopes(scopes) {
-		return none, ErrScope
+	result.Subject = subject
+	if !exactScopes(result.Scopes) {
+		return result, ErrScope
 	}
-	return ExchangeResult{Subject: subject, ClientID: p.clientID, AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: scopes}, nil
+	return result, nil
 }
 
 func (p *GoogleProvider) Refresh(ctx context.Context, refreshToken string) (tokens.RefreshResult, error) {
@@ -170,14 +176,17 @@ func (p *GoogleProvider) Refresh(ctx context.Context, refreshToken string) (toke
 	}
 	start := p.now()
 	response, err := p.tokenRequest(ctx, url.Values{"client_id": {p.clientID}, "client_secret": {p.clientSecret}, "refresh_token": {refreshToken}, "grant_type": {"refresh_token"}}, true)
-	if err != nil {
+	if err != nil && response.AccessToken == "" && response.RefreshToken == "" {
 		return none, err
 	}
-	scopes := strings.Fields(response.Scope)
-	if len(scopes) > 0 && !exactScopes(scopes) {
-		return none, tokens.ErrReauth
+	result := tokens.RefreshResult{AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: strings.Fields(response.Scope)}
+	if err != nil {
+		return result, err
 	}
-	return tokens.RefreshResult{AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: scopes}, nil
+	if response.ScopePresent && !exactScopes(result.Scopes) {
+		return result, tokens.ErrReauth
+	}
+	return result, nil
 }
 func (p *GoogleProvider) Revoke(ctx context.Context, token string) error {
 	if token == "" {
@@ -206,6 +215,7 @@ func (p *GoogleProvider) Revoke(ctx context.Context, token string) error {
 type tokenResponse struct {
 	AccessToken, RefreshToken, IDToken, Scope, TokenType string
 	ExpiresIn                                            int64
+	ScopePresent                                         bool
 }
 
 func (p *GoogleProvider) tokenRequest(ctx context.Context, form url.Values, refresh bool) (tokenResponse, error) {
@@ -240,20 +250,34 @@ func (p *GoogleProvider) tokenRequest(ctx context.Context, form url.Values, refr
 		return none, ErrProvider
 	}
 	var response tokenResponse
+	_, response.ScopePresent = fields["scope"]
+	var responseErr error
+	// Decode all fields before rejecting the response so an invalid access token,
+	// expiry, or scope cannot discard a separately valid rotated refresh token.
+	// Only bounded string credentials from a parsed HTTP 200 response are retained.
 	for key, destination := range map[string]*string{"access_token": &response.AccessToken, "refresh_token": &response.RefreshToken, "id_token": &response.IDToken, "scope": &response.Scope, "token_type": &response.TokenType} {
 		if b, ok := fields[key]; ok {
-			if json.Unmarshal(b, destination) != nil {
-				return none, ErrProvider
+			if json.Unmarshal(b, destination) != nil || strings.TrimSpace(string(b)) == "null" {
+				*destination = ""
+				responseErr = ErrProvider
 			}
 		}
 	}
+	if len(response.AccessToken) > 65536 {
+		response.AccessToken = ""
+		responseErr = ErrProvider
+	}
+	if len(response.RefreshToken) > 65536 {
+		response.RefreshToken = ""
+		responseErr = ErrProvider
+	}
 	if b, ok := fields["expires_in"]; !ok || json.Unmarshal(b, &response.ExpiresIn) != nil {
-		return none, ErrProvider
+		responseErr = ErrProvider
 	}
-	if response.AccessToken == "" || len(response.AccessToken) > 65536 || len(response.RefreshToken) > 65536 || response.TokenType != "Bearer" || response.ExpiresIn <= 0 || response.ExpiresIn > 86400 {
-		return none, ErrProvider
+	if response.AccessToken == "" || response.TokenType != "Bearer" || response.ExpiresIn <= 0 || response.ExpiresIn > 86400 {
+		responseErr = ErrProvider
 	}
-	return response, nil
+	return response, responseErr
 }
 func (p *GoogleProvider) post(ctx context.Context, endpoint string, values url.Values) ([]byte, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
