@@ -44,7 +44,7 @@ go build ./...
 
 The refresh/disconnect regression and the full race suite now pass locally. PostgreSQL integration tests require the disposable database below. To also run the real local OpenBao KV-v2 cleanup/CAS test, set `TOOLBOX_TEST_OPENBAO_ADDR=http://127.0.0.1:8200` and `TOOLBOX_TEST_OPENBAO_TOKEN=fixture-only` for the disposable Compose instance. Unset integration settings cause those checks to skip locally. CI starts both stores and supplies these settings so the integration checks execute. Fixtures do not validate live Google or production identity.
 
-[Browser E2E instructions](tests/browser/README.md) exercise the actual UI approval and revocation flow in headless Chromium. CI also runs this suite against the fixture executable backed by PostgreSQL and OpenBao.
+[Browser E2E instructions](tests/browser/README.md) exercise the actual UI approval and revocation flow in headless Chromium. CI also runs this suite against the fixture executable backed by PostgreSQL and OpenBao. The [screenshot gallery](docs/e2e-evidence/README.md) shows the review, allowed read, denied document and revoked-grant states. Successful and failed CI runs upload their screenshots as the `browser-e2e` artifact.
 
 For a disposable PostgreSQL test database:
 
