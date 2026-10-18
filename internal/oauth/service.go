@@ -189,15 +189,22 @@ func (s *Service) Complete(ctx context.Context, ownerID, sessionID, state, code 
 	// session loss or disconnect. Persist it with a bounded detached context.
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	unlock, err := s.repo.LockConnection(cleanupCtx, tx.ConnectionID)
-	if err != nil {
-		return none, ErrPersistence
-	}
 	bundle := intent
 	bundle.Subject, bundle.Generation = exchanged.Subject, 1
 	bundle.AccessToken, bundle.RefreshToken, bundle.Expiry = exchanged.AccessToken, exchanged.RefreshToken, exchanged.Expiry
 	bundle.Scopes = append([]string(nil), exchanged.Scopes...)
 	bundle.State = tokens.StateActive
+	unlock, err := s.repo.LockConnection(cleanupCtx, tx.ConnectionID)
+	if err != nil {
+		// The exchange is resolved even when the database lock cannot be
+		// reacquired. CAS only our original intent into cleanup; another
+		// worker's generation must never be replaced or activated here.
+		// Lock acquisition may have exhausted cleanupCtx's deadline.
+		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer persistCancel()
+		_, _ = s.persistExchangeBundle(persistCtx, cleanupExchangeBundle(bundle), intentVersion)
+		return none, ErrPersistence
+	}
 	var version int64
 	persisted := false
 	defer func() {

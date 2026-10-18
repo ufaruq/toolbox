@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -213,11 +214,14 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 	}
 	result, refreshErr := m.Provider.Refresh(ctx, bundle.RefreshToken)
 	authorizationAfterRefresh := authorize(ctx)
-	if refreshErr != nil && result.AccessToken == "" && result.RefreshToken == "" {
+	if refreshErr != nil && !errors.Is(refreshErr, ErrInvalidGrant) && result.AccessToken == "" && result.RefreshToken == "" {
 		m.markReauth(ctx, conn)
 		return Lease{}, ErrReauth
 	}
-	// Preserve known rotated credentials even when activation is denied.
+	// Preserve known rotated credentials even when activation is denied. A
+	// definitive invalid_grant also resolves the intent, retaining the old
+	// credential for cleanup rather than assuming its revocation retired every
+	// generation. Unknown empty responses must keep their uncertainty fence.
 	liveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	_, activationErr := m.sameConnection(liveCtx, conn)
