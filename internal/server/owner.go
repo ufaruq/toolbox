@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -237,7 +236,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 				st.Grants[id] = g
 			}
 		}
-		job := domain.Cleanup{ID: security.ID(), ConnectionID: c.ID, OwnerID: owner.UserID, Epoch: c.Epoch, Status: "pending"}
+		job := domain.Cleanup{ID: security.ID(), ConnectionID: c.ID, OwnerID: owner.UserID, Epoch: c.Epoch, Status: "pending", CreatedAt: st.Now}
 		st.Cleanup[job.ID] = job
 		addAudit(st, "user", owner.UserID, owner.UserID, "connection.disconnected", "", c.ID, "", "blocked_pending_cleanup", "", 0)
 		return nil
@@ -249,40 +248,6 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 202, map[string]string{"status": "disconnecting", "notice": "Google revocation can remove this app's broader authorization to the connected account."})
 }
 
-// CleanupOnce processes durable pending jobs. A cleanup failure keeps access blocked.
-func (s *Server) CleanupOnce(ctx context.Context) error {
-	jobs := []domain.Cleanup{}
-	if e := s.Repository.Transact(ctx, func(st *domain.State) error {
-		for _, j := range st.Cleanup {
-			if j.Status == "pending" {
-				jobs = append(jobs, j)
-			}
-		}
-		return nil
-	}); e != nil {
-		return e
-	}
-	for _, j := range jobs {
-		if e := s.integration.Cleanup(ctx, j.ConnectionID, j.Epoch); e != nil {
-			continue
-		}
-		if e := s.Repository.Transact(ctx, func(st *domain.State) error {
-			c := st.Connections[j.ConnectionID]
-			if c.Epoch != j.Epoch || c.Status != "disconnecting" {
-				return domain.ErrDenied
-			}
-			c.Status = "disconnected"
-			st.Connections[c.ID] = c
-			j.Status = "complete"
-			st.Cleanup[j.ID] = j
-			addAudit(st, "service", "cleanup", j.OwnerID, "connection.cleanup", "", c.ID, "", "complete", "", 0)
-			return nil
-		}); e != nil {
-			return e
-		}
-	}
-	return nil
-}
 func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request) {
 	owner, ok := s.requireOwner(w, r, true)
 	if !ok {

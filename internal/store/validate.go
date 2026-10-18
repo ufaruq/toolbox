@@ -148,7 +148,7 @@ func validate(old, s *domain.State) error {
 		}
 	}
 	for k, v := range s.Cleanup {
-		if k == "" || k != v.ID || v.Status == "" || v.Epoch < 1 {
+		if k == "" || k != v.ID || v.Status == "" || v.Epoch < 1 || v.Attempts < 0 || v.Attempts > 1000000 || (v.LastError != "" && v.LastError != "provider_unavailable") {
 			return invalid("cleanup")
 		}
 		c, ok := s.Connections[v.ConnectionID]
