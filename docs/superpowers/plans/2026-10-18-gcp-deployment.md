@@ -130,3 +130,6 @@
 ## Execution record
 
 The user approved inline implementation and selected Docker on a VM, then explicitly corrected encryption to production GCP KMS by default with a real local substitute. This supersedes the intermediate OpenBao choice. No further scope approval is needed. Task 1 is committed as `0d91122` and verified with the full real-store race suite. Resume subsequent tasks from the plan's execution ledger; do not redo completed work. Preserve the existing PR and unrelated package-lock.json.
+
+
+Implementation completed on 2026-10-18. See [verification evidence and remaining environment checks](../../deployment-verification.md), [operator commands](../../deployment-docker.md), and [recovery](../../recovery-docker.md). The implementation and independent review supersede the original unchecked planning checklist. Production serving remains gated; cloud apply and live provider checks are intentionally unrun.

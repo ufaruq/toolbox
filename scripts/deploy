@@ -45,7 +45,8 @@ case "$1" in
  backup)
   mkdir -p .deploy/backups
   export TOOLBOX_IMAGE_REF
-  TOOLBOX_IMAGE_REF=$(docker image inspect "${TOOLBOX_IMAGE:-toolbox:local}" --format '{{.Id}}')
+  if [[ "${TOOLBOX_IMAGE:-}" =~ @sha256:[0-9a-f]{64}$ ]]; then TOOLBOX_IMAGE_REF="$TOOLBOX_IMAGE"
+  else TOOLBOX_IMAGE_REF=$(docker image inspect "${TOOLBOX_IMAGE:-toolbox:local}" --format '{{.Id}}'); fi
   if [[ "${TOOLBOX_ENV:-local}" == local ]]; then export TOOLBOX_BACKUP_KEY_PROVIDER=local; else export TOOLBOX_BACKUP_KEY_PROVIDER=gcp; fi
   compose exec -T postgres pg_dump -U postgres -d toolbox -Fc --no-owner | compose run --rm -T backup-encrypt > .deploy/backups/latest-database.json.partial
   mv .deploy/backups/latest-database.json.partial .deploy/backups/latest-database.json

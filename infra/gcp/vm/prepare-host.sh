@@ -29,7 +29,7 @@ BindsTo=var-lib-toolbox.mount
 ConditionPathIsMountPoint=/var/lib/toolbox
 UNIT
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 python3
+DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 python3 curl ca-certificates
 systemctl daemon-reload
 systemctl enable --now docker
 # App installation and secret generation/transfer remain explicit operator steps.
