@@ -1,5 +1,7 @@
 # Fixture browser E2E
 
+Use the [roadmap](../../docs/ROADMAP.md) for pending work and [implementation status](../../docs/implementation-status.md) for recorded results. This page documents the existing fixture runner; live sign-in/Google and hosted acceptance belong to M1–M3.
+
 These checks drive the running Toolbox UI in headless Chromium. They cover fixture owner login, the synthetic OAuth redirect, an independent agent credential, the trusted approval link, review interrupted by reload, exact-document approval, approval replay rejection, a successful `doc-A` read, denied `doc-B` access, revoked-grant denial, request denial, disconnect and redacted audit events. Unhandled browser JavaScript exceptions fail the run.
 
 This is **synthetic fixture coverage**, not production OIDC, real Google consent/Picker/Drive, or a deployment check. Use a disposable service and stores: the test creates synthetic state and disconnects the fixture Google account. Reusing a store from an earlier fixture process is unsupported because its ephemeral provider secrets are gone.
