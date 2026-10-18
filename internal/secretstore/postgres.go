@@ -16,7 +16,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/tokens"
 )
 
-//go:embed schema.sql
+//go:embed schema.sql retention.sql
 var schemaFiles embed.FS
 
 type PostgresConfig struct {
@@ -53,27 +53,30 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	if _, err = tx.Exec(ctx, "CREATE TABLE IF NOT EXISTS "+name+".migrations (version integer PRIMARY KEY, checksum text NOT NULL)"); err != nil {
 		return ErrUnavailable
 	}
-	body, err := schemaFiles.ReadFile("schema.sql")
-	if err != nil {
-		return ErrUnavailable
-	}
-	sum := sha256.Sum256(body)
-	checksum := hex.EncodeToString(sum[:])
-	var existing string
-	err = tx.QueryRow(ctx, "SELECT checksum FROM "+name+".migrations WHERE version=1").Scan(&existing)
-	if err == nil {
-		if existing != checksum {
+	for index, file := range []string{"schema.sql", "retention.sql"} {
+		body, err := schemaFiles.ReadFile(file)
+		if err != nil {
 			return ErrUnavailable
 		}
-	} else if errors.Is(err, pgx.ErrNoRows) {
-		if _, err = tx.Exec(ctx, strings.ReplaceAll(string(body), "{{schema}}", name)); err != nil {
+		sum := sha256.Sum256(body)
+		checksum := hex.EncodeToString(sum[:])
+		version := index + 1
+		var existing string
+		err = tx.QueryRow(ctx, "SELECT checksum FROM "+name+".migrations WHERE version=$1", version).Scan(&existing)
+		if err == nil {
+			if existing != checksum {
+				return ErrUnavailable
+			}
+		} else if errors.Is(err, pgx.ErrNoRows) {
+			if _, err = tx.Exec(ctx, strings.ReplaceAll(string(body), "{{schema}}", name)); err != nil {
+				return ErrUnavailable
+			}
+			if _, err = tx.Exec(ctx, "INSERT INTO "+name+".migrations(version,checksum) VALUES($1,$2)", version, checksum); err != nil {
+				return ErrUnavailable
+			}
+		} else {
 			return ErrUnavailable
 		}
-		if _, err = tx.Exec(ctx, "INSERT INTO "+name+".migrations(version,checksum) VALUES(1,$1)", checksum); err != nil {
-			return ErrUnavailable
-		}
-	} else {
-		return ErrUnavailable
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return ErrUnavailable

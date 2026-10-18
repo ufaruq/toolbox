@@ -81,6 +81,13 @@ func (p *Postgres) ConfigureRoles(ctx context.Context, schema, secrets string, r
 			if run("GRANT SELECT, DELETE ON "+q(secrets)+".secret_versions TO "+role) != nil {
 				return ErrUnavailable
 			}
+			if run("GRANT EXECUTE ON FUNCTION "+q(secrets)+".retire_oauth(text,bigint) TO "+role) != nil {
+				return ErrUnavailable
+			}
+			if run("GRANT SELECT, UPDATE ON "+q(secrets)+".retention_cursor TO "+role) != nil {
+				return ErrUnavailable
+			}
+
 		}
 	}
 	return dbError(tx.Commit(ctx))

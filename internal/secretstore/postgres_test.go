@@ -116,7 +116,11 @@ func TestPostgresEnvelopeTransplantRejected(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := s.pool.Exec(ctx, "UPDATE "+s.history+" SET ciphertext=(SELECT ciphertext FROM "+s.history+" WHERE path='connections/a' AND version=1) WHERE path='connections/b'")
+	_, err := s.pool.Exec(ctx, "ALTER TABLE "+s.history+" DISABLE TRIGGER versions_immutable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.pool.Exec(ctx, "UPDATE "+s.history+" SET ciphertext=(SELECT ciphertext FROM "+s.history+" WHERE path='connections/a' AND version=1) WHERE path='connections/b'")
 	if err != nil {
 		t.Fatal(err)
 	}
