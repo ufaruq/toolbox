@@ -63,12 +63,13 @@ jobs:
       - name: Browser approval and revocation flow
         env:
           TOOLBOX_BROWSER_ARTIFACT_DIR: /tmp/toolbox-browser-artifacts
+          TOOLBOX_E2E_REVISION: ${{ github.sha }}
         run: python tests/browser/fixture_e2e.py
-      - name: Upload browser failure artifacts
-        if: failure()
+      - name: Upload browser screenshots and logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-failure
+          name: browser-e2e
           path: |
             /tmp/toolbox-browser-artifacts
             /tmp/toolbox-ci.log

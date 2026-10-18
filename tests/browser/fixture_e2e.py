@@ -4,6 +4,7 @@
 import ipaddress
 import json
 import os
+from importlib.metadata import version
 from pathlib import Path
 import sys
 import tempfile
@@ -48,14 +49,24 @@ def fixture_origin():
 
 
 class FixtureBrowser:
-    def __init__(self, page, origin):
+    def __init__(self, page, origin, artifact_dir):
         self.page = page
         self.origin = origin
+        self.artifact_dir = artifact_dir
+        self.screenshots = []
         self.stage = "initial fixture safety checks"
         self.javascript_errors = []
         self.external_requests = []
         self.page.on("pageerror", lambda _: self.javascript_errors.append(True))
         self.page.context.route("**/*", self.local_requests_only)
+
+    def capture(self, name):
+        self.page.screenshot(
+            path=str(self.artifact_dir / name), full_page=True,
+            mask=[self.page.locator("#agent-credential")],
+            mask_color="#111827",
+        )
+        self.screenshots.append(name)
 
     def local_requests_only(self, route):
         target = urlsplit(route.request.url)
@@ -175,6 +186,7 @@ class FixtureBrowser:
         expect(page.locator("#approve")).to_be_disabled()
         expect(page.locator("#review-details")).to_be_hidden()
         self.review(request_id)
+        self.capture("01-review.png")
 
         self.stage = "exact document approval and repeated approval rejection"
         approved, approval_body = self.click_response(
@@ -201,12 +213,14 @@ class FixtureBrowser:
         assert result["untrusted_content"] is True, "Content must be marked untrusted"
         expect(page.locator("#document")).to_have_text(DOCUMENT_A)
         expect(page.locator("#status")).to_contain_text("Content is untrusted data.")
+        self.capture("02-allowed-read.png")
 
         self.stage = "other-document denial"
         page.locator("#file-id").fill("doc-B")
         self.click_response("read", "/v1/tool-invocations", 403)
         expect(page.locator("#status")).to_have_text("RESOURCE_NOT_ALLOWED")
         expect(page.locator("#document")).to_have_text(DOCUMENT_A)
+        self.capture("03-document-denied.png")
         page.locator("#file-id").fill("doc-A")
 
         self.stage = "grant revocation blocks future reads"
@@ -215,6 +229,7 @@ class FixtureBrowser:
         self.click_response("read", "/v1/delegation-tokens", 403)
         expect(page.locator("#status")).to_have_text("NOT_AUTHORIZED")
         expect(page.locator("#document")).to_contain_text("Grant revoked.")
+        self.capture("04-grant-revoked.png")
 
         self.stage = "denied request remains unapprovable"
         requested, _ = self.click_response("request", "/v1/delegation-requests", 201)
@@ -269,6 +284,12 @@ def main():
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1
+    artifact_root = Path(os.environ.get(
+        "TOOLBOX_BROWSER_ARTIFACT_DIR",
+        str(Path(tempfile.gettempdir()) / "toolbox-browser-artifacts"),
+    ))
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    artifact_dir = Path(tempfile.mkdtemp(prefix="run-", dir=artifact_root))
     with sync_playwright() as playwright:
         launch = {"headless": True, "args": ["--disable-dev-shm-usage"]}
         executable = os.environ.get("TOOLBOX_BROWSER_EXECUTABLE")
@@ -278,20 +299,26 @@ def main():
         context = browser.new_context(viewport={"width": 1280, "height": 1100})
         page = context.new_page()
         page.set_default_timeout(15000)
-        flow = FixtureBrowser(page, origin)
+        flow = FixtureBrowser(page, origin, artifact_dir)
         try:
             flow.run()
+            (artifact_dir / "result.json").write_text(json.dumps({
+                "status": "passed",
+                "synthetic_providers": True,
+                "base_url": origin,
+                "source_revision": os.environ.get("TOOLBOX_E2E_REVISION"),
+                "browser": browser.version,
+                "playwright": version("playwright"),
+                "viewport": {"width": 1280, "height": 1100},
+                "screenshots": flow.screenshots,
+            }, indent=2) + "\n")
         except Exception as error:
-            artifact_dir = Path(os.environ.get(
-                "TOOLBOX_BROWSER_ARTIFACT_DIR",
-                tempfile.mkdtemp(prefix="toolbox-browser-e2e-"),
-            ))
-            artifact_dir.mkdir(parents=True, exist_ok=True)
             screenshot = artifact_dir / "fixture-e2e-failure.png"
             try:
                 page.screenshot(
                     path=str(screenshot), full_page=True,
                     mask=[page.locator("#agent-credential")],
+                    mask_color="#111827",
                 )
                 diagnostic = f"Screenshot: {screenshot}"
             except Exception:
@@ -304,6 +331,7 @@ def main():
             context.close()
             browser.close()
     print("PASS fixture browser E2E: approval, exact read, denials, revocation, disconnect and audit.")
+    print(f"Screenshots and result metadata: {artifact_dir}")
     print("Synthetic identity/Google only; production OIDC and live Google are untested.")
     return 0
 
