@@ -8,6 +8,7 @@
 - `NewMemoryWithClock(func() time.Time) *Memory` for deterministic expiry tests.
 - `OpenPostgres(ctx, dsn) (*Postgres, error)` for a primary PostgreSQL database.
 - `(*Postgres).Migrate(ctx) error` for embedded, checksummed, transactional migrations.
+- `(*Postgres).CheckSchema(ctx) error` verifies every embedded migration name/checksum without DDL; hosted startup and readiness require it.
 - `(*Postgres).Close()` for shutdown of the transaction pool. Cancel active request contexts before shutdown so dedicated connection-lock sessions also close promptly.
 
 Opening the database does not migrate it. Run migrations explicitly with a migration owner, then start the service with a less-privileged runtime role. Production configuration must require verified database TLS, for example `sslmode=verify-full` and the deployment's trusted CA. The adapter accepts plaintext local-development DSNs; it does not silently upgrade them or certify their security.
@@ -56,7 +57,7 @@ Always inspect the unlock result before returning success or releasing a provide
 
 SQL stores only identity metadata, hashes of agent credentials and CSRF/OAuth state, secret references, grant policy, resource metadata, cleanup state, and audit metadata. It must never store Google access/refresh tokens, OAuth codes, PKCE verifiers, plaintext agent credentials, or document contents. Those belong in their specific request/secret-store boundary. Field allowlists are defense in depth, not a guarantee against application code putting a secret into an ordinary string field.
 
-Use a dedicated schema and revoke public `CREATE` rights. The runtime role must not own tables, functions, or the schema, must not be superuser, and must not have DDL, trigger-disable, replication, or unrestricted role-management privileges. It needs SELECT/INSERT/UPDATE/DELETE on mutable tables, SELECT/INSERT/UPDATE on grants, SELECT/INSERT only on audit events, and sequence USAGE for audit ordering. Trigger protections are not a security boundary against a database owner. Separate backups/restore, migration, runtime, and any future retention privileges. Disable statement/parameter logging that would capture metadata or hashes; do not log DSNs.
+Use a dedicated schema and revoke public `CREATE` rights. The runtime role must not own tables, functions, or the schema, must not be superuser, and must not have DDL, trigger-disable, replication, or unrestricted role-management privileges. It needs read-only SELECT on `toolbox_migrations`, SELECT/INSERT/UPDATE/DELETE on mutable tables, SELECT/INSERT/UPDATE on grants, SELECT/INSERT only on audit events, and sequence USAGE for audit ordering. Trigger protections are not a security boundary against a database owner. Separate backups/restore, migration, runtime, and any future retention privileges. Disable statement/parameter logging that would capture metadata or hashes; do not log DSNs.
 
 ## Verification
 

@@ -12,7 +12,7 @@ func invalid(kind string) error { return fmt.Errorf("%w: %s", ErrInvariant, kind
 // validate is shared by both adapters. SQL constraints are a second boundary;
 // application policy must still authorize every mutation before this layer.
 func validate(old, s *domain.State) error {
-	if s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.Cleanup == nil {
+	if s.CallerProfiles == nil || s.OwnerLogins == nil || s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.Cleanup == nil {
 		return invalid("nil collection")
 	}
 	identities := map[string]bool{}
@@ -35,6 +35,36 @@ func validate(old, s *domain.State) error {
 		}
 		if prev, ok := old.Agents[k]; ok && prev.OwnerID != v.OwnerID {
 			return invalid("agent owner changed")
+		}
+	}
+	profileIdentities := map[[3]string]bool{}
+	profileAgents := map[string]bool{}
+	for k, v := range s.CallerProfiles {
+		if k == "" || k != v.ID || v.Issuer == "" || v.UserID == "" || v.ClientID == "" || (v.Status != "active" && v.Status != "disabled") || v.ApprovedAt.IsZero() || v.ExpiresAt.IsZero() || !v.ExpiresAt.After(v.ApprovedAt) {
+			return invalid("caller profile")
+		}
+		owner, ok := s.Users[v.OwnerID]
+		agent, aok := s.Agents[v.AgentID]
+		if !ok || !aok || agent.OwnerID != v.OwnerID || owner.Issuer != v.Issuer || owner.Subject != v.UserID {
+			return invalid("caller profile owner identity")
+		}
+		identity := [3]string{v.Issuer, v.UserID, v.ClientID}
+		if profileIdentities[identity] || profileAgents[v.AgentID] {
+			return invalid("duplicate caller profile binding")
+		}
+		profileIdentities[identity], profileAgents[v.AgentID] = true, true
+		if prev, ok := old.CallerProfiles[k]; ok && (prev.OwnerID != v.OwnerID || prev.AgentID != v.AgentID || prev.Issuer != v.Issuer || prev.UserID != v.UserID || prev.ClientID != v.ClientID) {
+			return invalid("caller profile binding changed")
+		}
+	}
+	for k, v := range s.OwnerLogins {
+		if k == "" || k != v.ID || v.StateHash == "" || v.NonceHash == "" || v.BrowserHash == "" || v.SecretRef == "" || v.ExpiresAt.IsZero() {
+			return invalid("owner login")
+		}
+		if prev, ok := old.OwnerLogins[k]; ok {
+			if (prev.Consumed && !v.Consumed) || prev.StateHash != v.StateHash || prev.NonceHash != v.NonceHash || prev.BrowserHash != v.BrowserHash || prev.SecretRef != v.SecretRef || !prev.ExpiresAt.Equal(v.ExpiresAt) {
+				return invalid("owner login binding or consumption changed")
+			}
 		}
 	}
 	for k, v := range s.Credentials {

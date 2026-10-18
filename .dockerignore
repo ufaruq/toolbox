@@ -1,0 +1,17 @@
+.git
+.github
+.superpowers
+.agents
+.codex
+.aws
+work
+output
+bin
+.env
+.env.*
+*.key
+*.pem
+coverage.out
+docs/e2e-evidence
+
+**/__pycache__

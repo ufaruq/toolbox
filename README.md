@@ -1,8 +1,8 @@
 # Toolbox
 
-Controlled, user-delegated access to external tools and data. This draft implements a first Google Drive document-read slice in Go.
+Controlled, user-delegated access to external tools and data. This service implements a Google Drive document-read slice in Go, with HTTP MCP and direct Okta authentication.
 
-> **WIP: not ready to merge or deploy.** The full implementation is preserved for continuation. The reviewed cleanup defects are fixed and locally verified, including fixture browser E2E. Production human OIDC and live Google verification remain unfinished. See [handoff](docs/HANDOFF.md) and [verification status](docs/implementation-status.md).
+> Hosted mode includes Okta owner login, per-client caller permissions and `/mcp` in one application container. **Live Google runtime wiring is still unavailable**; hosted document reads fail closed. See [hosted MCP setup](docs/mcp-setup.md), [handoff](docs/HANDOFF.md) and [verification status](docs/implementation-status.md).
 
 ## Run the mock-only local service
 
@@ -11,11 +11,10 @@ Requires Go **1.27.2** and a free loopback port. No Google account or credential
 ```sh
 git clone https://github.com/ufaruq/toolbox.git
 cd toolbox
-git switch feat/user-delegated-drive-mvp
 TOOLBOX_MODE=fixture go run ./cmd/toolbox
 ```
 
-Open http://127.0.0.1:8080. For another port, set `TOOLBOX_ADDR=127.0.0.1:18080` and open that exact origin. The executable intentionally refuses unspecified/production mode and non-loopback binding.
+Open http://127.0.0.1:8080. For another port, set `TOOLBOX_ADDR=127.0.0.1:18080` and open that exact origin. Fixture mode requires an explicit selection and loopback binding. Hosted mode requires the durable stores, persisted keys and verified HTTPS identity configuration described in the setup guide.
 
 1. Sign in as the fixture owner.
 2. Connect the fixture Google account.
@@ -25,6 +24,12 @@ Open http://127.0.0.1:8080. For another port, set `TOOLBOX_ADDR=127.0.0.1:18080`
 6. Read the document. Change the document ID to `doc-B` to exercise denial, then revoke the grant and try again.
 
 The synthetic provider has `doc-A` and `doc-B`. Provider account access to both does not widen a grant to A. The approval UI does not contain real Google Picker. Fixture keys and identity/provider state are ephemeral; a restart invalidates previously issued fixture credentials/tokens. Do not use real data or credentials in this mode.
+
+## Hosted MCP
+
+Run the same application image behind HTTPS using direct Okta OAuth. Register Claude.ai and Claude Code as separate clients, then let each owner approve its tool ceiling and expiry. Each `(issuer, uid, cid)` gets a separate Agent and document grants. Multiple sessions of the same registration share permissions. No Hydra or authentication broker is required.
+
+See [configuration, container, client registration and acceptance steps](docs/mcp-setup.md). Corporate Google account matching is maintained separately in [PR #6](https://github.com/ufaruq/toolbox/pull/6). A caller profile permits requesting access; each document still needs owner approval.
 
 ## Optional real local storage dependencies
 
@@ -56,8 +61,9 @@ The test role needs schema creation/drop and permission to terminate its own tes
 
 ## Layout
 
-- `cmd/toolbox`: explicit fixture-only executable
-- `internal/server`: disjoint owner/agent API, trusted approval UI, dispatch gate and final live check
+- `cmd/toolbox`: explicit fixture/hosted executable, migration command and container healthcheck
+- `internal/server`: owner/agent APIs, HTTP MCP, caller controls, approval UI and final live authorization
+- `internal/identity`: configured Okta token verification and owner OIDC exchange
 - `internal/security`: agent credential hashing and scoped Ed25519 delegation tokens
 - `internal/oauth`: one-use bound OAuth flow, fixed Google adapter and fixture provider
 - `internal/connectors`: static manifest, immutable fixed Drive plans and bounded executor

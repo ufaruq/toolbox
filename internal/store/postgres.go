@@ -158,7 +158,7 @@ func (p *Postgres) Transact(ctx context.Context, fn func(*domain.State) error) e
 	return dbError(tx.Commit(ctx))
 }
 
-var tableNames = []string{"users", "agents", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "cleanup_outbox", "audit_events"}
+var tableNames = []string{"users", "agents", "caller_profiles", "owner_logins", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "cleanup_outbox", "audit_events"}
 
 func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 	s := domain.NewState()
@@ -189,6 +189,10 @@ func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 			err = decode(raw, s.Users, func(v domain.User) string { return v.ID })
 		case "agents":
 			err = decode(raw, s.Agents, func(v domain.Agent) string { return v.ID })
+		case "caller_profiles":
+			err = decode(raw, s.CallerProfiles, func(v domain.CallerProfile) string { return v.ID })
+		case "owner_logins":
+			err = decode(raw, s.OwnerLogins, func(v domain.OwnerLogin) string { return v.ID })
 		case "credentials":
 			err = decode(raw, s.Credentials, func(v domain.Credential) string { return v.ID })
 		case "sessions":
@@ -285,6 +289,8 @@ func remove[T any](ctx context.Context, tx pgx.Tx, table string, old, next map[s
 func syncState(ctx context.Context, tx pgx.Tx, old, s *domain.State) error {
 	// Remove dependants first. Grants and approved requests are never removable.
 	for _, fn := range []func() error{
+		func() error { return remove(ctx, tx, "caller_profiles", old.CallerProfiles, s.CallerProfiles) },
+		func() error { return remove(ctx, tx, "owner_logins", old.OwnerLogins, s.OwnerLogins) },
 		func() error { return remove(ctx, tx, "oauth_transactions", old.OAuth, s.OAuth) },
 		func() error { return remove(ctx, tx, "cleanup_outbox", old.Cleanup, s.Cleanup) },
 		func() error { return remove(ctx, tx, "delegation_requests", old.Requests, s.Requests) },
@@ -296,6 +302,8 @@ func syncState(ctx context.Context, tx pgx.Tx, old, s *domain.State) error {
 		func() error { return remove(ctx, tx, "users", old.Users, s.Users) },
 		func() error { return upsert(ctx, tx, "users", old.Users, s.Users, nil) },
 		func() error { return upsert(ctx, tx, "agents", old.Agents, s.Agents, nil) },
+		func() error { return upsert(ctx, tx, "caller_profiles", old.CallerProfiles, s.CallerProfiles, nil) },
+		func() error { return upsert(ctx, tx, "owner_logins", old.OwnerLogins, s.OwnerLogins, nil) },
 		func() error { return upsert(ctx, tx, "credentials", old.Credentials, s.Credentials, nil) },
 		func() error { return upsert(ctx, tx, "sessions", old.Sessions, s.Sessions, nil) },
 		func() error { return upsert(ctx, tx, "connections", old.Connections, s.Connections, nil) },

@@ -14,15 +14,18 @@ import (
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/strict"
+	"github.com/ufaruq/toolbox/internal/tokens"
 )
 
 type Config struct {
-	Repository domain.Repository
-	Signer     *security.Signer
-	Pepper     []byte
-	Origin     string
-	Fixture    bool
-	Readiness  func(context.Context) error
+	Identity     Identity
+	LoginSecrets tokens.JSONStore
+	Repository   domain.Repository
+	Signer       *security.Signer
+	Pepper       []byte
+	Origin       string
+	Fixture      bool
+	Readiness    func(context.Context) error
 }
 type Server struct {
 	Config
@@ -69,7 +72,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-	if r.URL.RawQuery != "" && r.URL.Path != "/oauth/callback" && r.URL.Path != "/fixture/authorize" {
+	if r.URL.RawQuery != "" && r.URL.Path != "/oauth/callback" && r.URL.Path != "/fixture/authorize" && r.URL.Path != "/auth/okta/callback" {
 		fail(w, 400, "INVALID_QUERY")
 		return
 	}
@@ -80,6 +83,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 func (s *Server) routes() {
+	s.mcpRoutes()
+	s.ownerRoutes()
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, map[string]string{"status": "ok"}) })
 	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -196,7 +201,7 @@ func (s *Server) agent(r *http.Request) (domain.Agent, string, error) {
 	e = s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		c, ok := st.Credentials[id]
 		v := st.Agents[c.AgentID]
-		if !ok || !credentialActive(st, id, v.ID) || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
+		if !ok || authorizeAgent(st, agentAccess{AgentID: v.ID, CredentialID: id}, "") != nil || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
 			return domain.ErrDenied
 		}
 		a = v
@@ -223,11 +228,31 @@ func (s *Server) requireAgent(w http.ResponseWriter, r *http.Request) (domain.Ag
 	return a, id, true
 }
 func addAudit(st *domain.State, actorType, actorID, subject, action, grant, connection, resource, outcome, invocation string, bytes int) {
-	st.Audits = append(st.Audits, domain.Audit{ID: security.ID(), At: st.Now, ActorType: actorType, ActorID: actorID, SubjectID: subject, Action: action, GrantID: grant, ConnectionID: connection, ResourceID: resource, Outcome: outcome, InvocationID: invocation, Bytes: bytes})
+	event := domain.Audit{ID: security.ID(), At: st.Now, ActorType: actorType, ActorID: actorID, SubjectID: subject, Action: action, GrantID: grant, ConnectionID: connection, ResourceID: resource, Outcome: outcome, InvocationID: invocation, Bytes: bytes}
+	agentID := ""
+	if actorType == "agent" {
+		agentID = actorID
+	} else if g, ok := st.Grants[grant]; ok && g.OwnerID == subject {
+		agentID = g.AgentID
+	}
+	if a, ok := st.Agents[agentID]; ok && a.OwnerID == subject {
+		event.AgentID = a.ID
+		if p, ok := profileForAgent(st, a.ID); ok {
+			event.CallerProfileID = p.ID
+			event.ClientID = p.ClientID
+		}
+	}
+	st.Audits = append(st.Audits, event)
 }
 func grantCheck(st *domain.State, agentID, credentialID, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
+	if authorizeAgent(st, agentAccess{AgentID: agentID, CredentialID: credentialID}, domain.Tool) != nil {
+		return domain.Grant{}, domain.ErrDenied
+	}
+	return grantRules(st, agentID, grantID, fileID, c)
+}
+func grantRules(st *domain.State, agentID, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
 	g, ok := st.Grants[grantID]
-	if !ok || g.AgentID != agentID || !credentialActive(st, credentialID, agentID) {
+	if !ok || g.AgentID != agentID {
 		return domain.Grant{}, domain.ErrDenied
 	}
 	conn := st.Connections[g.ConnectionID]

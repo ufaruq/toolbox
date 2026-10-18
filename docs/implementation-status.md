@@ -1,3 +1,20 @@
+# Current increment: direct Okta and hosted HTTP MCP
+
+The application now provides Okta owner login, API access-token verification, persisted per-user/per-client caller profiles, shared HTTP/MCP authorization, filtered MCP tools and a non-root application container. Both Claude clients can use distinct pre-registered Okta OAuth clients; setup is in [mcp-setup.md](mcp-setup.md). Corporate Google account matching is separate in [PR #6](https://github.com/ufaruq/toolbox/pull/6).
+
+Current local verification:
+
+- `make check` passed: formatting, vet, the complete race suite and build, with actual disposable PostgreSQL 17.11 and OpenBao 2.4.1 configured. A newly exposed audit-payload compatibility failure was fixed with additive migration 003 and a real-PostgreSQL regression.
+- Official MCP SDK acceptance passed for protocol `2025-11-25` and the SDK's current default: separate web/Code grants, request/review/approval/poll/read, cross-denials, disable during export, re-enable without restored grants and continued access for the other client. Legacy HTTP cancellation reaches the provider and persists a terminal failure audit.
+- Signed local OIDC issuer tests cover access-token signature/algorithm/issuer/audience/client/scope/time validation, key rotation and owner PKCE/nonce exchange. These use synthetic identity.
+- Both existing Chromium fixture scripts passed, including the four stale-review cases. Hosted UI tests using a mocked API passed caller controls, literal labels, unavailable-provider state, grant revocation and logout.
+- The application image built successfully. Its read-only, non-root fixture startup, readiness and binary healthcheck passed; missing hosted configuration fails closed. A checksum-pinned module was fetched from its public Git origin to warm the build cache after the managed Go archive endpoint returned 403.
+- Independent security review findings were corrected: bounded/retryable owner-login persistence, hosted exact-grant revocation, scope consistency, migration-aware readiness and canonical browser origins.
+
+**Live Google runtime wiring remains unavailable.** Hosted connect/read/cleanup operations fail closed. Real Okta, Claude.ai, Claude Code, Google and production deployment acceptance have not run. Fixture/SDK/container checks do not close those gates. No merge or deployment has occurred. Earlier checkpoint statements below about missing OIDC or blocked GitHub access are historical.
+
+---
+
 # Latest review follow-up: initial exchange rejection
 
 The [additional initial-exchange finding](https://github.com/ufaruq/toolbox/pull/2#discussion_r4306002633) is fixed. A definitive `tokens.ErrInvalidGrant` (including wrapped errors) now resolves its exact initial intent into a non-dispatchable, empty cleanup generation. Disconnect can complete without inventing a credential to revoke. Timeouts, malformed responses and other unknown outcomes retain the uncertainty fence and cannot be replayed.

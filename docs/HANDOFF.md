@@ -1,3 +1,11 @@
+# Hosted MCP continuation
+
+The current branch adds direct Okta owner login and access-token verification, persisted per-client caller profiles, shared live authorization for HTTP/MCP, a stateless MCP endpoint and one application image. See [setup and limitations](mcp-setup.md). Hosted mode deliberately fails Google operations until live provider wiring is implemented; it never substitutes a fixture provider. Corporate Google account matching is an independent [PR #6](https://github.com/ufaruq/toolbox/pull/6).
+
+Real tenant/client/Google and deployment acceptance remain outstanding. The records below describe earlier implementation checkpoints, including earlier GitHub access and identity limitations. They do not supersede the current [verification status](implementation-status.md).
+
+---
+
 # Implementation handoff
 
 **Current update:** the six comments on `3738412` and the additional initial-exchange rejection finding on `f6e9c7c` are fixed, with regression tests. The combined local run passed 301 Go tests/subtests without skips with real PostgreSQL/OpenBao, the Chromium fixture E2E, four delayed-review browser cases, and API smoke checks. CI runs the storage integration and both browser scripts; check it independently on the final pushed commit. See [comment links and current verification](implementation-status.md) and [browser runner](../tests/browser/README.md). GitHub API access remains blocked, so threads have not been replied to or marked resolved. Production human OIDC and live Google integration remain outstanding; no merge or deployment has occurred. The checkpoint details below describe earlier work.
