@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,28 +134,57 @@ func TestPostgresDatabaseConstraints(t *testing.T) {
 func TestPostgresDedicatedLockSessionLoss(t *testing.T) {
 	p := testPostgres(t)
 	ctx := context.Background()
-	unlock, err := p.LockConnection(ctx, "lost-session")
+	// A concurrent test or instance may use the same application_name. Its
+	// advisory locks must never make it a candidate for backend termination.
+	unrelated, err := pgx.ConnectConfig(ctx, p.config.Copy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unrelated.Close(ctx)
+	if _, err = unrelated.Exec(ctx, "SELECT pg_advisory_lock(1, pg_backend_pid())"); err != nil {
+		t.Fatal(err)
+	}
+	id := p.config.RuntimeParams["search_path"] + "/lost-session"
+	unlock, err := p.LockConnection(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
 	var pid int32
-	// The current test owns the only advisory lock in its isolated application
-	// connection; exclude the pool's own backend and migration lock.
-	err = p.pool.QueryRow(ctx, `SELECT l.pid FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND l.granted AND l.pid<>pg_backend_pid() AND a.application_name='toolbox-lock-test' LIMIT 1`).Scan(&pid)
-	if errors.Is(err, pgx.ErrNoRows) {
-		t.Skip("set application_name=toolbox-lock-test in test DSN for explicit backend-termination check")
+	// Identify this exact connection lease, independent of application_name or
+	// DSN format. PostgreSQL exposes a bigint advisory key as two unsigned OIDs
+	// with objsubid=1; the schema in id keeps it distinct from concurrent tests.
+	sum := sha256.Sum256([]byte("toolbox.connection.lock.v1\x00" + id))
+	key := binary.BigEndian.Uint64(sum[:8])
+	if key == uint64(transactionLock) {
+		key ^= 1
 	}
+	err = p.pool.QueryRow(ctx, `SELECT min(pid) FROM pg_locks
+		WHERE locktype='advisory' AND granted AND mode='ExclusiveLock'
+		AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+		AND classid=$1::oid AND objid=$2::oid AND objsubid=1
+		HAVING count(*)=1`, key>>32, key&0xffffffff).Scan(&pid)
 	if err != nil {
+		t.Fatalf("find exact advisory-lock session: %v", err)
+	}
+	var terminated bool
+	if err = p.pool.QueryRow(ctx, "SELECT pg_terminate_backend($1, 5000)", pid).Scan(&terminated); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = p.pool.Exec(ctx, "SELECT pg_terminate_backend($1)", pid); err != nil {
-		t.Fatal(err)
+	if !terminated {
+		t.Fatal("target advisory-lock session was not terminated")
 	}
 	if err = unlock(); !errors.Is(err, ErrLockLost) {
 		t.Fatalf("expected lost lock, got %v", err)
 	}
-	again, err := p.LockConnection(ctx, "lost-session")
+	var unrelatedReleased bool
+	if err = unrelated.QueryRow(ctx, "SELECT pg_advisory_unlock(1, pg_backend_pid())").Scan(&unrelatedReleased); err != nil {
+		t.Fatalf("unrelated same-application session was terminated: %v", err)
+	}
+	if !unrelatedReleased {
+		t.Fatal("unrelated same-application session lost its advisory lock")
+	}
+	again, err := p.LockConnection(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
