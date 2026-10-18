@@ -1,5 +1,7 @@
 # Implementation handoff
 
+**Continuation update:** the refresh/disconnect regression below is fixed and locally verified. See [current verification](implementation-status.md) for the 185-test race run, real PostgreSQL/OpenBao checks, and remaining production/browser/live-Google gates. The original pickup instructions below describe the earlier checkpoint. Production OIDC remains the next implementation task; no merge or deployment has occurred.
+
 ## Where the work is
 
 Branch: `feat/user-delegated-drive-mvp`, draft PR [#2](https://github.com/ufaruq/toolbox/pull/2), based on existing main. The design remains in separate PR #1. History is incremental, with no squash or force update.

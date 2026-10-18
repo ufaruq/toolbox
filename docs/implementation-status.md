@@ -1,3 +1,27 @@
+# Continuation: refresh/disconnect cleanup fixed locally
+
+The original WIP checkpoint below is retained as historical evidence. Its known refresh/disconnect regression is now fixed; the project remains draft and is not ready to merge or deploy.
+
+- Successful refresh responses are CAS-bound to the original intent, identity, epoch and operation. Responses rejected for disconnected state, scope loss, missing access token or expired access are retained as a cleanup-only generation. They cannot authorize dispatch or reactivate a connection.
+- Bounded detached persistence preserves a known result after caller cancellation. Exact-response reconciliation handles a committed write whose response was lost. A failed/uncertain write remains fenced.
+- Cleanup never overwrites an unresolved refreshing intent or reports it complete. Late responses after lost session locks can resolve their original CAS intent. Failed provider revocation retains the rotated refresh credential for retry.
+- PostgreSQL API acceptance now uses a fresh schema per run. Repeated runs previously could select stale connections whose ephemeral fixture secrets were gone.
+
+## Current local verification
+
+Using checksum-verified Go 1.27.2, PostgreSQL 17.11 and OpenBao 2.4.1:
+
+- Passed: formatting, `go vet ./...`, `go build ./...`, and `go test -race -count=1 ./...`: 185 tests/subtests passed, zero failures or skips with both integration settings enabled.
+- Passed: the original failing regression, rejected-rotation/retry/cancellation/write-outcome tests, late response after simulated session lock loss, actual OpenBao KV-v2 CAS and rotated-token cleanup, full API acceptance and PostgreSQL repository/session-loss tests.
+- Passed: PostgreSQL full API acceptance twice consecutively, demonstrating repeatability after isolation correction.
+- Passed: running fixture executable backed by actual PostgreSQL and OpenBao: readiness, fixture login/OAuth, trusted review/approval, allowed exact-document read, denied other document, grant revocation and disconnect. Provider data and identities were synthetic.
+- Failed then fixed: the documented refresh/disconnect regression; repeat-run PostgreSQL API fixture isolation. No remaining failures in the selected local checks.
+- Not implemented: production human OIDC sign-in. The executable remains explicitly fixture-only.
+- Unrun: automated browser E2E, live Google consent/PKCE/Picker/Drive scenarios, production OpenBao policy/retention and deployment validation. No live account/app or secrets were provisioned. Local adapter tests do not close these release gates.
+- GitHub CI for new continuation commits must be checked separately; local checks are not a CI result.
+
+---
+
 # WORK IN PROGRESS: NOT READY TO MERGE OR DEPLOY
 
 This checkpoint preserves the implementation for review. It deliberately includes a known failing regression and is not a completed MVP or a final passing test result.

@@ -6,11 +6,14 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"github.com/jackc/pgx/v5"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -292,7 +295,37 @@ func TestPostgresFullAPIFlow(t *testing.T) {
 	if dsn == "" {
 		t.Skip("set TOOLBOX_TEST_DATABASE_URL for actual PostgreSQL API test")
 	}
-	repo, e := store.OpenPostgres(context.Background(), dsn)
+	// Keep API fixtures isolated across repeated runs. Their provider secrets are
+	// ephemeral, so selecting a connection retained by an earlier run is invalid.
+	ctx := context.Background()
+	admin, e := pgx.Connect(ctx, dsn)
+	if e != nil {
+		t.Fatal(e)
+	}
+	schema := "toolbox_api_test_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	quoted := pgx.Identifier{schema}.Sanitize()
+	if _, e = admin.Exec(ctx, "CREATE SCHEMA "+quoted); e != nil {
+		admin.Close(ctx)
+		t.Fatal(e)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(ctx, "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+		admin.Close(ctx)
+	})
+	isolatedDSN := dsn + " search_path=" + schema
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal("invalid PostgreSQL test URL")
+		}
+		q := u.Query()
+		q.Set("search_path", schema)
+		u.RawQuery = q.Encode()
+		isolatedDSN = u.String()
+	}
+	repo, e := store.OpenPostgres(ctx, isolatedDSN)
 	if e != nil {
 		t.Fatal(e)
 	}
