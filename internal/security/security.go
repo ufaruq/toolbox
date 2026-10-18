@@ -114,7 +114,8 @@ func (s *Signer) Mint(g domain.Grant, now time.Time) (string, error) {
 	if g.ExpiresAt.Before(exp) {
 		exp = g.ExpiresAt
 	}
-	if !now.Before(exp) || now.Before(g.NotBefore) || g.RevokedAt != nil {
+	// JWT timestamps use whole seconds, so the serialized expiry must still be in the future.
+	if exp.Unix() <= now.Unix() || now.Before(g.NotBefore) || g.RevokedAt != nil {
 		return "", domain.ErrDenied
 	}
 	c := Claims{Issuer: s.issuer, Audience: "toolbox-execution", Subject: g.OwnerID, Actor: Actor{g.AgentID}, GrantID: g.ID, ConnectionID: g.ConnectionID, Epoch: g.Epoch, Version: g.Version, IssuedAt: now.Unix(), NotBefore: now.Unix(), ExpiresAt: exp.Unix(), ID: ID(), Permissions: []Permission{{g.Tool, g.Action, Resource{"document", g.FileID}, Constraints{"text/plain", domain.MaxBytes}}}}
