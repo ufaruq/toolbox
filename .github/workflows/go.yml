@@ -60,11 +60,13 @@ jobs:
           else:
               raise SystemExit('Fixture service did not become ready')
           PY
-      - name: Browser approval and revocation flow
+      - name: Browser approval, revocation and delayed review flows
         env:
           TOOLBOX_BROWSER_ARTIFACT_DIR: /tmp/toolbox-browser-artifacts
           TOOLBOX_E2E_REVISION: ${{ github.sha }}
-        run: python tests/browser/fixture_e2e.py
+        run: |
+          python tests/browser/fixture_e2e.py
+          python tests/browser/review_race.py
       - name: Upload browser screenshots and logs
         if: always()
         uses: actions/upload-artifact@v4

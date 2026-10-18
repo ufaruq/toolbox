@@ -17,9 +17,12 @@ python3 -m venv /tmp/toolbox-browser-venv
 /tmp/toolbox-browser-venv/bin/pip install -r tests/browser/requirements.txt
 /tmp/toolbox-browser-venv/bin/playwright install --with-deps chromium
 /tmp/toolbox-browser-venv/bin/python tests/browser/fixture_e2e.py
+/tmp/toolbox-browser-venv/bin/python tests/browser/review_race.py
 ```
 
 CI can use the same commands after launching the fixture service and waiting for `/readyz` to return 200. The runner returns a nonzero status on failure. PostgreSQL/OpenBao-backed runs use the service's documented storage variables; the browser runner requires no storage credentials.
+
+Run these scripts in that order on a fresh fixture service and stores. `review_race.py` holds actual review responses while the request or connection selection changes, including changing away and back. All four cases must leave approval disabled, submit no stale approval, and allow a fresh review. It creates multiple active connections, while the main flow expects its initial connection to be the only active one.
 
 Each run captures four full-page PNGs after verifying the reviewed request, allowed read, denied other-document read and revoked-grant denial. The agent credential field is masked in every image. A successful run also writes `result.json` with the browser/runner versions, viewport, fixture scope and screenshot names. This metadata is written only after the entire E2E flow passes. CI uploads screenshots, metadata and service logs as the `browser-e2e` artifact on successful and failed runs.
 

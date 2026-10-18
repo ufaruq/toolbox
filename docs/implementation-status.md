@@ -1,4 +1,32 @@
-# Review fixes and current local verification
+# PR comment follow-up and current local verification
+
+All six comments on `3738412` are addressed:
+
+| Review comment | Change and regression coverage |
+| --- | --- |
+| [Post-exchange lock failure](https://github.com/ufaruq/toolbox/pull/2#discussion_r4305865495) | Preserve the known response as CAS-bound cleanup before returning a lock error, using a fresh detached deadline after lock timeout. Tests cover database loss, cancellation, deadline exhaustion, access-only credentials, uncertain writes and competing generations. |
+| [Definitive invalid grant](https://github.com/ufaruq/toolbox/pull/2#discussion_r4305865499) | Resolve `ErrInvalidGrant` to cleanup-only state, retaining the known credential for retryable revocation. Unknown provider outcomes remain fenced. |
+| [Stale review response](https://github.com/ufaruq/toolbox/pull/2#discussion_r4305873611) | Bind the pending response to its request, connection and invalidation generation. Four browser regressions change either selection, including away-and-back, and reject stale approval. |
+| [Fractional expiry](https://github.com/ufaruq/toolbox/pull/2#discussion_r4305873620) | Reject expiry that is not in a later serialized JWT second; successful boundary cases immediately verify. |
+| [Missing denial audits](https://github.com/ufaruq/toolbox/pull/2#discussion_r4305873628) | Commit an authenticated-owner denial audit separately from the authorization error, without untrusted grant, connection or document identifiers. Tests include revoked/expired rights and foreign-owner grants. |
+| [Cancelled terminal audits](https://github.com/ufaruq/toolbox/pull/2#discussion_r4305873635) | Use bounded detached failure audits after provider cancellation, slot timeout or final authorization failure. Audit persistence failures return 503 without releasing content. |
+
+Verification of the combined fixes:
+
+- Passed: formatting, `go vet ./...`, `go build ./...`, and full `go test -race -count=1 ./...`: **280 tests/subtests passed, zero failures or skips**, with actual PostgreSQL 17.11 and OpenBao 2.4.1.
+- Passed: headless Chromium fixture approval/revocation E2E, all four delayed-review cases, and API smoke checks against the rebuilt service with those stores. CI now runs both browser scripts serially and retains the masked screenshots from the main flow.
+- Passed: independent code review found no further actionable defect in these fixes.
+- Failed then fixed: the six reported regressions were reproduced before their fixes. No check remains failing in the final local run.
+- Blocked: GitHub API access in this environment, so inline replies and thread resolution were not performed. The links above map each comment to its fix; pushing code does not mark a thread resolved.
+- Unrun: production human OIDC and live Google OAuth/Drive. Production OIDC is still unimplemented; fixture results do not prove live-provider behavior. No merge, deployment or live credential provisioning occurred.
+
+Check hosted CI on the final pushed commit separately. The evidence gallery records its own earlier capture revision; it is not presented as a capture of these changes.
+
+Earlier checkpoint records below are historical and superseded by this section.
+
+---
+
+# Previous review fixes and local verification
 
 All three findings from the review of `5d2dd4a` are addressed:
 

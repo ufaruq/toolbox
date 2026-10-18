@@ -1,10 +1,10 @@
 # Implementation handoff
 
-**Current update:** all three review findings are fixed. The final local run passed 221 Go tests/subtests with real PostgreSQL/OpenBao, and the headless Chromium fixture E2E passed twice. CI now includes those integration and browser checks. See [current verification](implementation-status.md) and [browser runner](../tests/browser/README.md). Production human OIDC and live Google integration remain outstanding; no merge or deployment has occurred. The checkpoint details below describe earlier work.
+**Current update:** all six comments on `3738412` are fixed, with regression tests. The combined local run passed 280 Go tests/subtests without skips with real PostgreSQL/OpenBao, the Chromium fixture E2E, four delayed-review browser cases, and API smoke checks. CI runs the storage integration and both browser scripts. See [comment links and current verification](implementation-status.md) and [browser runner](../tests/browser/README.md). GitHub API access remains blocked, so threads have not been replied to or marked resolved. Production human OIDC and live Google integration remain outstanding; no merge or deployment has occurred. The checkpoint details below describe earlier work.
 
 ## Where the work is
 
-Branch: `feat/user-delegated-drive-mvp`, draft PR [#2](https://github.com/ufaruq/toolbox/pull/2), based on existing main. The design remains in separate PR #1. History is incremental, with no squash or force update.
+Branch: `feat/user-delegated-drive-mvp`, PR [#2](https://github.com/ufaruq/toolbox/pull/2), based on existing main. The user marked it ready for review; preserve that status. Design PR #1 has merged. History is incremental, with no squash or force update.
 
 - `e361c3be25ddae940e67381151e3c22ba0ce93de`: identity/delegation/strict JSON foundations.
 - `ad0da682fcd6b7776e7b19e39f851328babf0705`: full local WIP preserved, including the deliberately failing regression.
