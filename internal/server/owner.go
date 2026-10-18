@@ -17,7 +17,12 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, _ := r.Cookie("toolbox_session")
-	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": security.KeyedHash(s.Pepper, c.Value), "fixture": s.Fixture})
+	csrf, err := s.PepperKeys.Hash(v.PepperID, c.Value)
+	if err != nil {
+		fail(w, 403, "NOT_AUTHORIZED")
+		return
+	}
+	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": csrf, "fixture": s.Fixture})
 }
 func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != s.Origin {
@@ -26,11 +31,11 @@ func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	raw := security.Random()
 	id := security.Hash(raw)
-	csrf := security.KeyedHash(s.Pepper, raw)
+	csrf, _ := s.PepperKeys.Hash(s.PepperKeys.ActiveID(), raw)
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		const uid = "11111111-1111-4111-8111-111111111111"
 		st.Users[uid] = domain.User{ID: uid, Issuer: "fixture://local", Subject: "local-owner", Status: "active"}
-		st.Sessions[id] = domain.Session{ID: id, UserID: uid, CSRFHash: security.Hash(csrf), ExpiresAt: st.Now.Add(8 * time.Hour)}
+		st.Sessions[id] = domain.Session{ID: id, UserID: uid, CSRFHash: security.Hash(csrf), PepperID: s.PepperKeys.ActiveID(), ExpiresAt: st.Now.Add(8 * time.Hour)}
 		return nil
 	})
 	if e != nil {
@@ -55,11 +60,11 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "INVALID_SCHEMA")
 		return
 	}
-	id, raw, hash := security.NewCredential(s.Pepper)
+	id, raw, hash := s.PepperKeys.NewCredential()
 	a := domain.Agent{ID: security.ID(), OwnerID: owner.UserID, Name: in.Name, Status: "active"}
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		st.Agents[a.ID] = a
-		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
+		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", PepperID: s.PepperKeys.ActiveID(), ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
 		addAudit(st, "user", owner.UserID, owner.UserID, "agent.created", "", "", "", "allowed", "", 0)
 		return nil
 	})
@@ -78,7 +83,7 @@ func (s *Server) rotateCredential(w http.ResponseWriter, r *http.Request) {
 	if !body(w, r, &in) {
 		return
 	}
-	id, raw, hash := security.NewCredential(s.Pepper)
+	id, raw, hash := s.PepperKeys.NewCredential()
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		a := st.Agents[r.PathValue("id")]
 		if a.OwnerID != owner.UserID || a.Status != "active" {
@@ -93,7 +98,7 @@ func (s *Server) rotateCredential(w http.ResponseWriter, r *http.Request) {
 		if n >= 2 {
 			return domain.ErrDenied
 		}
-		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
+		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", PepperID: s.PepperKeys.ActiveID(), ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
 		addAudit(st, "user", owner.UserID, owner.UserID, "credential.created", "", "", "", "allowed", "", 0)
 		return nil
 	})

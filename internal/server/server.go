@@ -20,6 +20,7 @@ type Config struct {
 	Repository domain.Repository
 	Signer     *security.Signer
 	Pepper     []byte
+	PepperKeys *security.PepperRing
 	Origin     string
 	Fixture    bool
 	Readiness  func(context.Context) error
@@ -57,8 +58,15 @@ type Document struct {
 }
 
 func New(cfg Config, integration Integration) (*Server, error) {
-	if cfg.Repository == nil || cfg.Signer == nil || len(cfg.Pepper) < 32 || cfg.Origin == "" || integration == nil {
+	if cfg.Repository == nil || cfg.Signer == nil || cfg.Origin == "" || integration == nil {
 		return nil, errors.New("invalid server configuration")
+	}
+	if cfg.PepperKeys == nil {
+		var err error
+		cfg.PepperKeys, err = security.LegacyPepperRing(cfg.Pepper)
+		if err != nil {
+			return nil, errors.New("invalid server configuration")
+		}
 	}
 	s := &Server{Config: cfg, mux: http.NewServeMux(), limits: map[string]window{}, slots: make(chan struct{}, 8), integration: integration}
 	s.routes()
@@ -167,6 +175,9 @@ func (s *Server) owner(r *http.Request, mutate bool) (domain.Session, error) {
 		if !ok || !st.Now.Before(v.ExpiresAt) || u.Status != "active" {
 			return domain.ErrDenied
 		}
+		if _, err := s.PepperKeys.Hash(v.PepperID, c.Value); err != nil {
+			return domain.ErrDenied
+		}
 		if mutate && !security.Equal(v.CSRFHash, security.Hash(r.Header.Get("X-CSRF-Token"))) {
 			return domain.ErrDenied
 		}
@@ -196,8 +207,13 @@ func (s *Server) agent(r *http.Request) (domain.Agent, string, error) {
 	e = s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		c, ok := st.Credentials[id]
 		v := st.Agents[c.AgentID]
-		if !ok || !credentialActive(st, id, v.ID) || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
+		if !ok || !credentialActive(st, id, v.ID) || !s.PepperKeys.Verify(c.PepperID, secret, c.Hash) {
 			return domain.ErrDenied
+		}
+		if c.PepperID != s.PepperKeys.ActiveID() {
+			c.Hash, _ = s.PepperKeys.Hash(s.PepperKeys.ActiveID(), secret)
+			c.PepperID = s.PepperKeys.ActiveID()
+			st.Credentials[id] = c
 		}
 		a = v
 		return nil

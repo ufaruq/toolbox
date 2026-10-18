@@ -18,10 +18,12 @@ type User struct{ ID, Issuer, Subject, Status string }
 type Agent struct{ ID, OwnerID, Name, Status string }
 type Credential struct {
 	ID, AgentID, Hash, Status string
+	PepperID                  string
 	ExpiresAt                 time.Time
 }
 type Session struct {
 	ID, UserID, CSRFHash string
+	PepperID             string
 	ExpiresAt            time.Time
 }
 type Connection struct {
