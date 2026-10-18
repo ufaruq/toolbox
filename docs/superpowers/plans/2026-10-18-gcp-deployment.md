@@ -1,43 +1,33 @@
-# GCP Deployment Implementation Plan
+# Portable Docker Deployment Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans inline, task by task. Preserve completed Task 1; the user's Docker VM decision supersedes the earlier managed-service tasks.
 
-**Goal:** Prepare a reproducible GCP deployment with persistent keys, KMS-encrypted credentials, restricted storage identities, cleanup, backups, monitoring, and recovery commands.
+**Goal:** Ship a portable container deployment and full local verification loop with persistent keys, PostgreSQL, encrypted credential storage, permissions, maintenance, backup and recovery.
 
-**Architecture:** Deploy a Go container to Cloud Run with Cloud SQL PostgreSQL, static configuration in Secret Manager, and rotating credentials in an independently permissioned SQL schema protected by Cloud KMS envelope encryption. Terraform provisions the resources, and a small operator wrapper coordinates foundation setup, secret initialization, immutable builds, migrations, deployment checks, and recovery.
+**Architecture:** The same Docker application image runs locally and on a VM. PostgreSQL stores authorization metadata and separately encrypted credential generations with atomic CAS. GCP KMS is the default production key wrapper; an explicit persistent local AES-GCM wrapper supports container verification. Terraform is an optional GCP VM adapter.
 
-**Tech Stack:** Go 1.27.2, pgx v5, official Google Cloud KMS and Cloud SQL connector clients, PostgreSQL 17, Terraform with the HashiCorp Google provider, Cloud Run Jobs, Cloud Scheduler, Cloud Monitoring, Cloud Storage.
+**Spec:** [Approved portable Docker design](../specs/2026-10-18-gcp-deployment-design.md).
 
-**Spec:** [Approved GCP deployment design](../specs/2026-10-18-gcp-deployment-design.md), including the KMS revision approved in conversation on 2026-10-18.
-
-**Database decision:** Keep PostgreSQL for compatibility with existing authorization and audit protections and the low-cost pilot. See the [PostgreSQL and Spanner decision](../specs/2026-10-18-gcp-deployment-design.md#database-decision) for cost assumptions, migration tradeoffs, and conditions for reconsideration.
+**Database decision:** [PostgreSQL over Spanner](../specs/2026-10-18-gcp-deployment-design.md#database-decision): preserve existing security controls and prioritize scoped queries over changing engines.
 
 ## Global Constraints
 
-- Production startup never generates replacements for missing signing or pepper keys.
-- Application credentials and secret values must not enter Terraform configuration, plans, state, logs, or build artifacts.
-- KMS calls never run inside SQL transactions.
-- The main application snapshot contains neither credential ciphertext nor plaintext.
-- Provider errors retain revocation material for retry; unresolved exchanges and refreshes never become complete merely because a timeout or retention deadline passed.
-- Add migrations instead of editing `001_initial.sql`.
-- Preserve fixture startup, existing strict authorization checks, and existing integration tests.
-- The pilot profile uses zero minimum Cloud Run instances, one maximum instance, single-zone `db-f1-micro`, and 10 GB SSD. It is a private pilot and has no Cloud SQL SLA.
-- The production profile explicitly uses Cloud SQL Enterprise, at least one dedicated vCPU and 3.75 GiB RAM, with regional HA enabled by default and configurable.
-- Both profiles use private SQL connectivity, IAM authentication, encryption, backups, and deletion protection. Budget alerts are notifications, not spending caps.
-- Owner OIDC and real Google release gates remain separate unfinished work. Provisioning preparation must not imply a usable public production service. A readiness flag cannot substitute for an implemented owner authenticator.
-- Do not apply Terraform, create billable resources, provision real OAuth clients, upload live credentials, or shift external traffic during repository implementation.
+- Never generate replacement production signing keys or peppers during startup.
+- Keep plaintext provider tokens and OAuth verifiers out of application snapshots and logs; only ciphertext enters the credential schema.
+- Preserve all CAS, epoch, immutable grant, audit, and uncertain-outcome guarantees.
+- Production owner OIDC and live Google validation remain independent release gates; no boolean can bypass missing authentication code.
+- Production connections verify TLS; fixtures are explicit and local-only.
+- Local root encryption keys are forbidden in production; database migration credentials never enter API mounts.
+- New migrations only; preserve migration 001 unchanged.
+- Preserve package-lock.json and update existing PR #4. No live deployment or provisioning.
 
 ## Review Focus
 
-1. Pepper rotation must preserve existing session CSRF behavior, including sessions created before the new fields existed; Task 1 tests this.
-2. A ciphertext moved between paths, versions, deployments, or schemas must fail authenticated decryption; Task 2 tests this.
-3. Connector refresh and closure must cover dedicated advisory-lock connections as well as the pool; Task 3 tests this.
-4. Retry overlap and cancellation must never purge a credential needed for an uncertain provider operation; Tasks 4 and 5 test this.
-5. An older restored database must never silently restore revoked authority; Task 9 tests deliberate invalidation and traffic fencing.
-
-## Work Breakdown
-
-The three milestones are runtime and storage foundations (Tasks 1–5), GCP deployment tooling (Tasks 6–8), and recovery verification (Task 9). Each task has a separate verification boundary. Implement inline in the current session only after plan review and the execution/workspace choice.
+1. Pepper rotation must preserve existing browser CSRF and credential validity; Task 1.
+2. An unavailable key wrapper or tampered ciphertext must fail readiness; Task 2.
+3. Runtime identities must be unable to bypass immutable audit/grant protections or destroy secret history; Tasks 2 and 3.
+4. Cleanup and retention overlap must retain uncertain provider material; Tasks 4 and 5.
+5. Restoring an older snapshot must not resurrect authority; Task 9.
 
 ### Task 1: Persist signing keys and version credential and session peppers
 
@@ -51,112 +41,92 @@ The three milestones are runtime and storage foundations (Tasks 1–5), GCP depl
 - [ ] Run the same tests and the existing expiry tests. Verify unknown key IDs, removed peppers, malformed keys, and missing key files fail closed. Test migration upgrade from the original schema with actual PostgreSQL.
 - [ ] Review and commit this task alone, preserving unrelated files.
 
-### Task 2: Implement envelope encryption and transactional credential storage
+### Task 2: Encrypt PostgreSQL credential generations with KMS and local providers
 
-**Files:** Create `internal/secretstore/envelope.go`, `kms.go`, `postgres.go`, and corresponding tests; create `internal/store/migrations/003_encrypted_secrets.sql`; update `go.mod` and `go.sum` only for the official KMS client and its required dependencies.
+**Files:** `internal/secretstore`, official GCP KMS client dependencies, application integration tests.
 
-**Interfaces:** Add `KeyWrapper` with `Wrap(context.Context, []byte, []byte) ([]byte, error)` and `Unwrap(context.Context, []byte, []byte) ([]byte, error)`; add `Envelope.Seal(ctx context.Context, path string, version int64, plaintext []byte) ([]byte, error)` and `Envelope.Open` with the same parameters and ciphertext input. `NewPostgres(ctx context.Context, pool *pgxpool.Pool, envelope *Envelope) (*Postgres, error)` implements the existing `tokens.SecretStore` and `tokens.JSONStore`, plus `Ping(context.Context) error`. Constructor parameters must also carry the validated deployment and schema identifiers; use a typed config rather than unvalidated SQL string concatenation.
+**Interfaces:** Inject `KeyWrapper.Wrap/Unwrap(ctx, data, aad)` into an Envelope; implement GCP KMS with CRC32C integrity checks and local AES-GCM. `PostgresConfig` carries pool, credential schema, envelope. Preserve tokens.SecretStore and JSONStore contracts.
 
-- [ ] Write tests for AES-GCM tampering, cross-path/version/deployment substitution, oversized payloads, KMS failure, and error redaction. Use a deterministic test wrapper only in tests.
-- [ ] Write PostgreSQL integration tests for create-only writes, one winner from concurrent CAS, atomic version/history updates, rollback, deletion fences, and a committed write with a lost response. Run these cases before implementation and observe failures.
-- [ ] Implement fresh 32-byte data keys, standard AES-256-GCM, KMS-wrapped keys, versioned envelopes and authenticated context. Bound plaintext at 1 MiB, consistent with the existing provider response boundary. Verify KMS request/response integrity fields and restrict key references to the configured CryptoKey.
-- [ ] Add `toolbox_secrets` current and encrypted-history tables. Encrypt before a short database transaction; atomically insert history and advance the current version by expected CAS. Retain the creation fence after hiding a JSON path. SQL errors expose no paths or payloads.
-- [ ] Run the token lifecycle and initial exchange regressions against the new adapter using actual PostgreSQL and the test wrapper. Add an opt-in real KMS integration test using only synthetic data.
-- [ ] Review and commit this task alone.
+- [ ] Write failing envelope, RPC boundary, CAS and actual PostgreSQL tests.
+- [ ] Encrypt every generation with a random data key and authenticated deployment/schema/path/version context; redact dependency errors.
+- [ ] Use separate checksummed credential migrations; atomic history/pointer writes and permanent hidden creation fences. No KMS call inside SQL transactions.
+- [ ] Verify tampering, context transplant, cancellation, concurrent CAS and full API flow; commit. Live KMS remains an opt-in external check.
 
-### Task 3: Separate migrations, SQL roles, and Cloud SQL connections
+### Task 3: Separate migrations and enforce PostgreSQL roles
 
-**Files:** Create `internal/gcpdb/connect.go` and tests; modify `internal/store/postgres.go`; add `internal/store/permissions.go`, tests, and a role-bootstrap SQL template; update the Cloud SQL connector dependency.
+**Files:** `internal/store/permissions.go`, role and migration tests, `deploy/postgres` bootstrap configuration.
 
-**Interfaces:** Preserve `OpenPostgres(ctx context.Context, dsn string) (*Postgres, error)`. Add `OpenPostgresConfig(ctx context.Context, config *pgx.ConnConfig) (*Postgres, error)` so a configured connector DialFunc reaches pooled and dedicated connections. Add `gcpdb.ConnectConfig(ctx context.Context, config Config) (*pgx.ConnConfig, func() error, error)`. The closer releases the connector after all repositories and credential pools close. Keep migrations an explicit separate operation.
+**Interfaces:** Expose safe idempotent role setup using validated identifiers. Keep existing `OpenPostgres` and explicit `Migrate` APIs. Provide independent API, cleanup, retention and migration DSN files.
 
-- [ ] Write tests proving dedicated connection locks use the same configured dialer as the pool, including cancellation and connector closure. Add real PostgreSQL role tests: runtime cannot create tables, modify audit history, delete grants, truncate protected tables, or purge credential history.
-- [ ] Run the tests and observe failures for unsupported connector configuration and permissions.
-- [ ] Implement IAM database authentication with the official connector and private IP selection. Set explicit application and credential schema search paths. Use safe identifier quoting and fixed schema validation. Preserve the existing physical-session lock release guarantees.
-- [ ] Add idempotent role grants for API, migration, cleanup, retention, and recovery access. Revoke public schema creation and avoid ownership or DDL privileges on runtime identities. Bootstrap administrative grants through an explicitly documented operator action rather than an admin password in Terraform.
-- [ ] Run store integration tests and the role matrix with actual PostgreSQL. Verify both a fresh schema and upgrade from migration 001.
-- [ ] Review and commit this task alone.
+- [ ] Write and run failing permission tests using actual PostgreSQL roles: no runtime DDL, table ownership, audit updates/deletion/truncate, grant deletion, or role management.
+- [ ] Implement dedicated schema grants and revoke public schema creation. Migration role owns objects; runtime roles receive only the required table privileges.
+- [ ] Configure verified PostgreSQL TLS and protected password files. Do not publish database ports in the VM stack.
+- [ ] Verify fresh bootstrap and migration 001 upgrade, including trigger protections under restricted runtime roles; commit.
 
-### Task 4: Make provider cleanup observable and retryable
+### Task 4: Make cleanup durable, bounded and observable
 
-**Files:** Modify `internal/domain/domain.go`, `internal/server/owner.go`, and `internal/store/validate.go`; create `internal/server/cleanup.go` and tests, and `internal/store/migrations/004_cleanup_retries.sql`.
+**Files:** `internal/server/cleanup.go`, tests, domain/validator updates and `003_cleanup_retries.sql`.
 
-**Interfaces:** Preserve `Server.CleanupOnce(context.Context) error`. Add `CleanupReport` with processed, succeeded, failed, pending, and oldest-pending age fields, plus `RunCleanup(context.Context) (CleanupReport, error)` for maintenance commands. Add creation, last-attempt and next-attempt timestamps, attempt count, and a fixed sanitized error class to cleanup metadata.
+**Interfaces:** Preserve `CleanupOnce(context.Context) error`; add `RunCleanup(context.Context) (CleanupReport, error)` with processed/succeeded/failed/pending/oldest age. Add retry metadata to `domain.Cleanup`.
 
-- [ ] Write tests proving cancellation, transient provider errors, uncertain refreshes, and overlapping job executions preserve blocked access and revocation material. Verify due-time selection and retry after process restart with a deterministic clock.
-- [ ] Run the focused tests and observe failures for absent scheduling and reports.
-- [ ] Extract cleanup from the owner handler file. Implement bounded exponential backoff from 5 seconds to one hour, with jitter and at most 100 due jobs per run. Keep the existing connection locks and CAS protocol. A successful run reports unresolved and failed jobs accurately instead of silently treating them as completed.
-- [ ] Add migration constraints and legacy timestamp handling. Emit only numeric counters, ages, and fixed outcome classes; never provider errors or credential identifiers as metric labels.
-- [ ] Run the entire OAuth/token race suite and server cleanup tests. Verify disconnect still blocks immediately before provider cleanup succeeds.
-- [ ] Review and commit this task alone.
+- [ ] Write and run failures for transient revocation, due-time scheduling, cancellation, restart, overlapping runs and unresolved refresh or exchange.
+- [ ] Implement at most 100 due jobs per run, five-second to one-hour exponential retry with jitter, timestamps, and fixed error classes. Failed cleanup retains blocked access and credentials.
+- [ ] Run all token/OAuth races and real-store tests; commit.
 
-### Task 5: Retain and purge encrypted history safely
+### Task 5: Implement separately permissioned encrypted history retention
 
-**Files:** Create `internal/secretstore/retention.go` and tests; create `internal/store/migrations/005_secret_retention.sql`; add protected purge SQL functions and permission tests.
+**Files:** `internal/secretstore/retention.go` and tests, retention command wiring and SQL retention privileges.
 
-**Interfaces:** Add `RetentionPolicy` with OAuth grace and retired-history grace durations, `RetentionReport` with scanned, eligible, deleted and blocked counts, and `Postgres.Retain(ctx context.Context, policy RetentionPolicy) (RetentionReport, error)`. Default to a one-hour OAuth grace and seven-day retired history grace. Reject nonpositive durations. The method rechecks authoritative application lifecycle state before each bounded deletion transaction.
+**Interfaces:** `RunRetention(ctx context.Context, repo domain.Repository, store RetentionStore, policy RetentionPolicy) (RetentionReport, error)`. Report scanned/deleted/blocked counts; defaults one-hour OAuth grace and seven-day eligible history grace.
 
-- [ ] Write tests for pending and expired OAuth transactions, completed and failed disconnect cleanup, active connections, unresolved initial exchange/refresh intents, and concurrent cleanup and retention. Assert current rows and creation fences always survive.
-- [ ] Run the tests and observe failures for missing retention behavior.
-- [ ] Implement selection and deletion under the existing connection-lock protocol with a short atomic final SQL recheck. Purge only expired or consumed OAuth secrets whose dependent issuance is resolved, and retired provider history after confirmed lifecycle completion and the grace period. Default to retaining records whose state cannot be proved safe.
-- [ ] Expose purge through fixed, safely scoped permissions. The API role cannot invoke it or delete history directly. Keep runtime audit protections intact; document audit archival separately rather than adding an unrestricted purge route.
-- [ ] Run the real PostgreSQL permission and race tests. Verify retained backups remain decryptable and are not represented as erased by live-row deletion.
-- [ ] Review and commit this task alone.
+- [ ] Write and run failures for active, pending, unknown and complete connection states, consumed/expired OAuth transactions, grace periods, tombstones and cleanup overlap.
+- [ ] Read authoritative primary state, use connection locks, inspect current encrypted version and history, and destroy only provably retired versions. Preserve current data, creation fences and unresolved operation material. Bound the batch and fail closed on metadata/read errors.
+- [ ] Verify API/cleanup roles cannot destroy history while retention role can destroy only approved paths; test actual retained-version destruction and retry; commit.
 
-### Task 6: Add deployment commands, configuration, and the production container
+### Task 6: Add configuration, maintenance commands and container build
 
-**Files:** Split `cmd/toolbox/main.go` into command dispatch and fixture startup; create `internal/runtimecfg/config.go`, `internal/runtimecfg/config_test.go`, maintenance command files, a key-generation command, `Dockerfile`, and `.dockerignore`.
+**Files:** `internal/runtimecfg`, `internal/bootstrap`, `cmd/toolbox` command dispatch, `Dockerfile`, `.dockerignore` and command tests.
 
-**Interfaces:** Support `toolbox fixture`, `keygen`, `preflight`, `migrate`, `cleanup`, `retention`, `serve`, and `recover-invalidate`. Preserve `TOOLBOX_MODE=fixture go run ./cmd/toolbox`. Parse configuration through `runtimecfg.Load(lookup func(string) (string, bool)) (Config, error)` so tests do not depend on process environment. Add `Validate(command string) error` to enforce command-specific dependencies without granting cleanup jobs signing keys.
+**Interfaces:** `fixture`, `init`, `preflight`, `migrate`, `cleanup`, `retention`, `healthcheck`, `serve`, `recover-invalidate`. Preserve old fixture invocation. `runtimecfg.Load(lookup)` and command-specific validation separate fixture and maintenance needs. Bootstrap creates protected file secrets and a deployment CA once without overwriting existing keys.
 
-- [ ] Write command tests for missing static secrets, malformed rings, non-HTTPS origins, unverified database transports, unsupported owner authentication, fixture cloud exposure, and sanitized exit messages.
-- [ ] Run the command and config tests and observe the new failures.
-- [ ] Implement explicit maintenance commands using Tasks 1–5. `keygen` writes JSON only to stdout when explicitly invoked; normal startup never creates material. Production `serve` must return a specific sanitized release-gate failure while owner OIDC remains unimplemented. No environment boolean bypasses that check. `preflight` reports infrastructure checks separately from application release gates.
-- [ ] Build a non-root, minimal production image containing CA certificates and the single binary. Exclude local secrets, Terraform state, test artifacts, and repository metadata. Handle SIGTERM and close pools and connector resources in order.
-- [ ] Run local command tests, `go build ./...`, and container startup/shutdown checks. Verify the existing loopback fixture API and browser flow remain available through their original commands.
-- [ ] Review and commit this task alone.
+- [ ] Write and run failures for malformed/missing key files, unsafe origins and fixture listeners, unverified TLS, non-root workload checks, unsupported owner authentication, and idempotent bootstrap.
+- [ ] Implement persistent key loading, explicit container fixture opt-in with a loopback external origin, non-root runtime, safe shutdown and command-specific mounts. Production serve fails for the unfinished owner authenticator.
+- [ ] Build a minimal container with CA certificates. Keep credentials, evidence and git metadata outside build context. Run startup, health and shutdown checks; commit.
 
-### Task 7: Provision GCP with Terraform and explicit cost profiles
+### Task 7: Build the durable Compose stack and optional GCP VM adapter
 
-**Files:** Create `infra/gcp/bootstrap` and `infra/gcp/platform` with versions, variables, resources, outputs and example configuration; create Terraform validation CI and infrastructure documentation.
+**Files:** `deploy/compose.yaml`, local verification overrides, PostgreSQL TLS and role configuration, optional `infra/gcp/vm`, monitoring profile and tests.
 
-**Interfaces:** Foundation inputs are `project_id`, `region` (default `us-central1`), `environment`, `profile` (`pilot` or `production`), and notification destinations. Runtime inputs additionally require an immutable image digest and numeric static-secret versions. Output repository URL, Cloud SQL connection name, service-account identities, KMS key ID, secret resource IDs, job names and runtime endpoint when enabled. Use an explicitly initialized GCS backend; never output secret payloads.
+**Interfaces:** Persistent PostgreSQL volume; app-only host loopback publishing for local fixture verification; individual secret file mounts; separate maintenance services; no published database ports. VM runtime uses production mode and stays gated.
 
-- [ ] Add Terraform assertions for profile values, immutable image digests, numeric secret versions, deletion protection, IAM separation, zero minimum pilot instances, private SQL networking, and absence of secret payloads or service-account keys.
-- [ ] Implement Artifact Registry, Cloud SQL Enterprise PostgreSQL 17 with backups and PITR explicitly enabled, Direct VPC egress networking, software-backed symmetric KMS with 90-day rotation, static-secret containers, restricted buckets, IAM SQL users, and distinct runtime/maintenance identities.
-- [ ] Add conditional Cloud Run service and maintenance jobs. Keep service rollout disabled by default during preparation; deploy tooling requires application preflight before enabling it. Scheduler uses OAuth to invoke the Run Jobs API with its own service account. Cleanup and retention schedules default to paused until credentials and schema setup pass.
-- [ ] Add private monitoring access, standard uptime/error/latency and database alerts, structured-log metrics for maintenance failures and backlog age, and budget notifications. Exclude OAuth callback query strings from persisted request logs without granting runtime log-management rights.
-- [ ] Run `terraform fmt -check -recursive`, `terraform init -backend=false`, `terraform validate`, and local Terraform tests with a mock provider. Validate the real provider schema; do not claim a live plan or apply was tested.
-- [ ] Review and commit this task alone, including dependency lock files and without local state.
+- [ ] Add runnable configuration checks for required files, role mounts, persistence and network isolation. Test the actual image and connections, not source-text matching.
+- [ ] Provision containers with restricted capabilities, non-root app, read-only configuration, TLS, resource limits, healthchecks and bounded logs. Use explicit migrations and separately held recovery material.
+- [ ] Add optional GCP VM Terraform with OS Login/IAP administration, no broad SSH ingress, durable disks protected from deletion, and a restricted backup identity. Do not place secret values in Terraform metadata/state or enable a public fixture route.
+- [ ] Run Compose config/build/up tests, restart persistence, Terraform format/validate and no-apply checks; commit.
 
-### Task 8: Provide an idempotent operator workflow
+### Task 8: Provide the local verification and VM operator workflow
 
-**Files:** Create an executable `scripts/gcp` wrapper and focused helpers under `scripts/gcp-lib`; update `Makefile`, `.gitignore`, `README.md`, and create `docs/deployment-gcp.md`; add shell workflow verification using fake `gcloud` and `terraform` executables.
+**Files:** `scripts/deploy`, verification helpers, Makefile/CI updates, `docs/deployment-docker.md`.
 
-**Interfaces:** Support `scripts/gcp bootstrap|secrets|build|plan|deploy|status|rollback|recover` with explicit `--project`, `--region`, and `--environment`. Persist only non-secret deployment metadata and immutable image/secret version references in ignored local files. Validate project and resource inputs before constructing subprocess arguments.
+**Interfaces:** `init|up|preflight|test|status|backup|restore-drill|update|rollback`; Docker and Compose are the local runtime prerequisites. Evidence goes into an ignored directory; production image references are immutable digests.
 
-- [ ] Write workflow tests for an existing secret, missing prerequisites, interrupted setup, failed migration, failed release gate, changed image digest, and hostile argument values. Assert commands never echo or pass secret values on the command line, and do not apply infrastructure when a plan-only command was selected.
-- [ ] Run the tests and confirm the workflow is absent before implementation.
-- [ ] Implement state-backend bootstrap, foundation provisioning, create-if-absent secret initialization, immutable image build/push, saved Terraform plan creation, explicit deployment of the selected plan, migration job execution, and private smoke checks. Read operator secret input from stdin or a protected file and send it through stdin; use no shell tracing.
-- [ ] Implement status reporting and rollback to a recorded compatible image and configuration. Do not automatically reverse migrations, rotate keys, overwrite existing secrets, or enable traffic after failed checks. Explain the current owner OIDC and Google release gates directly in deployment output.
-- [ ] Run shell syntax and fake-command tests, command help checks, and container build verification. Document exact local prerequisites and the first-run sequence. Actual resource creation remains unrun.
-- [ ] Review and commit this task alone.
+- [ ] Write and run workflow tests for missing prerequisites, repeated initialization, failed migration, release gates, protected recovery output, invalid arguments, and rollback incompatibility.
+- [ ] Implement idempotent startup and verified role bootstrap, with no secret CLI arguments or shell tracing. Start jobs only after schema and store checks pass.
+- [ ] Containerize the Go race/integration suite and existing Chromium E2E and delayed-review cases. Share the app's network namespace for loopback browser checks; retain redacted evidence and propagate failures.
+- [ ] Run the entire local loop twice, including restart persistence, and document VM transfer, TLS, secret handling and off-host backups; commit.
 
-### Task 9: Verify recovery and complete release documentation
+### Task 9: Verify backup, monitoring and recovery fencing
 
-**Files:** Create `internal/recovery/invalidate.go` and tests, `docs/recovery-gcp.md`, recovery helpers, a synthetic restore-drill runner, and deployment verification records; update `docs/storage.md`, `docs/HANDOFF.md`, and `docs/implementation-status.md` around the resulting behavior.
+**Files:** `internal/recovery`, tests, backup/restore helpers, monitoring/alert configuration, `docs/recovery-docker.md`, storage/handoff/status updates.
 
-**Interfaces:** Add `recovery.Invalidate(ctx context.Context, repo domain.Repository) (Report, error)` for an isolated restored database. Atomically expire sessions while preserving their OAuth references, revoke active credentials and grants, advance affected connection epochs, block provider dispatch, schedule required cleanup, and append a recovery audit. Preserve immutable grant/revocation protections and report unresolved provider operations. The CLI requires explicit isolated-recovery configuration and refuses to serve while recovery reconciliation is pending.
+**Interfaces:** `recovery.Invalidate(ctx context.Context, repo domain.Repository) (Report,error)` expires sessions, revokes credentials and grants, advances connection epochs once, queues cleanup and appends audit while preserving OAuth references. Maintenance reports drive job/backlog and backup-age monitoring.
 
-- [ ] Write a regression that restores a snapshot predating a revocation, runs recovery invalidation, and proves the old owner session, agent credential, grant and delegation token cannot authorize access. Test cancellation and idempotent retry.
-- [ ] Run the test, observe the restored-authority failure before implementation, and implement the invalidation and traffic fence.
-- [ ] Document coordinated SQL backups, static-secret recovery copies, KMS version dependency retention, protected backup access, RPO/RTO targets, provider uncertainty, compromised-key response and rollback compatibility. Produce recovery manifests containing references only. Never claim nonexportable KMS keys can be backed up as plaintext.
-- [ ] Run a synthetic PostgreSQL backup/restore drill with the test key wrapper. Make a separate opt-in GCP drill for connector, KMS, backup recovery and private deployment checks; clearly mark it unrun until a dedicated project is available.
-- [ ] Run `gofmt`, `go vet ./...`, `go test -race -count=1 ./...`, `go build ./...`, existing real PostgreSQL/OpenBao integrations, fixture browser E2E and delayed-review cases, Terraform validation, and operator workflow tests. Report skipped and unavailable checks individually.
-- [ ] Perform an independent whole-change security and correctness review, fix actionable findings, rerun affected checks, and commit the completed changes without merging or deploying.
+- [ ] Write and observe failure for a restored snapshot predating revocation; implement idempotent invalidation so old sessions, credentials and delegation tokens cannot release content.
+- [ ] Back up PostgreSQL with pg_dump to protected files, coordinate quiescence, and include a reference-only manifest. Restore only into isolated volumes, never overwrite live stores automatically. Label dump schedule limits accurately; no untested PITR claims.
+- [ ] Add portable health/backlog/stale-backup monitoring and a synthetic restore drill against the actual database. Keep key recovery material separate, backups encrypted and off-host delivery explicit.
+- [ ] Run all Go checks and real-store/browser/permission/restart/recovery verification, plus Compose and optional Terraform checks. Distinguish unrun cloud/live-provider checks.
+- [ ] Dispatch one independent whole-change security/correctness reviewer, fix important findings with regression tests, update PR #4 and report remaining production gates. Do not merge or deploy.
 
-## Plan Review and Execution
+## Execution record
 
-The design direction is approved. This written implementation plan still needs review under the writing-plans workflow. Recommended execution is native inline work because the runtime, storage and deployment interfaces are sequential and share security invariants. Use the current checkout if the operator chooses it, preserve the pre-existing untracked `package-lock.json`, and do not create a worktree without their preference. A whole-change independent review follows implementation; a reviewer does not provision or deploy resources.
-
-Terraform and `gcloud` are not currently available on PATH. Docker is installed but its daemon was unavailable during planning. The Go baseline initially hit sandbox restrictions on the build cache; the approved rerun of `go test ./...` passed. This baseline does not prove real PostgreSQL/OpenBao integration or a GCP deployment. The unavailable tools are verification prerequisites to resolve during execution, not reasons to bypass tests or claim deployment readiness.
+The user approved inline implementation and selected Docker on a VM, then explicitly corrected encryption to production GCP KMS by default with a real local substitute. This supersedes the intermediate OpenBao choice. No further scope approval is needed. Task 1 is committed as `0d91122` and verified with the full real-store race suite. Resume subsequent tasks from the plan's execution ledger; do not redo completed work. Preserve the existing PR and unrelated package-lock.json.
