@@ -4,7 +4,7 @@
 
 Go backend with Google Drive as the first connector
 
-Version 0.1  |  18 October 2026  |  Proposed implementation design
+Version 0.2  |  18 October 2026  |  Proposed implementation design
 
 ### Decision and first milestone
 
@@ -53,6 +53,38 @@ Use one Go binary with explicit packages and two authenticated API surfaces. Sta
 | audit and store | Append-only events, operation outcomes, migrations and ownership-constrained queries. |
 
 The API process is privileged: it can obtain provider secrets. Package boundaries reduce mistakes but do not isolate a compromised process. A separately permissioned token broker or connector worker is a later hardening option, not an MVP requirement.
+
+## 1  Secret storage and deployment
+
+### Why OpenBao is included
+
+OpenBao provides encrypted secret storage, access policies, secret-access audit and versioned compare-and-set for complete credential bundles. It keeps provider tokens out of the metadata database and gives operators a defined secret lifecycle. It does not perform SaaS OAuth consent, bind callbacks, coordinate refresh, approve delegation or decide whether an agent may read a document. Those workflows and authorization decisions belong to Toolbox.
+
+This proposed dependency adds storage, TLS, workload authentication, backup, unseal/recovery and upgrade duties. Alternatives must preserve the interface’s consistency and access controls; plain get/set is insufficient. Hosting remains undecided.
+
+OpenBao is a server process deployable on a VM, in a container or on Kubernetes; its runtime is separate from its durable storage choice. Official documentation lists both integrated Raft and PostgreSQL as production-ready and currently recommends PostgreSQL as easier for new OpenBao operators. Evaluate both; Raft is not mandatory. If PostgreSQL backs OpenBao, use a separate database and role from Toolbox metadata, with the app accessing secrets through OpenBao rather than reading its encrypted storage tables. Cloud provider, topology and storage backend remain undecided. [S17, S18]
+
+### A replaceable secret storage interface
+
+```text
+type SecretStore interface {
+  ReadLatest(ctx, connectionID) (CompleteBundle, Version, error)
+  CompareAndSwap(ctx, connectionID, expected Version,
+                 replacement CompleteBundle) (Version, error)
+}
+```
+
+This is conceptual Go notation. Version is an opaque store version. Creation is an explicit create-if-absent CAS; conflicts are returned without retrying an unconditional overwrite. ReadLatest returns the current complete bundle, its lifecycle state and version, or a distinct not-found/unavailable error. A bundle includes connection epoch, monotonic generation, operation ID and all credential fields. Tombstoning is a CAS replacement with state=tombstoned and no usable token values. No adapter may silently read an older version or weaken CAS semantics. Destruction of retained secret versions is a separate privileged retention operation.
+
+Keep provider OAuth and the refresh state machine above this interface. Contract tests must cover stale-version rejection, concurrent CAS, ambiguous-write readback, complete-bundle atomicity and tombstone visibility. A replacement backend must pass these tests and retain the operation ID needed to reconcile Postgres intent.
+
+### Proposed production topology
+
+Expose a public HTTPS ingress for the owner UI, OAuth callback and agent API, routed to the Go service. Keep Postgres and OpenBao on private networks, reachable only by authorized backend workloads and tightly controlled operators. Browser and agent clients never connect to the secret service. Use a platform workload identity to bootstrap a least-privilege OpenBao role and short-lived service token; do not place a development root token in the app. The hosting identity mechanism remains a deployment decision.
+
+Only the backend reads refresh-token bundles. The explicit Picker exception remains: the authenticated owner browser briefly receives a Google access token with its real scope and lifetime. Permit fixed outbound Google OAuth/Drive hosts from the backend, plus required internal services. No arbitrary proxy or redirect forwarding is allowed.
+
+Local Compose uses disposable, loopback-bound development services and synthetic accounts. Production needs durable storage, TLS, tested backups, recovery ownership and secret-access audit. Section 14 details these requirements; no infrastructure is deployed by this proposal.
 
 ## 2  Google Drive contract and limits
 
@@ -104,7 +136,7 @@ The owner reviews the Google account, agent identity, tool description, selected
 | Grant is for authenticated agent | Server-resolved agent_id equals grant.agent_id |
 | Owner and connection match | Grant owner equals connection owner; provider is google_drive |
 | Grant active in time | DB time is at or after not_before and before expires_at; revoked_at is null |
-| Connection usable | Connection is active, account verified, epoch current, required scope granted |
+| Connection usable | Active, verified and scoped; grant.approved_connection_epoch equals live connection.epoch |
 | Tool and resource exact | Exact versioned tool string and exact (connection_id, provider_file_id) membership |
 | Implementation allowed | Static registry contains tool; fixed handler and schema reject unknown arguments |
 
@@ -122,7 +154,7 @@ The authenticated agent submits a versioned tool/action, exact resources and req
 
 The owner signs in on Toolbox, connects Google if needed, selects or verifies the requested document, and sees the verified agent identity, action description, Google account, document and expiry. Agent-supplied labels are untrusted and displayed separately from verified identity. The user can narrow or reject the request. Apply CSRF protection and bind approval to the displayed request version and permission digest; edits invalidate the pending review.
 
-On approval, validate ownership and resource access again, then commit the immutable grant, approved request status and audit event in one database transaction. Only afterward may Toolbox mint the delegation JWT. The requesting agent polls with its own authentication and receives only its approved token. Replays cannot create extra grants; use request state and a unique approved_grant_id. Denied or expired requests mint nothing.
+On approval, validate ownership and resource access again. Lock the connection row and bind approval to the displayed epoch; reject an epoch change and require renewed review. Commit the immutable grant with approved_connection_epoch copied from that validated connection, the approved request status and audit event in one database transaction. Only afterward may Toolbox mint the delegation JWT. The requesting agent polls with its own authentication and receives only its approved token. Replays cannot create extra grants; use request state and a unique approved_grant_id. Denied or expired requests mint nothing.
 
 A user may also initiate a grant directly from the owner UI. Both paths call the same grant service. The browser login token and the Google provider token are never accepted as the agent’s delegation token.
 
@@ -157,7 +189,7 @@ The request also authenticates the agent independently and must match act.sub. A
 
 ### Where live checks occur
 
-Validate the JWT at each independently trusted service boundary. At the Toolbox execution gate, intersect its permissions with the current grant, agent/credential state and connection epoch before obtaining provider credentials. Pass an immutable internal AuthContext through trusted in-process functions; do not requery the database at every helper call. Recheck live state before each provider dispatch, delayed step or retry. The token never expands a grant.
+Validate the JWT at each independently trusted service boundary. At issuance, require grant.approved_connection_epoch = connection.epoch and copy that approved epoch into the JWT; never restamp an old grant with a new epoch. At execution, dispatch and final return, require JWT.connection_epoch = grant.approved_connection_epoch = connection.epoch, alongside current grant and agent/credential state. Pass an immutable internal AuthContext through trusted in-process functions; do not requery the database at every helper call. Recheck live state before each provider dispatch, delayed step or retry. The token never expands a grant.
 
 Purely offline JWT validation is a different revocation contract: a revoked grant remains usable until token expiry unless the verifier receives revocation state. Short expiry limits that window but does not eliminate it. Do not advertise immediate revocation with offline-only validation. Later downstream services should receive audience-specific, attenuated tokens through a defined exchange, with no broader scope or longer lifetime than the original. Do not blindly forward the same JWT to every service. The actor claim and future exchange can follow RFC 8693 without implementing a full exchange service in v1. [S16]
 
@@ -223,20 +255,21 @@ Use UUID primary keys, timestamptz timestamps and foreign keys. Scope every owne
 | oauth_transactions | id, owner_user_id, state_hash unique, session_binding_hash, provider/client, callback_id, requested_scopes, verifier_ref, nonce_hash, expires_at, consumed_at, status. No raw code in logs. |
 | connection_resources | id, connection_id, provider_file_id, mime_type, selected_by_user_id, selected_at, verified_at. Unique (connection_id, provider_file_id). Optional minimal display name. |
 | delegation_requests | id, agent_id, requested_permissions, requested_expiry, request_version, permission_digest, status, expires_at, approved_grant_id unique. Approval is owner-bound and audited. |
-| delegation_grants | id, owner_user_id, agent_id, connection_id, tool_name, action, not_before, expires_at, revoked_at, version, policy_version, created_at. CHECK expires_at > not_before. |
+| delegation_grants | id, owner_user_id, agent_id, connection_id, approved_connection_epoch, tool_name, action, not_before, expires_at, revoked_at, version, policy_version, created_at. CHECK expires_at > not_before. |
 | grant_resources | grant_id, connection_id, provider_file_id. Composite FK to connection_resources; enforce same connection as grant. Exact membership only. |
 | invocations | id, agent_id, grant_id, connection_id, tool_name, resource reference, decision, reason_code, state, started_at, finished_at, provider_status, output_bytes. No request/response body. |
+| refresh_operations | Durable intent keyed by operation_id, connection_id and epoch. Fields and recovery rules in section 12. |
 | audit_events and outbox | id, occurred_at, actor_type/id, subject_user_id, action, target IDs, outcome, policy_version, trace_id. Append-only events; durable outbox for secret cleanup and reconciliation. |
 
 ### Secret bundle and connection states
 
 OpenBao path: toolbox/{environment}/connections/{connection_id}. A single KV v2 value contains provider, provider_subject, client-config ID, connection epoch, generation, operation ID, access token, access expiry, refresh token, actual granted scopes and bundle state. Write the complete bundle using compare-and-set, with CAS required on the mount. Old versions are still secrets; apply an explicit retention and destruction policy. [S11]
 
-Connection states: pending → active → needs_reauth, suspended or disconnecting → disconnected. Do not activate until the token bundle is durably stored and account validation is complete. Partial setup remains pending and is reconciled or cleaned up. A reconnect creates a new epoch; it must not silently reactivate old grants after an account change.
-
-Useful indexes: active credential key_id; grant(agent_id, id); grant_resources(grant_id, provider_file_id); connection(owner_user_id, id); audit(subject_user_id, occurred_at); outbox(status, next_attempt_at). Prevent mismatched ownership with composite keys or transactional checks backed by tests, not handler convention alone.
+Connection states: pending → active → needs_reauth, suspended or disconnecting → disconnected. Do not activate until the token bundle is durably stored and account validation is complete. Partial setup remains pending and is reconciled or cleaned up. Every reconnect creates a new epoch, including the same Google account. An old grant retains its approved_connection_epoch and remains unusable; only new owner approval can authorize the new epoch.
 
 ## 9  Public API and tool schema
+
+Useful indexes: active credential key_id; grant(agent_id, id); grant_resources(grant_id, provider_file_id); connection(owner_user_id, id); audit(subject_user_id, occurred_at); outbox(status, next_attempt_at). Prevent mismatched ownership with composite keys or transactional checks backed by tests, not handler convention alone.
 
 All owner mutations require an authenticated browser session, CSRF token and same-origin checks. Agent credentials are accepted only on the agent surface. Reject unknown JSON fields, excessive lengths and oversized bodies. The server derives ownership from authentication and the selected grant.
 
@@ -292,29 +325,45 @@ Immediately before each provider request, reread grant and connection status. A 
 
 Use a fixed HTTPS host, fixed route templates, escaped path ID and a fixed query whitelist. Disable HTTP redirects in the Go client for these API calls. Do not follow exportLinks, links found in document text or provider-supplied alternative URLs. If Google’s chosen export path unexpectedly requires a redirect, stop and review a narrowly bounded implementation before adding support.
 
-Buffer at most 1 MiB plus one byte, close the response body and fail on overflow. Return content only after a final live status check and successful outcome audit; if access was revoked during the fetch, discard the buffered result. This extra check limits leakage but cannot erase content already delivered. Document content is untrusted tool data and must not become instructions or cause Toolbox to make follow-on calls.
+Buffer at most 1 MiB plus one byte, close the response body and fail on overflow. Return content only after a final primary-DB check of live grant, agent/credential, connection and approved epoch, plus successful outcome audit. If revoked, expired, suspended, disconnected or epoch-mismatched during fetch, discard the buffered result and deny. This extra check limits leakage but cannot erase content already delivered. Document content is untrusted tool data and must not become instructions or cause Toolbox to make follow-on calls.
 
 ## 12  Token refresh and consistency
 
 ![refresh sequence](diagrams/refresh_sequence.svg)
 
-Figure 5  OpenBao is authoritative for the latest complete credential bundle. Postgres stores lifecycle and advisory version metadata.
+Figure 5  Postgres holds durable refresh intent before dispatch. OpenBao holds the complete resulting credential bundle.
 
 ### One refresh coordinator per connection
 
-1. Use in-process singleflight per connection and a Postgres session advisory lock across replicas. Use a dedicated connection and bounded timeouts. After locking, recheck connection epoch and the caller’s owner permission or live grant before refresh. Never return a held-lock connection to a pool.
+1. Use in-process singleflight and a Postgres session advisory lock per connection, with a dedicated connection and bounded timeouts. After locking, recheck active connection, approved epoch and caller permission. Never return a held-lock connection to a pool. Disable SDK and HTTP automatic refresh retries.
 
-2. Read the latest OpenBao bundle after locking. If its access token remains valid beyond a proposed 60-second skew, reuse it. Otherwise call Google’s fixed token endpoint once with the saved refresh token. Avoid SDK auto-refresh outside this coordinator.
+2. Read the latest OpenBao bundle and unresolved refresh intent after locking. Reconcile or block unfinished intent before reuse or another refresh. The coordinator accepts expected_epoch and optional rejected_generation from a Drive 401. Normally reuse a token valid beyond 60 seconds. After a 401, reuse only a valid generation strictly newer than rejected_generation; otherwise force one refresh regardless of expiry. Each singleflight waiter checks this condition on the returned bundle.
 
-3. Preserve the old refresh token when a successful response omits a new one. If one is returned, replace it in the same complete bundle as the access token, expiry and generation. CAS the bundle at its observed KV version, then update Postgres’s advisory version and refresh metadata. [S7, S11]
+3. Before dispatch, commit a refresh_operations intent with operation_id, connection_id, epoch, source_generation, source_kv_version, reason, state=in_progress and started_at. Enforce one unresolved intent per connection/epoch with a partial unique index. On commit uncertainty, inspect intent state; never send while persistence is uncertain. Recheck live authority after any delay, then send one request to the fixed Google token endpoint.
 
-4. On a CAS conflict or lost DB lock, do not overwrite or blindly repeat the refresh. Read authoritative state and reconcile. Cancellation and lock ownership cannot fence Google’s token endpoint; an in-flight request may already have executed.
+4. On success, preserve the old refresh token if omitted; otherwise replace it with the new token in one complete bundle. CAS using source_kv_version, set generation=source_generation+1 and the same operation_id/epoch. Only then mark intent completed and record resulting KV version in Postgres. Recheck live state before use. [S7, S11]
 
-### Cross system failure rules
+## 12  Refresh recovery rules
 
-There is no atomic transaction spanning Google, OpenBao and Postgres. If Bao commits but the DB update fails, reread the same stable secret path and operation ID; repair advisory metadata under the lock. If a Bao write times out, inspect its latest operation ID before deciding whether it committed. Do not fall back to an older bundle because a database pointer is stale.
+### Durable state and failure boundaries
 
-If Google rotated a token but the response or its durable storage was lost, the old refresh token may no longer work. No local lock or CAS can repair that provider-side gap. Mark the connection needs_reauth, stop dependent calls and ask the owner to reconnect. Do not claim exactly-once refresh or guaranteed rotation recovery. On invalid_grant, suspend refresh and require reauthorization; on a transient token-endpoint timeout, treat outcome as uncertain and avoid uncontrolled retries.
+The intent contains no tokens. Add completed_at, result_generation, result_kv_version and a sanitized failure code. Terminal states are completed, failed_known and blocked_uncertain. Keep in_progress and blocked_uncertain within the unresolved unique constraint until explicit recovery or reconnect supersedes that epoch. Timeouts or an old started_at are not proof that Google did nothing.
+
+A lock holder encountering an unfinished intent reads the latest Bao bundle. A complete bundle with the same operation_id, epoch and source_generation+1 proves the local result was durably saved: repair the DB completion metadata without refreshing. Never use an older bundle because a DB pointer is stale. Any missing, mismatched or unreadable outcome blocks provider dispatch; retain the intent and mark the connection needs_reauth when possible. Reconnect and renewed owner approval recover the unresolved epoch.
+
+The intent is committed before the network call, so a crash even before dispatch may conservatively require reconnect. Do not infer “not sent” from process death, lock takeover or elapsed time. Only a positively known pre-dispatch failure with no transport attempt can be marked failed_known and retried under a new intent after reauthorization. Do not automatically retry token endpoint errors with ambiguous execution outcomes.
+
+### Crash and lock loss behavior
+
+1. Crash after intent commit, before or after sending: a successor acquires the lock but sees unfinished intent. It reconciles a matching durable Bao result or blocks. It never replays the old refresh token based solely on its expiry.
+
+2. Provider response lost, or crash before Bao CAS: the rotation outcome may be unrecoverable. Preserve the intent as blocked_uncertain, stop dependent work and require reconnect. A Google invalid_grant requires reauthorization, not repeated attempts.
+
+3. Bao CAS timed out: inspect the current operation ID, epoch and generation. Matching complete data allows DB repair; unavailable or conflicting data remains blocked. A CAS conflict or lost lock is never permission to overwrite or refresh again.
+
+4. Bao committed but DB completion failed: reconcile that exact bundle under the lock. If disconnect or reconnect changed state/epoch, do not reactivate it. A stale worker must not publish or return credentials after losing its lock or authority; cancellation is best effort.
+
+There is no transaction or fencing token spanning Postgres, OpenBao and Google. Durable intent prevents compliant successor workers from blindly redispatching an uncertain operation; it does not provide exactly-once refresh, cancel an already-dispatched request or guarantee recovery of a lost rotating token. Recheck the live epoch and intent before CAS and before use; mismatches fail closed.
 
 Use access tokens only for the current request path; no long-lived per-replica token cache in v1. Keep plaintext out of panic reports and traces. Go cannot guarantee zeroization of all copied strings, so do not promise perfect memory erasure.
 
@@ -369,7 +418,7 @@ Use an explicitly registered localhost callback for development and a separate f
 
 ### Bounded retry policy
 
-For Drive metadata and export GETs, retry transient 429/5xx responses with jitter and Retry-After only within the total deadline and at most two retries. Reauthorize every retry. On a 401, coordinate one refresh and retry once if permitted; a second 401 becomes reauthentication required. Do not repeatedly refresh on 403, which may indicate a permission or download restriction. Never retry a token refresh with an uncertain rotating-token outcome as though it were a harmless GET.
+For Drive metadata and export GETs, retry transient 429/5xx responses with jitter and Retry-After only within the total deadline and at most two retries. Reauthorize every retry. On a 401, pass the rejected bundle generation and epoch to the coordinator. Reuse only a newer valid generation or force one refresh even if the rejected token is not expired, then reauthorize and retry once; a second 401 becomes reauthentication required. Do not repeatedly refresh on 403, which may indicate a permission or download restriction. Never retry a token refresh with an uncertain rotating-token outcome as though it were a harmless GET.
 
 ### OPA when policy becomes complex
 
@@ -391,14 +440,38 @@ The MVP is complete only when the following tests pass through the real API boun
 | OAuth attacks | Wrong session/state/nonce/client, expired transaction, replayed callback, malformed callback, hostile return URL and account substitution all fail. PKCE negative tests must prove enforcement. |
 | Google restrictions | Wrong MIME, trashed file, blocked download, missing permission, resource-key requirement and provider scope mismatch return explicit safe failures. |
 | Output limits and redirects | Oversized or slow content is bounded and not truncated silently. 3xx to another host or localhost is refused. Encoded file IDs cannot alter path or query. |
-| Refresh concurrency | Two replicas request an expired connection; one refresh runs in the normal case. CAS prevents lost updates. A missing refresh token preserves the old value. |
-| Partial failures | Inject crashes before/after provider response, Bao CAS and DB commit. Recover known durable outcomes, block uncertain rotations and never reactivate a disconnected epoch. |
+| Refresh concurrency | Two replicas request an expired connection; one refresh runs in the normal case. CAS prevents lost bundle updates. An omitted refresh token preserves the old value. See lifecycle cases below. |
+| Partial failures | Inject crashes around durable intent, provider dispatch, Bao CAS and completion. Reconcile known outcomes; block uncertain rotations without redispatch. |
 | Secret and content hygiene | Seed canary tokens/text. Scan application logs, traces, audit, errors, metrics and responses. No secret appears outside its approved boundary. |
 | Audit and dependency failure | DB/Bao outage, failed audit write and lost lock fail closed. Started but unfinished invocations reconcile to unknown/interrupted, never fabricated success. |
 
 ### Concurrency test for the revocation promise
 
 Pause a request before its final authorization read, revoke the grant, then release it: no provider request is dispatched. Separately pause after dispatch, revoke and release the response: the system may not stop Google’s work, but it discards buffered content when the final status check detects revocation. Document and test this difference rather than promising instantaneous cancellation.
+
+## 15  Lifecycle acceptance cases
+
+### Approved connection epoch
+
+Create grant G at epoch E. Reconnect the same account to E+1 while leaving G otherwise active. Both token issuance for G and invocation with any old or freshly fabricated epoch claim must deny before secret access. Only a new owner-approved grant at E+1 can succeed. Race approval with reconnect: reject a changed displayed epoch rather than approving it silently. Repeat at each dispatch and final buffered-result release.
+
+### Forced refresh after a provider 401
+
+Reject generation N with a recorded expiry far in the future. Under the lock, generation N forces exactly one attempted refresh in the normal successful case; the rejected token is not reused. If another worker has already persisted valid N+1, reuse it with zero new refresh calls. An expired newer generation still needs refresh. Concurrent singleflight callers must each enforce their rejected_generation constraint. A second Drive 401 terminates safely rather than entering a loop.
+
+### Durable intent and crash recovery
+
+- Crash before intent commit: no provider dispatch occurred. Crash after commit but before dispatch: successor conservatively blocks if there is no matching Bao result; it does not assume safe replay.
+
+- Pause after dispatch, kill the worker or drop its DB session, then start a successor. The successor finds the unresolved intent and makes zero token-endpoint calls even if the stored access token is expired. Bound total calls for this scenario to the original attempt.
+
+- Lose the provider response or crash before credential persistence: blocked_uncertain survives process restart; the connection cannot issue usable credentials until explicit reconnect.
+
+- Commit Bao CAS but lose its response or DB completion: successor matches operation ID, epoch and source_generation+1, repairs metadata and makes zero new refresh calls. A mismatch, unavailable Bao or unknown CAS result remains blocked.
+
+- Disconnect or reconnect during any paused step: late workers cannot reactivate old-epoch grants or release buffered content. Preserve recovery records without claiming that an in-flight Google request was cancelled.
+
+These are required implementation tests, not results from this document revision. The fake token endpoint must record attempted calls and simulate rotation; process and database-session failures are distinct cases.
 
 ## 16  Build order and decisions to close
 
@@ -468,6 +541,10 @@ Official references checked on 18 October 2026. Bracketed source IDs refer to th
 [S15  RFC 8725 JSON Web Token best current practices](https://www.rfc-editor.org/rfc/rfc8725.html)
 
 [S16  RFC 8693 OAuth token exchange and actor claim](https://www.rfc-editor.org/rfc/rfc8693.html)
+
+[S17  OpenBao storage choices and operational comparison](https://openbao.org/docs/configuration/storage/)
+
+[S18  OpenBao installation and deployment methods](https://openbao.org/docs/install/)
 
 ### Implementation notes
 
