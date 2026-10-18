@@ -10,6 +10,8 @@
 
 **Spec:** [Approved GCP deployment design](../specs/2026-10-18-gcp-deployment-design.md), including the KMS revision approved in conversation on 2026-10-18.
 
+**Database decision:** Keep PostgreSQL for compatibility with existing authorization and audit protections and the low-cost pilot. See the [PostgreSQL and Spanner decision](../specs/2026-10-18-gcp-deployment-design.md#database-decision) for cost assumptions, migration tradeoffs, and conditions for reconsideration.
+
 ## Global Constraints
 
 - Production startup never generates replacements for missing signing or pepper keys.

@@ -28,6 +28,27 @@ Choose the first approach. Preserve OpenBao and fixture adapters for existing de
 
 Secret Manager remains appropriate for static configuration secrets. Do not create a Secret Manager version for each provider refresh: retained enabled and disabled versions are billable. KMS protects the encryption keys for credential records without requiring a new KMS key version per refresh.
 
+## Database decision
+
+Decision on 2026-10-18: use Cloud SQL for PostgreSQL for this deployment. Spanner was considered as an alternative. The deciding factors are compatibility with Toolbox's security controls, the inexpensive pilot, and the absence of an established need for distributed database scaling.
+
+The existing adapter uses PostgreSQL advisory locks to coordinate transactions and provider credential operations. Database triggers enforce append-only audit history, immutable grants and approvals, and monotonic connection epochs. These controls and their regression tests are already part of the implementation. Spanner's PostgreSQL interface is a subset of PostgreSQL; it does not support triggers or transactional DDL. Switching would require a new adapter and a reviewed replacement for the current locking, migration, and database enforcement mechanisms. It would not be a connection-string change. See the [current storage guarantees](../../storage.md), [PostgreSQL adapter](../../../internal/store/postgres.go), [database protections](../../../internal/store/migrations/001_initial.sql), and [Spanner compatibility limits](https://docs.cloud.google.com/spanner/docs/reference/postgresql/overview).
+
+PostgreSQL also provides the lower entry price for the private pilot. The following compute estimates use published on-demand rates checked on 2026-10-18, `us-central1`, 730 hours per month, and no commitments or credits. Storage, backups, networking, and other services are additional. These configurations have different capacity and availability characteristics and are not performance equivalents.
+
+| Configuration | Approximate monthly compute | Relevant tradeoff |
+| --- | --- | --- |
+| PostgreSQL `db-f1-micro`, single zone | $7.67 | Shared CPU and about 0.6 GiB RAM; private pilot only, with no Cloud SQL SLA |
+| PostgreSQL Enterprise, 1 vCPU and 3.75 GiB RAM, single zone | $49.31 | Dedicated capacity without regional HA |
+| Same PostgreSQL Enterprise configuration with regional HA | $98.62 | Standby capacity and failover at a higher fixed cost |
+| Spanner Standard, regional, 100 processing units | $65.70 | Distributed regional replication; requires adapting the application |
+
+Spanner can be competitive with HA PostgreSQL, so cost alone does not rule it out. The compute estimates do not establish which database would be cheaper for a measured production workload. Check current [Cloud SQL pricing](https://cloud.google.com/sql/pricing?hl=en), [Spanner pricing](https://cloud.google.com/spanner/pricing), and [shared-core operating limits](https://docs.cloud.google.com/sql/docs/postgres/instance-settings) when sizing an environment.
+
+Toolbox's immediate storage scaling limit is its full-state snapshot and database-wide transaction lock. Replace that adapter with scoped, indexed queries and explicit transactions before expecting higher throughput. Moving the same access pattern to Spanner would not by itself solve that application bottleneck. Standard PostgreSQL also preserves the option to use other PostgreSQL hosting providers. KMS encryption and least-privilege access remain necessary parts of the selected design; the database choice alone does not establish stronger credential protection.
+
+Revisit Spanner if a concrete requirement calls for multi-region availability or horizontal write scaling, or if measured total cost favors it enough to justify the migration. Such a change requires its own storage design, equivalent authorization and audit protections, and tests for fresh revocation reads, transaction retries, credential CAS, provider-operation fencing, and recovery. Preserve the current security guarantees rather than dropping unsupported protections during migration.
+
 ## Managed resources
 
 Terraform provisions Artifact Registry, Cloud Run, Cloud SQL for PostgreSQL, a software-backed symmetric Cloud KMS key, Secret Manager containers for static secrets, dedicated service accounts and IAM, Cloud Scheduler, Cloud Monitoring policies, and Cloud Storage for Terraform state and protected recovery artifacts. Use separate GCP projects and state prefixes for staging and production.
