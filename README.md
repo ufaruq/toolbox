@@ -56,7 +56,7 @@ The test role needs schema creation/drop and permission to terminate its own tes
 
 ## Layout
 
-- `cmd/toolbox`: explicit fixture-only executable
+- `cmd/toolbox`: explicit fixture and local Okta owner sign-in modes
 - `internal/server`: disjoint owner/agent API, trusted approval UI, dispatch gate and final live check
 - `internal/security`: agent credential hashing and scoped Ed25519 delegation tokens
 - `internal/oauth`: one-use bound OAuth flow, fixed Google adapter and fixture provider
@@ -76,3 +76,11 @@ The PostgreSQL snapshot adapter is deliberately low-throughput and serializes al
 - [Storage guarantees and limitations](docs/storage.md)
 
 No merge, deployment or live OAuth application provisioning has been performed.
+
+## Local Okta owner sign-in
+
+`TOOLBOX_MODE=oidc-local` provides real owner identity through an Okta OIDC Web Application on a loopback-only HTTP origin. It requires PostgreSQL, OpenBao, an exact configured origin and issuer, server-side client credentials, and a stable session pepper. Google connections, document access, agents and delegation are disabled in this mode. The fixture instructions above remain the separate synthetic demo.
+
+Follow [Okta setup](docs/okta-setup.md) for the placeholder-only [.env.example](.env.example), disposable dependency setup, exact app settings and startup command. The code and [synthetic OIDC browser test](tests/browser/README.md#synthetic-oidc-browser-flow) can be verified before creating an Okta tenant; no account or client secret is needed for automated verification. Toolbox logout ends its own session, while an existing Okta browser session can sign in again.
+
+**Real Okta acceptance is unrun.** Live browser login/logout must be recorded separately before M1 is complete. Live Google, agent integration and production deployment remain open.

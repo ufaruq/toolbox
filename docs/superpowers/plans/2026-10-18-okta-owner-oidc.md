@@ -10,7 +10,7 @@
 
 **Spec:** [Okta owner sign-in design](../specs/2026-10-18-okta-owner-oidc-design.md).
 
-**Review state:** Draft requested by the user alongside the design. Product implementation has not started. Review the spec first, then this plan. Recommended execution: native implementation with one independent security/code review before the implementation PR is marked ready.
+**Execution state:** Implemented on this feature branch with parallel component work and independent security/code review. See the PR for exact verification evidence. The user handles external tenant provisioning; live acceptance remains pending. Component work was consolidated into a feature commit rather than separate per-task commits.
 
 ## Global Constraints
 
@@ -77,7 +77,7 @@ Shared test support exports `oidcidp.New(testing.TB) *oidcidp.Server`, fields `I
 
 **Files:** Create `internal/ownerlogin/service.go`, `service_test.go`; extend store/provider test fixtures as needed.
 
-**Interfaces:** `ServiceConfig{Issuer, ClientID, RedirectURI string; Pepper []byte}`; `StartResult{AuthorizationURL, BrowserToken string; ExpiresAt time.Time}`; `LoginResult{SessionToken, CSRFToken, UserID string; ExpiresAt time.Time}`. Produce `NewService(domain.Repository, tokens.JSONStore, Provider, ServiceConfig) (*Service, error)`, `Start(ctx context.Context, previousSessionID string) (StartResult, error)`, `Complete(ctx context.Context, state, code, browserToken string) (LoginResult, error)`, `Reject(ctx context.Context, state, browserToken string) error`, `Logout(ctx context.Context, sessionID, browserToken string) error`, and `Cleanup(context.Context) error`.
+**Interfaces:** `ServiceConfig{Issuer, ClientID, RedirectURI string; Pepper []byte}`; `StartResult{AuthorizationURL, BrowserToken string; ExpiresAt time.Time}`; `LoginResult{SessionToken, CSRFToken, UserID string; ExpiresAt time.Time}`. Produce `NewService(domain.Repository, tokens.JSONStore, Provider, ServiceConfig) (*Service, error)`, `Start(ctx context.Context, previousSessionID string, existingBrowserToken ...string) (StartResult, error)`, `Complete(ctx context.Context, state, code, browserToken string) (LoginResult, error)`, `Reject(ctx context.Context, state, browserToken string) error`, `Logout(ctx context.Context, sessionID, browserToken string) error`, `Cleanup(context.Context) error`, `Issuer() string`, and `SessionBound(*domain.State, string) bool`.
 
 - [ ] Write `TestOwnerLoginLifecycle`: 600-second bound transaction; verifier only in secret store; verified issuer/subject creates/reuses active user; new 8-hour random session with stored hashes; previous session expires without deleting Google foreign-key parents. Disabled user never reactivates.
 - [ ] Write `TestOwnerLoginRejectsReplayAndWrongBrowser`: wrong binding does not consume the legitimate transaction; expired/missing state and repeated/concurrent callbacks create zero extra sessions; concurrent valid callbacks perform exactly one exchange.
@@ -123,4 +123,4 @@ Shared test support exports `oidcidp.New(testing.TB) *oidcidp.Server`, fields `I
 
 At the unchanged application baseline `3e663109df283ee9dc66c41530291a15d83500cf` (documentation follow-up), `go test -race -count=1 ./...` passed on 2026-10-18 after allowing local test sockets in the execution sandbox. This run did not configure the optional real PostgreSQL/OpenBao integrations or browser acceptance. It does not test the proposed OIDC implementation.
 
-Only the design and this draft plan exist in the planning commit. No OIDC product code, new dependencies, live tenant, credential provisioning, merge, deployment, or production readiness is claimed.
+The initial planning commit contained only the design and plan. The subsequent feature commit implements the local owner-sign-in scope; exact Go, store and browser verification is recorded in the PR. No live tenant, credential provisioning, merge, deployment, or production readiness is claimed. The per-task commit instructions above describe the original sequence; implementation was consolidated after component integration.

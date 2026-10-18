@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ufaruq/toolbox/internal/domain"
+	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/strict"
 )
@@ -22,6 +23,8 @@ type Config struct {
 	Pepper     []byte
 	Origin     string
 	Fixture    bool
+	OwnerOnly  bool
+	OwnerLogin *ownerlogin.Service
 	Readiness  func(context.Context) error
 }
 type Server struct {
@@ -57,7 +60,9 @@ type Document struct {
 }
 
 func New(cfg Config, integration Integration) (*Server, error) {
-	if cfg.Repository == nil || cfg.Signer == nil || len(cfg.Pepper) < 32 || cfg.Origin == "" || integration == nil {
+	if cfg.Repository == nil || len(cfg.Pepper) < 32 || cfg.Origin == "" ||
+		(cfg.OwnerOnly && (cfg.Fixture || cfg.OwnerLogin == nil || !validOwnerOrigin(cfg.Origin))) ||
+		(!cfg.OwnerOnly && (cfg.Signer == nil || integration == nil || cfg.OwnerLogin != nil)) {
 		return nil, errors.New("invalid server configuration")
 	}
 	s := &Server{Config: cfg, mux: http.NewServeMux(), limits: map[string]window{}, slots: make(chan struct{}, 8), integration: integration}
@@ -69,7 +74,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-	if r.URL.RawQuery != "" && r.URL.Path != "/oauth/callback" && r.URL.Path != "/fixture/authorize" {
+	if (r.URL.RawQuery != "" || r.URL.ForceQuery) && r.URL.Path != "/oauth/callback" && r.URL.Path != "/fixture/authorize" && !(s.OwnerOnly && r.URL.Path == "/auth/oidc/callback") {
 		fail(w, 400, "INVALID_QUERY")
 		return
 	}
@@ -95,6 +100,21 @@ func (s *Server) routes() {
 		jsonOut(w, 200, map[string]string{"status": "ready"})
 	})
 	s.mux.HandleFunc("GET /v1/session", s.session)
+	s.mux.HandleFunc("GET /v1/auth/config", s.authConfig)
+	if s.OwnerOnly {
+		s.mux.HandleFunc("POST /auth/oidc/start", s.startOwnerLogin)
+		s.mux.HandleFunc("GET /auth/oidc/callback", s.ownerCallback)
+		s.mux.HandleFunc("POST /v1/session/logout", s.logoutOwner)
+		for _, pattern := range []string{
+			"/v1/agents", "/v1/agents/", "/v1/credentials/", "/v1/connections", "/v1/connections/",
+			"/v1/delegation-requests", "/v1/delegation-requests/", "/v1/delegation-tokens",
+			"/v1/grants/", "/v1/tool-invocations", "/v1/audit", "/oauth/callback",
+		} {
+			s.mux.HandleFunc(pattern, func(w http.ResponseWriter, _ *http.Request) { fail(w, 503, "FEATURE_DISABLED") })
+		}
+		s.staticRoutes()
+		return
+	}
 	s.mux.HandleFunc("POST /v1/agents", s.createAgent)
 	s.mux.HandleFunc("POST /v1/agents/{id}/credentials", s.rotateCredential)
 	s.mux.HandleFunc("POST /v1/credentials/{id}/revoke", s.revokeCredential)
@@ -111,13 +131,32 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/grants/{id}/revoke", s.revokeGrant)
 	s.mux.HandleFunc("POST /v1/tool-invocations", s.invoke)
 	s.mux.HandleFunc("GET /v1/audit", s.audit)
-	s.mux.HandleFunc("GET /", s.home)
-	s.mux.HandleFunc("GET /app.js", s.appJS)
-	s.mux.HandleFunc("GET /app.css", s.appCSS)
+	s.staticRoutes()
 	if s.Fixture {
 		s.mux.HandleFunc("POST /fixture/login", s.fixtureLogin)
 		s.mux.HandleFunc("GET /fixture/authorize", s.fixtureAuthorize)
 	}
+}
+
+func (s *Server) staticRoutes() {
+	if s.OwnerOnly {
+		s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/" {
+				http.NotFound(w, r)
+				return
+			}
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			s.home(w, r)
+		})
+	} else {
+		s.mux.HandleFunc("GET /", s.home)
+	}
+	s.mux.HandleFunc("GET /app.js", s.appJS)
+	s.mux.HandleFunc("GET /app.css", s.appCSS)
 }
 func jsonOut(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -165,6 +204,9 @@ func (s *Server) owner(r *http.Request, mutate bool) (domain.Session, error) {
 		v, ok := st.Sessions[security.Hash(c.Value)]
 		u := st.Users[v.UserID]
 		if !ok || !st.Now.Before(v.ExpiresAt) || u.Status != "active" {
+			return domain.ErrDenied
+		}
+		if s.OwnerOnly && !s.OwnerLogin.SessionBound(st, v.ID) {
 			return domain.ErrDenied
 		}
 		if mutate && !security.Equal(v.CSRFHash, security.Hash(r.Header.Get("X-CSRF-Token"))) {
