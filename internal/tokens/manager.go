@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,10 @@ import (
 const StateActive = "active"
 const StateRefreshing = "refreshing"
 const StateTombstoned = "tombstoned"
+
+// StateCleanup contains a resolved provider response that must never be used
+// for dispatch. Its original epoch and operation bind it to the refresh intent.
+const StateCleanup = "cleanup"
 
 type RefreshResult struct {
 	AccessToken, RefreshToken string
@@ -209,13 +214,10 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 		m.markReauth(ctx, conn)
 		return Lease{}, ErrReauth
 	}
-	if result.AccessToken == "" || !result.Expiry.After(m.now()) {
-		m.markReauth(ctx, conn)
-		return Lease{}, ErrReauth
-	}
-	if _, e = m.sameConnection(ctx, conn); e != nil {
-		return Lease{}, e
-	}
+	// Preserve known rotated credentials even when activation is denied.
+	liveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_, activationErr := m.sameConnection(liveCtx, conn)
 	next := bundle
 	next.Scopes = append([]string(nil), bundle.Scopes...)
 	next.AccessToken = result.AccessToken
@@ -228,22 +230,33 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 	if len(result.Scopes) > 0 {
 		next.Scopes = append([]string(nil), result.Scopes...)
 	}
-	if !domain.HasScope(next.Scopes, domain.DriveScope) {
-		m.markReauth(ctx, conn)
-		return Lease{}, ErrReauth
+	validResponse := result.AccessToken != "" && result.Expiry.After(m.now()) && domain.HasScope(next.Scopes, domain.DriveScope)
+	if activationErr != nil || !validResponse {
+		next.State = StateCleanup
+		// The refresh credential is sufficient for cleanup; never retain a usable
+		// access lease in this state.
+		next.AccessToken = ""
+		next.Expiry = time.Time{}
 	}
-	newVersion, putErr := m.Secrets.Put(ctx, Path(id), next, version)
+	newVersion, putErr := m.Secrets.Put(liveCtx, Path(id), next, version)
 	if putErr != nil {
 		// A timeout can conceal a successful KV commit. Only this exact operation is
 		// a proven durable success. A different winner cannot prove which rotated
 		// provider credential remains valid, so do not overwrite or refresh again.
-		recovered, recoveredVersion, readErr := m.Secrets.Get(ctx, Path(id))
-		if readErr != nil || !matches(recovered, conn) || recovered.OperationID != op || recovered.Generation != next.Generation || recoveredVersion <= version {
+		recovered, recoveredVersion, readErr := m.Secrets.Get(liveCtx, Path(id))
+		if readErr != nil || recovered.ConnectionID != next.ConnectionID || recovered.Subject != next.Subject || recovered.ClientID != next.ClientID || recovered.Epoch != next.Epoch || recovered.State != next.State || recovered.OperationID != op || recovered.Generation != next.Generation || recovered.AccessToken != next.AccessToken || recovered.RefreshToken != next.RefreshToken || !recovered.Expiry.Equal(next.Expiry) || !slices.Equal(recovered.Scopes, next.Scopes) || recoveredVersion <= version {
 			m.markReauth(ctx, conn)
 			return Lease{}, ErrReauth
 		}
 		next = recovered
 		newVersion = recoveredVersion
+	}
+	if next.State == StateCleanup {
+		m.markReauth(liveCtx, conn)
+		if activationErr != nil {
+			return Lease{}, activationErr
+		}
+		return Lease{}, ErrReauth
 	}
 	if e = m.repairVersion(ctx, conn, newVersion); e != nil {
 		return Lease{}, e
@@ -359,6 +372,12 @@ func (m *Manager) Tombstone(ctx context.Context, id string, epoch int64) (err er
 	}
 	if b.ConnectionID != id || b.Epoch > epoch {
 		return domain.ErrDenied
+	}
+	// An in-flight/uncertain refresh may still return a rotated credential.
+	// Do not overwrite its intent or claim that revoking the old token completes
+	// cleanup. A late known response can still resolve this exact CAS version.
+	if b.State == StateRefreshing {
+		return ErrRefreshUncertain
 	}
 	if b.State != StateTombstoned || b.Epoch != epoch {
 		b.State = StateTombstoned
