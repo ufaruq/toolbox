@@ -69,6 +69,7 @@ The PostgreSQL snapshot adapter is deliberately low-throughput and serializes al
 
 ## Design and continuation
 
+- [Future plans](docs/future-plans/README.md): proposals for discussion, starting with service accounts and autonomous remote agents.
 - [Design PR #1](https://github.com/ufaruq/toolbox/pull/1)
 - [Implementation draft PR #2](https://github.com/ufaruq/toolbox/pull/2)
 - [Handoff and exact remaining work](docs/HANDOFF.md)
