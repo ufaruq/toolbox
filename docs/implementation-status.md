@@ -1,4 +1,27 @@
-# Continuation: refresh/disconnect cleanup fixed locally
+# Review fixes and current local verification
+
+All three findings from the review of `5d2dd4a` are addressed:
+
+- Initial OAuth exchange now records a durable, operation-bound intent before contacting the provider. Disconnect cleanup stays pending while issuance is unresolved. Late responses, cancelled callers, expired sessions and rejected identity/scope results preserve known credentials for cleanup without activating access.
+- Google token parsing returns safely parsed credentials alongside validation errors. Both exchange and refresh paths persist those results as cleanup-only. Broader or explicitly empty scopes remain rejected; an omitted refresh scope inherits the stored grant. When no usable new refresh credential exists, cleanup retains the known new access credential rather than relying on an older refresh credential.
+- The PostgreSQL backend-loss test identifies its exact database/advisory-lock key, waits for that backend to terminate and proves an unrelated same-application session survives. It no longer depends on a special application name to execute.
+
+## Verification for these fixes
+
+- Passed: formatting, `go vet ./...`, `go build ./...`, and full `go test -race -count=1 ./...`: **221 tests/subtests passed, zero failures or skips**, with actual fresh PostgreSQL 17.11 and OpenBao 2.4.1.
+- Passed: targeted backend-loss regression three times, plus focused OAuth/token race tests. Regressions cover initial exchange/disconnect, cancelled or expired owner sessions, exact CAS binding, uncertain writes, rejected/malformed token responses, revocation failure/retry, and known access-only cleanup.
+- Passed: rebuilt fixture service with actual PostgreSQL/OpenBao, exercising login, synthetic OAuth, review/approval, exact-document read, other-document denial, revocation and disconnect through the API.
+- Passed: automated headless Chromium browser E2E twice consecutively on that service. The actual UI flow covers trusted approval navigation, interrupted review/reload, repeated approval rejection, successful A read, denied B read, revocation, request denial, disconnect, audit evidence/redaction and JavaScript error checks. See `tests/browser/README.md`.
+- Independent review of the full PR and final lifecycle changes found no further high-confidence actionable defect. The CI workflow now runs the real-store and browser checks instead of silently skipping integration settings.
+- GitHub CI status must be checked on the final pushed commit; local results are not a CI result.
+
+The project remains a draft. **Production human OIDC is unimplemented, and live Google consent/PKCE/Picker/Drive validation remains unrun.** Production secret retention, workload policies, operational recovery and deployment validation remain release gates. No live accounts/apps were provisioned; nothing was merged or deployed.
+
+The earlier checkpoint records below are historical and superseded by this section.
+
+---
+
+# Previous continuation: refresh/disconnect cleanup fixed locally
 
 The original WIP checkpoint below is retained as historical evidence. Its known refresh/disconnect regression is now fixed; the project remains draft and is not ready to merge or deploy.
 
@@ -7,7 +30,7 @@ The original WIP checkpoint below is retained as historical evidence. Its known 
 - Cleanup never overwrites an unresolved refreshing intent or reports it complete. Late responses after lost session locks can resolve their original CAS intent. Failed provider revocation retains the rotated refresh credential for retry.
 - PostgreSQL API acceptance now uses a fresh schema per run. Repeated runs previously could select stale connections whose ephemeral fixture secrets were gone.
 
-## Current local verification
+## Previous local verification
 
 Using checksum-verified Go 1.27.2, PostgreSQL 17.11 and OpenBao 2.4.1:
 

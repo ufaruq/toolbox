@@ -1,6 +1,6 @@
 # Implementation handoff
 
-**Continuation update:** the refresh/disconnect regression below is fixed and locally verified. See [current verification](implementation-status.md) for the 185-test race run, real PostgreSQL/OpenBao checks, and remaining production/browser/live-Google gates. The original pickup instructions below describe the earlier checkpoint. Production OIDC remains the next implementation task; no merge or deployment has occurred.
+**Current update:** all three review findings are fixed. The final local run passed 221 Go tests/subtests with real PostgreSQL/OpenBao, and the headless Chromium fixture E2E passed twice. CI now includes those integration and browser checks. See [current verification](implementation-status.md) and [browser runner](../tests/browser/README.md). Production human OIDC and live Google integration remain outstanding; no merge or deployment has occurred. The checkpoint details below describe earlier work.
 
 ## Where the work is
 
@@ -16,7 +16,7 @@ The service distinguishes owner browser sessions, independently authenticated ag
 
 Adapters include PostgreSQL relational constraints and atomic audit, OpenBao KV-v2 compare-and-set, bound one-use OAuth/PKCE transactions, a fixed Google identity/token adapter, fixed Drive metadata plus plain-text export, and refresh coordination with durable intent and generation-aware 401 recovery. Synthetic fixtures allow local development without real credentials.
 
-## Fix first: known failing lifecycle regression
+## Historical lifecycle regression (fixed)
 
 File: `internal/tokens/review_test.go`.
 Test: `TestReviewDisconnectDuringRotationRevokesNewCredential`.
