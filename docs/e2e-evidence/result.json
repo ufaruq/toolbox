@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "synthetic_providers": true,
+  "base_url": "http://127.0.0.1:18080",
+  "source_revision": "5e34ca93624ba963f97c1b4fa86ffbaf0ebb2bc9",
+  "browser": "154.0.8037.57",
+  "playwright": "1.62.0",
+  "viewport": {
+    "width": 1280,
+    "height": 1100
+  },
+  "screenshots": [
+    "01-review.png",
+    "02-allowed-read.png",
+    "03-document-denied.png",
+    "04-grant-revoked.png"
+  ]
+}
