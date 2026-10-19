@@ -93,7 +93,7 @@ References: [snapshot adapter limits](storage.md#supported-slice), repository tr
 
 ## F1: Agent client integrations
 
-- [ ] Choose the first real client: existing Claude Code path, Codex, or a hosted Claude.ai connector. Document onboarding, independent client authentication, approval-link presentation, polling and errors.
+- [ ] Document client-neutral MCP onboarding and independent authentication, approval-link presentation, polling and errors. Use Codex and/or Claude Code locally for the first real acceptance; client-specific registration/configuration must not change permission semantics.
 - [ ] Integrate the Streamable HTTP MCP work in #7 with the merged owner login and #10's real Google runtime, migrations, storage and permission engine. Reconcile owner identity with the verified MCP `uid`/`cid` profile model while preserving connection ownership.
 - [ ] Test the chosen client through request, owner approval, bounded execution, expiry and revocation, including other-agent/document denial. Never hand provider credentials to the agent or widen a grant through the transport.
 

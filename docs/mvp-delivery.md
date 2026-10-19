@@ -24,10 +24,14 @@ product's permanent limit.
 
 ## First client demonstration
 
-The client choice is pending: the user was asked to choose the existing Claude
-Code path, Codex, or a hosted Claude.ai custom connector. A local client can be
-tested without first provisioning a cloud VM. A hosted connector needs a reachable
-HTTPS endpoint and its separately configured OAuth registration.
+The server contract is client-neutral Streamable HTTP MCP. Codex and Claude Code
+on this computer are initial acceptance clients, not distinct server permission
+models. Client differences belong in standards-based configuration and OAuth
+registration/callbacks rather than custom tool or authorization behavior. Verify
+the protocol with the official SDK and at least one installed local client, then
+check the other supported local client. A local demonstration does not require
+first provisioning a cloud VM; a later hosted connector needs a reachable HTTPS
+endpoint and its separately configured OAuth registration.
 
 The user should be able to:
 
@@ -58,8 +62,10 @@ synthetic SDK tests therefore do not prove a live Google client demo.
   authorization-server `uid`/`cid` access-token/profile model. Preserve owner and
   Google-connection ownership; never infer that binding from an unverified email.
 - Reuse the same Google adapter and grant checks for MCP and HTTP.
-- Verify the chosen client's actual callback, scopes, audience and supported
-  transport/authentication. Start with one real client, then add the others.
+- Verify Codex/Claude Code registration, callback, scope, audience and supported
+  standard transport/authentication without hard-coding a client brand into
+  authorization. Start with the SDK and an installed local client, then verify
+  the other client configuration.
 - Keep synthetic SDK coverage, and add real-client/live-provider acceptance before
   reporting the integration ready for merge.
 
