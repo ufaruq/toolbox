@@ -29,7 +29,7 @@ M1 and the isolated Google configuration/protocol spike in M2 can progress indep
 
 References: [Okta setup](okta-setup.md), [identity boundary](google-setup.md#1-keep-owner-identity-separate), `internal/server`, `internal/domain`, and `cmd/toolbox/main.go`.
 
-The local Okta owner-only mode and automated protocol/session/browser tests are implemented in PR #5. Live Okta acceptance is still pending; the checklist below distinguishes implementation from that remaining gate.
+The local Okta owner-only mode and automated protocol/session/browser tests are implemented in PR #5. One-user [live Okta checks](okta-verification.md) passed for login, application restart, logout and stable identity on repeat login. A second live user remains unrun; the checklist below distinguishes implementation from the remaining live gate.
 
 - [ ] Record the selected OIDC provider, trusted issuer, client/audience, callback origins and stable issuer/subject mapping. Toolbox login and the connected Google account must remain independent.
 - [x] Implement the OIDC authorization callback and session integration, validating signatures, issuer, audience, nonce, state and lifetime before establishing a first-party owner session.

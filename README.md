@@ -85,4 +85,4 @@ The database adapter serializes application transactions and needs scoped querie
 
 Follow [Okta setup](docs/okta-setup.md) for the placeholder-only [.env.example](.env.example), disposable dependency setup, exact app settings and startup command. The code and [synthetic OIDC browser test](tests/browser/README.md#synthetic-oidc-browser-flow) can be verified before creating an Okta tenant; no account or client secret is needed for automated verification. Toolbox logout ends its own session, while an existing Okta browser session can sign in again.
 
-**Real Okta acceptance is unrun.** Live browser login/logout must be recorded separately before M1 is complete. Live Google, agent integration and production deployment remain open.
+[Live Okta checks passed for one assigned user](docs/okta-verification.md): sign-in, reload after application restart, logout and repeat sign-in with stable owner identity. A second live user and the remaining M1 gates are still pending. Live Google, agent integration and production deployment remain open.

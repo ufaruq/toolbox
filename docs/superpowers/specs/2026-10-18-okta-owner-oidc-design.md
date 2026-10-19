@@ -1,6 +1,6 @@
 # Okta owner sign-in design
 
-Status: implemented on the feature branch; automated verification is recorded in the PR. Live Okta acceptance is pending the user's tenant configuration.
+Status: implemented on the feature branch; automated verification is recorded in the PR. One-user live Okta acceptance is recorded in [the verification record](../../okta-verification.md); remaining multi-user/live gates are still open.
 
 ## Goal and intended use
 

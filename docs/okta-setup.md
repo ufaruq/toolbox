@@ -2,7 +2,7 @@
 
 `TOOLBOX_MODE=oidc-local` signs an owner into Toolbox through an Okta-hosted login page. It binds to loopback HTTP and requires PostgreSQL and OpenBao. Google connections, Picker, document access, agents and delegation are disabled in this mode, including when a database contains old fixture records. It is a local development milestone; there is no public production mode.
 
-The code and synthetic tests can be prepared and reviewed before you create an Okta account or supply a client secret. **Real Okta acceptance is unrun.** A synthetic pass does not complete M1's live owner-login acceptance. Live Google and production milestones remain open. See the [owner sign-in design](superpowers/specs/2026-10-18-okta-owner-oidc-design.md) and [roadmap](ROADMAP.md#m1-real-owner-sign-in).
+The code and synthetic tests can be prepared and reviewed before you create an Okta account or supply a client secret. [One-user live Okta checks are recorded](okta-verification.md); a second live user remains unrun. A synthetic pass alone does not complete M1's live owner-login acceptance. Live Google and production milestones remain open. See the [owner sign-in design](superpowers/specs/2026-10-18-okta-owner-oidc-design.md) and [roadmap](ROADMAP.md#m1-real-owner-sign-in).
 
 ## Verify without an Okta tenant
 
