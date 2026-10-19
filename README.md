@@ -12,6 +12,8 @@ The local fixture simulates owner sign-in and Google. A separate loopback-only m
 - [Design PR #1](https://github.com/ufaruq/toolbox/pull/1): merged architecture and design artifacts.
 - [Implementation PR #2](https://github.com/ufaruq/toolbox/pull/2): merged application baseline.
 
+The document approval/read/revocation demo is available in `fixture` mode with simulated identity and Google. The `oidc-local` mode demonstrates real owner sign-in only and intentionally hides tool operations. A live Google tool demo still requires the runtime integration and acceptance work in [M2](docs/ROADMAP.md#m2-live-google-document-flow).
+
 ## Run the local fixture
 
 Requires Go **1.27.2** and a free loopback port. No Google account or credentials are needed. PR #2 has merged; the implementation is available on `main`:
@@ -86,3 +88,12 @@ The database adapter serializes application transactions and needs scoped querie
 Follow [Okta setup](docs/okta-setup.md) for the placeholder-only [.env.example](.env.example), disposable dependency setup, exact app settings and startup command. The code and [synthetic OIDC browser test](tests/browser/README.md#synthetic-oidc-browser-flow) can be verified before creating an Okta tenant; no account or client secret is needed for automated verification. Toolbox logout ends its own session, while an existing Okta browser session can sign in again.
 
 [Live Okta checks passed for one assigned user](docs/okta-verification.md): sign-in, reload after application restart, logout and repeat sign-in with stable owner identity. A second live user and the remaining M1 gates are still pending. Live Google, agent integration and production deployment remain open.
+
+## Corporate Google account linking
+
+Corporate deployments can opt into exact-person Google Workspace linking through
+`oauth.NewCorporateService` and an independently trusted owner identity resolver.
+This explicitly adds the Google email identity scope and fails closed on mismatched
+signed mailbox or hosted-domain claims. Neither the fixture nor `oidc-local` enables
+this policy or wires a live Google connection. It is optional for a tool demo; see
+[configuration, trust boundaries and live release gates](docs/google-setup.md#optional-corporate-workspace-account-linking).

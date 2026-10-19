@@ -35,6 +35,14 @@ type ExchangeResult struct {
 	Subject, ClientID, AccessToken, RefreshToken string
 	Expiry                                       time.Time
 	Scopes                                       []string
+	Identity                                     VerifiedIdentity
+}
+
+// VerifiedIdentity contains only claims from a successfully verified ID token.
+// It is transient link-authorization evidence, not a persisted account identifier.
+type VerifiedIdentity struct {
+	Issuer, Email, HostedDomain string
+	EmailVerified               bool
 }
 
 type Provider interface {
@@ -49,9 +57,11 @@ type SecretStore interface {
 }
 
 type Service struct {
-	repo     domain.Repository
-	secrets  SecretStore
-	provider Provider
+	repo          domain.Repository
+	secrets       SecretStore
+	provider      Provider
+	scopes        []string
+	ownerIdentity TrustedOwnerIdentityResolver
 }
 
 type StartResult struct {
@@ -67,11 +77,31 @@ type transactionSecret struct {
 	ExpiresAt     time.Time `json:"expires_at"`
 }
 
+// NewService keeps independent owner/provider accounts and minimal scopes.
+// Email identity scope mode requires NewCorporateService and a trusted resolver.
 func NewService(repo domain.Repository, secrets SecretStore, provider Provider) (*Service, error) {
+	service, err := newService(repo, secrets, provider)
+	if err != nil {
+		return nil, err
+	}
+	if !exactScopes(service.scopes) {
+		return nil, ErrConfiguration
+	}
+	return service, nil
+}
+
+func newService(repo domain.Repository, secrets SecretStore, provider Provider) (*Service, error) {
 	if repo == nil || secrets == nil || provider == nil || provider.ClientID() == "" {
 		return nil, ErrConfiguration
 	}
-	return &Service{repo: repo, secrets: secrets, provider: provider}, nil
+	scopes := []string{"openid", domain.DriveScope}
+	if contract, ok := provider.(interface{ ExpectedScopes() []string }); ok {
+		scopes = append([]string(nil), contract.ExpectedScopes()...)
+	}
+	if !exactScopes(scopes) && !sameScopes(scopes, corporateScopes()) {
+		return nil, ErrConfiguration
+	}
+	return &Service{repo: repo, secrets: secrets, provider: provider, scopes: scopes}, nil
 }
 
 func liveSession(st *domain.State, ownerID, sessionID string) bool {
@@ -185,6 +215,22 @@ func (s *Service) Complete(ctx context.Context, ownerID, sessionID, state, code 
 		return none, exchangeErr
 	}
 
+	// Resolve corporate policy before starting the detached persistence budget.
+	// A slow or unavailable trusted resolver must not exhaust credential cleanup.
+	resultErr = exchangeErr
+	if resultErr == nil && (!validSubject(exchanged.Subject) || exchanged.ClientID != s.provider.ClientID() || exchanged.AccessToken == "") {
+		resultErr = ErrIdentity
+	}
+	if resultErr == nil && !sameScopes(exchanged.Scopes, s.scopes) {
+		resultErr = ErrScope
+	}
+	if resultErr == nil {
+		resultErr = ctx.Err()
+	}
+	if resultErr == nil {
+		resultErr = s.authorizeCorporateLink(ctx, tx.OwnerID, exchanged.Identity)
+	}
+
 	// Known credentials and definitive invalid_grant rejections resolve the
 	// intent even after cancellation, session loss or disconnect. Persist them
 	// with a bounded detached context; a rejected exchange can never activate.
@@ -232,16 +278,6 @@ func (s *Service) Complete(ctx context.Context, ownerID, sessionID, state, code 
 	}()
 
 	var current domain.Connection
-	resultErr = exchangeErr
-	if resultErr == nil && (!validSubject(exchanged.Subject) || exchanged.ClientID != s.provider.ClientID() || exchanged.AccessToken == "") {
-		resultErr = ErrIdentity
-	}
-	if resultErr == nil && !exactScopes(exchanged.Scopes) {
-		resultErr = ErrScope
-	}
-	if resultErr == nil {
-		resultErr = ctx.Err()
-	}
 	if resultErr == nil {
 		resultErr = s.repo.Transact(cleanupCtx, func(st *domain.State) error {
 			c, ok := st.Connections[tx.ConnectionID]
@@ -360,7 +396,7 @@ func sameInitialBundle(a, b tokens.Bundle) bool {
 	return a.ConnectionID == b.ConnectionID && a.Subject == b.Subject && a.ClientID == b.ClientID && a.Epoch == b.Epoch && a.Generation == b.Generation && a.OperationID == b.OperationID && a.AccessToken == b.AccessToken && a.RefreshToken == b.RefreshToken && a.Expiry.Equal(b.Expiry) && a.State == b.State && slices.Equal(a.Scopes, b.Scopes)
 }
 func exactScopes(scopes []string) bool {
-	return len(scopes) == 2 && domain.HasScope(scopes, domain.DriveScope) && domain.HasScope(scopes, "openid")
+	return sameScopes(scopes, []string{"openid", domain.DriveScope})
 }
 func validSubject(subject string) bool {
 	if len(subject) == 0 || len(subject) > 255 {
@@ -370,6 +406,21 @@ func validSubject(subject string) bool {
 		if subject[i] < 33 || subject[i] > 126 {
 			return false
 		}
+	}
+	return true
+}
+
+// sameScopes compares a grant with its exact contract and rejects duplicates.
+func sameScopes(scopes, expected []string) bool {
+	if len(scopes) != len(expected) {
+		return false
+	}
+	seen := make(map[string]bool, len(scopes))
+	for _, scope := range scopes {
+		if seen[scope] || !slices.Contains(expected, scope) {
+			return false
+		}
+		seen[scope] = true
 	}
 	return true
 }

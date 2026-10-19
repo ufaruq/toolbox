@@ -242,7 +242,7 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 	if len(result.Scopes) > 0 {
 		next.Scopes = append([]string(nil), result.Scopes...)
 	}
-	validResponse := refreshErr == nil && result.AccessToken != "" && result.Expiry.After(m.now()) && validRefreshScopes(next.Scopes)
+	validResponse := refreshErr == nil && result.AccessToken != "" && result.Expiry.After(m.now()) && validRefreshScopes(next.Scopes, bundle.Scopes, conn.Scopes)
 	if activationErr != nil || !validResponse {
 		next.State = StateCleanup
 		// Prefer the known refresh credential for cleanup. Otherwise retain the
@@ -287,13 +287,25 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 	return Lease{Token: next.AccessToken, Generation: next.Generation}, nil
 }
 
-func validRefreshScopes(scopes []string) bool {
-	// Stored credentials can omit the identity scope. The refresh must
-	// still contain Drive read access and must never introduce broader authority.
+func validRefreshScopes(scopes, storedScopes, connectionScopes []string) bool {
+	// Email identity is opt-in on both stored records. Its exact contract must
+	// survive refresh, including when the provider omits scopes in its response.
+	if domain.HasScope(storedScopes, "email") || domain.HasScope(connectionScopes, "email") {
+		return emailIdentityScopes(storedScopes) && emailIdentityScopes(connectionScopes) && emailIdentityScopes(scopes)
+	}
+	// Legacy credentials can omit openid. Retain that compatibility without
+	// allowing refresh to introduce email or broader Drive authority.
 	return len(scopes) == 1 && scopes[0] == domain.DriveScope || len(scopes) == 2 && domain.HasScope(scopes, domain.DriveScope) && domain.HasScope(scopes, "openid")
 }
 
+func emailIdentityScopes(scopes []string) bool {
+	return len(scopes) == 3 && domain.HasScope(scopes, "openid") && domain.HasScope(scopes, "email") && domain.HasScope(scopes, domain.DriveScope)
+}
+
 func matches(b Bundle, c domain.Connection) bool {
+	if (domain.HasScope(b.Scopes, "email") || domain.HasScope(c.Scopes, "email")) && !validRefreshScopes(b.Scopes, b.Scopes, c.Scopes) {
+		return false
+	}
 	return b.ConnectionID == c.ID && b.Subject == c.Subject && b.ClientID == c.ClientID && b.Epoch == c.Epoch && b.Epoch > 0 && b.Generation > 0 && b.OperationID != "" && b.State == StateActive && domain.HasScope(b.Scopes, domain.DriveScope)
 }
 func (m *Manager) connection(ctx context.Context, id string) (domain.Connection, error) {
