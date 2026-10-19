@@ -191,9 +191,16 @@ func (s *Server) allowed(key string, limit int) bool {
 	s.limits[key] = v
 	return v.Count <= limit
 }
+func (s *Server) sessionCookieName() string {
+	if s.Fixture {
+		return "toolbox_fixture_session"
+	}
+	return "toolbox_session"
+}
+
 func (s *Server) owner(r *http.Request, mutate bool) (domain.Session, error) {
 	var out domain.Session
-	c, e := r.Cookie("toolbox_session")
+	c, e := r.Cookie(s.sessionCookieName())
 	if e != nil || len(c.Value) != 43 {
 		return out, domain.ErrDenied
 	}

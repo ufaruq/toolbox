@@ -16,7 +16,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, _ := r.Cookie("toolbox_session")
+	c, _ := r.Cookie(s.sessionCookieName())
 	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": security.KeyedHash(s.Pepper, c.Value), "fixture": s.Fixture, "owner_only": s.OwnerOnly})
 }
 func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +37,7 @@ func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "DEPENDENCY_UNAVAILABLE")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "toolbox_session", Value: raw, Path: "/", HttpOnly: true, Secure: !s.Fixture, SameSite: http.SameSiteLaxMode, MaxAge: 8 * 3600})
+	http.SetCookie(w, &http.Cookie{Name: s.sessionCookieName(), Value: raw, Path: "/", HttpOnly: true, Secure: !s.Fixture, SameSite: http.SameSiteLaxMode, MaxAge: 8 * 3600})
 	jsonOut(w, 200, map[string]string{"csrf_token": csrf})
 }
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {

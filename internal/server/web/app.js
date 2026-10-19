@@ -12,12 +12,41 @@ async function request(path, data, agent = false, delegation = '') {
  if (!response.ok) throw new Error(value.error || 'Request failed');
  return value;
 }
-function action(id, work) { $(id).addEventListener('click', async () => { const button = $(id); button.disabled = true; $('status').textContent = ''; try { await work(); } catch (error) { $('status').textContent = error.message; } finally { button.disabled = id === 'approve' ? !reviewed : false; } }); }
+function action(id, work) { $(id).addEventListener('click', async () => { const button = $(id); button.disabled = true; $('status').textContent = ''; try { await work(); } catch (error) { $('status').textContent = error.message; if (id === 'connect') $('connection-status').textContent = error.message; } finally { button.disabled = id === 'approve' ? !reviewed : false; } }); }
 function invalidateReview() { reviewGeneration++; reviewed = null; $('approve').disabled = true; $('review-details').hidden = true; }
-async function loadConnections() { const list = await request('/v1/connections'); const previous = $('connection').value; $('connection').replaceChildren(new Option('Choose an active connection', '')); for (const item of list) { if(item.status === 'active') $('connection').add(new Option(item.account_subject + ' · ' + item.id, item.id)); } if ([...$('connection').options].some(x=>x.value===previous)) $('connection').value=previous; if (!previous && $('connection').options.length===2) $('connection').selectedIndex=1; $('connection-info').textContent = list.map(c=>c.status + ': ' + c.account_subject).join(' | '); }
+const pendingConnectKey = 'toolbox-fixture-connect';
+function finishConnection(list) {
+ let raw;
+ try {
+  raw = sessionStorage.getItem(pendingConnectKey);
+  sessionStorage.removeItem(pendingConnectKey);
+ } catch (_) { return; }
+ if (raw === null) return;
+ let previous;
+ try { previous = JSON.parse(raw); } catch (_) { return; }
+ if (!Array.isArray(previous) || !previous.every(id => typeof id === 'string')) return;
+ const added = list.filter(item => item.status === 'active' && !previous.includes(item.id));
+ if (added.length === 1) {
+  $('connection').value = added[0].id;
+  $('connection-status').textContent = 'Connected to the sample Google account. This demo uses simulated Google data.';
+ } else if (added.length > 1) {
+  $('connection-status').textContent = 'Sample Google connections are available. Choose a connection below.';
+ } else {
+  $('connection-status').textContent = 'Connection did not complete. Try connecting again.';
+ }
+}
+async function loadConnections() { const list = await request('/v1/connections'); const previous = $('connection').value; $('connection').replaceChildren(new Option('Choose an active connection', '')); for (const item of list) { if(item.status === 'active') $('connection').add(new Option(item.account_subject + ' · ' + item.id, item.id)); } if ([...$('connection').options].some(x=>x.value===previous)) $('connection').value=previous; if (!previous && $('connection').options.length===2) $('connection').selectedIndex=1; $('connection-info').textContent = list.map(c=>c.status + ': ' + c.account_subject).join(' | '); finishConnection(list); }
 async function signedIn() { const session = await request('/v1/session'); csrf=session.csrf_token; $('login-panel').hidden=true; $('workspace').hidden=false; $('fixture-notice').hidden=!session.fixture; await loadConnections(); if(location.pathname.startsWith('/approve/')) $('request-id').value=location.pathname.split('/')[2]; }
 action('login', async()=>{ const session=await request('/fixture/login',{});csrf=session.csrf_token;await signedIn();$('status').textContent='Signed in to the local fixture.'; });
-action('connect', async()=>{const value=await request('/v1/connections/google/start',{});location.assign(value.authorization_url);});
+action('connect', async()=>{
+ $('connection-status').textContent = 'Connecting to the sample Google account…';
+ const previous = [...$('connection').options].map(option => option.value).filter(Boolean);
+ const value = await request('/v1/connections/google/start',{});
+ // This is only UI feedback; credentials never enter browser storage. Storage
+ // can be disabled without preventing the server's connection flow.
+ try { sessionStorage.setItem(pendingConnectKey, JSON.stringify(previous)); } catch (_) {}
+ location.assign(value.authorization_url);
+});
 action('disconnect',async()=>{if(!$('connection').value)throw new Error('Choose a connection first.');await request('/v1/connections/'+$('connection').value+'/disconnect',{});invalidateReview();await loadConnections();$('status').textContent='Connection blocked. Cleanup is queued.';});
 action('create-agent',async()=>{const a=await request('/v1/agents',{name:$('agent-name').value});$('agent-credential').value=a.credential;$('agent-id').textContent='Agent: '+a.agent_id;$('status').textContent='Agent created. Save its credential now; it will not be shown again.';});
 action('request',async()=>{const q=await request('/v1/delegation-requests',{tool:'google_drive.read_document.v1',file_id:$('file-id').value,duration_seconds:Number($('duration').value)},true);$('request-id').value=q.request_id;invalidateReview();const a=document.createElement('a');a.href=q.approval_url;a.textContent='Open trusted approval page';$('approval-link').replaceChildren(a);$('status').textContent='Request pending. Owner approval is required.';});

@@ -187,6 +187,37 @@ func TestAllowedReadAndAuditIsolation(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestFixtureAndOwnerCookiesDoNotOverwriteEachOther(t *testing.T) {
+	for _, relogin := range []bool{false, true} {
+		t.Run(strconv.FormatBool(relogin), func(t *testing.T) {
+			h := newHarness(t, nil)
+			// Cookie host scope ignores ports: simulate the real owner app on
+			// another loopback port issuing its cookie in the same browser.
+			ownerURL, err := url.Parse(h.ts.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ownerURL.Host = ownerURL.Hostname() + ":8080"
+			ownerToken := strings.Repeat("o", 43)
+			h.client.Jar.SetCookies(ownerURL, []*http.Cookie{{Name: "toolbox_session", Value: ownerToken, Path: "/", HttpOnly: true}})
+			if relogin {
+				login := h.call("POST", "/fixture/login", map[string]any{}, "", "", 200)
+				h.csrf = login["csrf_token"].(string)
+			}
+			ownerPreserved := false
+			for _, c := range h.client.Jar.Cookies(ownerURL) {
+				if c.Name == "toolbox_session" && c.Value == ownerToken {
+					ownerPreserved = true
+				}
+			}
+			if !ownerPreserved {
+				t.Fatal("fixture sign-in overwrote the real owner's cookie")
+			}
+			h.call("POST", "/v1/connections/google/start", map[string]any{}, "", "", 200)
+		})
+	}
+}
 func TestDeniedShapesNeverTouchProviderOrSecrets(t *testing.T) {
 	h := newHarness(t, nil)
 	h.approve()
