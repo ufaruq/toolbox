@@ -20,10 +20,12 @@ verified owner sessions. Follow [Workspace setup](workspace-demo.md) for exact
 Google console settings, private configuration, `make google-pkce-check` and
 `make workspace`. It uses the explicit independent-account identity contract
 `openid email drive.file`; the default/fixture scope contract is unchanged.
-The real adapters are not yet validated against the user's Google client. This work has
-**not** created a Google Cloud project or OAuth client,
-used real credentials, completed a real Google consent flow, proved Google's
-PKCE enforcement, or run the real Drive/Picker integration spike.
+The user has now configured a dedicated Google test project/client privately, and
+the [actual-client PKCE/scope check passed](workspace-verification.md): four fresh
+consent/code rounds, matching/missing/wrong/matching verifiers, signed ID-token
+validation and known probe-token cleanup. The combined Workspace app starts with
+the real providers. The real Drive/Picker document flow and remaining release
+gates are still unverified; the protocol result alone does not establish a demo.
 
 The runnable fixture is deliberately a development demonstration. A fixture
 owner session or fixture Google subject is not human authentication. Production

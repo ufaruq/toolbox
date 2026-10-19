@@ -32,5 +32,6 @@ Full `make check` passed with disposable PostgreSQL/OpenBao enabled. Chromium
 Workspace, client-check navigation, OIDC, fixture, and delayed-review flows passed.
 Independent review findings (late reads after revoke, stale approval after account
 change, probe navigation, reused-code false positives) were fixed and verified
-with regressions. Actual Google configuration and all real-account acceptance in
-task 5 remain unperformed; keep PR #10 draft.
+with regressions. The actual Google client configuration and four-code PKCE/scope gate now passed;
+see [live verification](../../workspace-verification.md). Real Picker/document
+acceptance in task 5 remains unperformed; keep PR #10 draft.

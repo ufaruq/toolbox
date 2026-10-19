@@ -2,8 +2,8 @@
 
 This branch adds `workspace-local`: verified Okta owner sessions, actual Google
 OAuth and Drive adapters, Google Picker, and exact-document read approval in one
-app. There is no fixture fallback. The Google client and real-account acceptance
-remain required before this draft is demo-ready. `oidc-local` remains owner sign-in
+app. There is no fixture fallback. The [actual-client PKCE check passed](workspace-verification.md);
+real document acceptance remains required before this draft is demo-ready. `oidc-local` remains owner sign-in
 only; `fixture` remains the separate simulated developer console.
 
 ## 1. Create the Google test project and client
@@ -138,6 +138,9 @@ Run `make check` with actual disposable test stores, and run
 `make workspace-browser-check` with Python/Chromium installed as described in the
 [browser test guide](../tests/browser/README.md). CI runs both browser checks.
 
-Still unperformed: actual-client PKCE, actual Google consent and returned scope
-spellings, the real Picker/CSP/API-key behavior, real document read/denial, provider
-revocation/disconnect and restart acceptance. Keep the PR draft until those pass.
+The [actual-client four-code PKCE/scope check passed](workspace-verification.md),
+including positive signed ID-token validation and known probe-token revocation.
+The combined app has started with its real providers and persistent local stores.
+Still unperformed: the app's Google connection, real Picker/CSP/API-key behavior,
+real document read/denial, app disconnect/provider cleanup and restart acceptance.
+Keep the PR draft until those pass.

@@ -2,7 +2,7 @@
 
 Controlled, user-delegated access to external tools and data. The current implementation supports one operation: reading an explicitly approved Google document as plain text.
 
-The local fixture simulates owner sign-in and Google. Separate loopback-only modes support real Okta owner sign-in and the combined Google Workspace tool flow. See [Okta setup](docs/okta-setup.md) and [real Workspace setup](docs/workspace-demo.md). `workspace-local` wires actual Google adapters and Picker with PostgreSQL and OpenBao; actual-client PKCE and real-account acceptance are still required before calling it demo-ready. Public deployment remains pending in the [roadmap](docs/ROADMAP.md).
+The local fixture simulates owner sign-in and Google. Separate loopback-only modes support real Okta owner sign-in and the combined Google Workspace tool flow. See [Okta setup](docs/okta-setup.md) and [real Workspace setup](docs/workspace-demo.md). `workspace-local` wires actual Google adapters and Picker with PostgreSQL and OpenBao. The [actual-client PKCE/scope check passed](docs/workspace-verification.md); real document acceptance is still required before calling it demo-ready. Public deployment remains pending in the [roadmap](docs/ROADMAP.md).
 
 ## Start here
 
