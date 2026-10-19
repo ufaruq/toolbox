@@ -1,5 +1,5 @@
-// Toolbox's executable is deliberately fixture-only until a production owner IdP
-// and live Google integration gates have been selected and reviewed.
+// Toolbox supports the synthetic fixture and local owner OIDC sign-in.
+// Neither mode is a public production deployment.
 package main
 
 import (
@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +18,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/oauth"
+	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
@@ -32,17 +32,14 @@ func main() {
 	}
 }
 func run() error {
-	if os.Getenv("TOOLBOX_MODE") != "fixture" {
-		return errors.New("only explicitly selected fixture mode is supported")
+	cfg, e := loadConfig(os.Getenv)
+	if e != nil {
+		return e
 	}
-	addr := os.Getenv("TOOLBOX_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:8080"
+	if cfg.mode == "oidc-local" {
+		return runOIDCLocal(cfg)
 	}
-	host, _, e := net.SplitHostPort(addr)
-	if e != nil || !(host == "127.0.0.1" || host == "localhost" || host == "::1") {
-		return errors.New("fixture server must bind loopback")
-	}
+	addr := cfg.addr
 	origin := "http://" + addr
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -125,4 +122,77 @@ func run() error {
 		}
 		return e
 	}
+}
+
+func runOIDCLocal(cfg runtimeConfig) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	repo, err := store.OpenPostgres(ctx, cfg.databaseURL)
+	if err != nil {
+		return err
+	}
+	defer repo.Close()
+	if err = repo.Migrate(ctx); err != nil {
+		return err
+	}
+	secrets, err := tokens.NewOpenBaoFixture(tokens.OpenBaoConfig{Address: cfg.baoAddr, Mount: "secret", Token: cfg.baoToken})
+	if err != nil {
+		return err
+	}
+	if err = secrets.Ping(ctx); err != nil {
+		return err
+	}
+	callback := cfg.origin + "/auth/oidc/callback"
+	provider, err := ownerlogin.NewProvider(ctx, ownerlogin.ProviderConfig{Issuer: cfg.oidcIssuer, ClientID: cfg.oidcClientID, ClientSecret: cfg.oidcClientSecret, RedirectURI: callback}, nil)
+	if err != nil {
+		return err
+	}
+	login, err := ownerlogin.NewService(repo, secrets, provider, ownerlogin.ServiceConfig{Issuer: cfg.oidcIssuer, ClientID: cfg.oidcClientID, RedirectURI: callback, Pepper: cfg.pepper})
+	if err != nil {
+		return err
+	}
+	api, err := server.New(server.Config{Repository: repo, Pepper: cfg.pepper, Origin: cfg.origin, OwnerOnly: true, OwnerLogin: login, Readiness: func(ctx context.Context) error {
+		if err := repo.Ping(ctx); err != nil {
+			return err
+		}
+		return secrets.Ping(ctx)
+	}}, nil)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Addr: cfg.addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	stopped := make(chan error, 1)
+	go func() { stopped <- srv.ListenAndServe() }()
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanupCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+				if login.Cleanup(cleanupCtx) != nil {
+					log.Print("Owner login cleanup deferred; check dependency availability.")
+				}
+				stop()
+			}
+		}
+	}()
+	log.Printf("Toolbox local owner sign-in: %s (Google and agent operations are disabled)", cfg.origin)
+	select {
+	case <-ctx.Done():
+		shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		err = srv.Shutdown(shutdown)
+	case err = <-stopped:
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+	}
+	cancel()
+	<-cleanupDone
+	return err
 }

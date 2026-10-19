@@ -52,6 +52,16 @@ type OAuthTransaction struct {
 	ExpiresAt                                                             time.Time
 	Consumed                                                              bool
 }
+
+// OwnerLoginTransaction binds a one-use OIDC login to its originating browser.
+// IssuedSessionID preserves the revocation relationship through response delivery.
+// The PKCE verifier belongs in the secret store referenced by SecretRef.
+type OwnerLoginTransaction struct {
+	ID, StateHash, BrowserHash, NonceHash, SecretRef string
+	Issuer, ClientID, RedirectURI                    string
+	PreviousSessionID, IssuedSessionID, Status       string
+	ExpiresAt                                        time.Time
+}
 type Audit struct {
 	ID                                                                                              string
 	At                                                                                              time.Time
@@ -76,12 +86,13 @@ type State struct {
 	Requests    map[string]Request
 	Grants      map[string]Grant
 	OAuth       map[string]OAuthTransaction
+	OwnerLogins map[string]OwnerLoginTransaction
 	Audits      []Audit
 	Cleanup     map[string]Cleanup
 }
 
 func NewState() *State {
-	return &State{Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, Cleanup: map[string]Cleanup{}}
+	return &State{Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
 }
 func ResourceKey(connectionID, fileID string) string { return connectionID + ":" + fileID }
 func HasScope(scopes []string, scope string) bool {

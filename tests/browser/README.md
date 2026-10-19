@@ -1,5 +1,7 @@
 # Fixture browser E2E
 
+Use the [roadmap](../../docs/ROADMAP.md) for pending work and [implementation status](../../docs/implementation-status.md) for recorded results. This page documents the existing fixture runner; live sign-in/Google and hosted acceptance belong to M1–M3.
+
 These checks drive the running Toolbox UI in headless Chromium. They cover fixture owner login, the synthetic OAuth redirect, an independent agent credential, the trusted approval link, review interrupted by reload, exact-document approval, approval replay rejection, a successful `doc-A` read, denied `doc-B` access, revoked-grant denial, request denial, disconnect and redacted audit events. Unhandled browser JavaScript exceptions fail the run.
 
 This is **synthetic fixture coverage**, not production OIDC, real Google consent/Picker/Drive, or a deployment check. Use a disposable service and stores: the test creates synthetic state and disconnects the fixture Google account. Reusing a store from an earlier fixture process is unsupported because its ephemeral provider secrets are gone.
@@ -32,3 +34,21 @@ Each run captures four full-page PNGs after verifying the reviewed request, allo
 - `TOOLBOX_E2E_REVISION` optionally records the tested checkout revision in `result.json`; CI supplies its checkout SHA. An unset value remains `null` rather than guessing a revision.
 
 Waits follow browser navigation, API responses and visible UI state. No fixed sleeps or live account credentials are used.
+
+## Synthetic OIDC browser flow
+
+The separate `TestOIDCBrowserFlow` harness starts loopback Toolbox and a local TLS identity provider, then runs `oidc_e2e.py` in Chromium. It needs no running fixture service, Okta tenant or credentials. It exercises the actual owner sign-in redirect, callback, visible owner identity, reload, local Toolbox logout, rejection of the old session and a distinct second owner. It also checks that fixture and connector controls are absent and that no unhandled JavaScript errors occur.
+
+Install the pinned Python requirements and Playwright Chromium using the commands above, then run from the repository root:
+
+```sh
+TOOLBOX_TEST_OIDC_BROWSER=1 \
+TOOLBOX_TEST_PYTHON=/tmp/toolbox-browser-venv/bin/python \
+go test -race ./internal/server -run '^TestOIDCBrowserFlow$' -count=1
+```
+
+`TOOLBOX_TEST_OIDC_BROWSER=1` explicitly enables this optional browser check. `TOOLBOX_TEST_PYTHON` selects the exact Python binary containing the pinned requirements; it is optional when the harness can find an appropriate `python3`. `TOOLBOX_BROWSER_EXECUTABLE` optionally selects an installed Chromium. Leave it unset to use Playwright's matching browser. Without the browser opt-in the harness skips; ordinary Go protocol tests continue to run without Python. Record skips as skips.
+
+The Go harness supplies the two allowed origins and a pin for the fake provider certificate's SPKI. Browser requests outside the Toolbox and synthetic TLS-provider origins are blocked. Chromium's certificate exception is limited to that fake certificate's SPKI; application provider TLS verification remains enabled. Do not point this synthetic runner at an Okta tenant or pass real credentials to it.
+
+The runner avoids browser traces, query/network logs, cookies, raw callback URLs and provider secrets. Any saved screenshots or result metadata must remain sanitized synthetic evidence. This flow proves local browser behavior against the fake provider. **Real Okta acceptance remains unrun** until a separately configured app has an observed real browser login and Toolbox logout; see [Okta setup](../../docs/okta-setup.md).
