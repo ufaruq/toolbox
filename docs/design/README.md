@@ -1,5 +1,7 @@
 # Toolbox design artifacts
 
+For implemented behavior and remaining work, see the [current roadmap](../ROADMAP.md) and [application verification](../implementation-status.md). This directory records the architecture and design artifacts merged in PR #1; its design checks are separate from application test results.
+
 Read [the design](user-delegated-connections.md) or [the PDF](user-delegated-connections.pdf). The canonical editable source is [source/build_design.py](source/build_design.py): it contains the prose, tables, document formatting and all five diagram definitions. The Markdown, SVGs and PDF are generated outputs, not independent hand-edited sources.
 
 ## Rebuild
