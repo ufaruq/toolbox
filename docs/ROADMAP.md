@@ -20,10 +20,10 @@ The application baseline is [PR #2](https://github.com/ufaruq/toolbox/pull/2) at
 | [M2](#m2-live-google-document-flow) | Live Google document flow | Dedicated test configuration; M1 for the complete human flow | Real consent, Picker, approval, read and denial checks pass with sanitized evidence. |
 | [M3](#m3-controlled-pilot-deployment) | Controlled pilot deployment | M1 and M2 | Production configuration, secret lifecycle, recovery and hosted browser acceptance pass. |
 | [M4](#m4-larger-workloads) | Larger workloads | Preserve M1–M3 guarantees | Scoped storage and distributed controls meet a recorded workload target. |
-| [F1](#f1-agent-client-integrations) | Agent client integrations | Choose an initial client; use the existing HTTP authorization boundary | Client integration tests pass; MCP is an option to evaluate. |
+| [F1](#f1-agent-client-integrations) | Real agent client and MCP demonstration — next MVP milestone | M1/M2 foundation; choose the first client | A real client calls scoped live Google tools; denial, expiry and revocation pass. |
 | [F2](#f2-more-tools-and-providers) | More tools and providers | A separately reviewed tool contract | Each new action has explicit permissions, limits and acceptance tests. |
 
-M1 and the isolated Google configuration/protocol spike in M2 can progress independently. The full live user flow needs both. F1 and F2 are future product work, not prerequisites for the initial HTTP-based pilot. M4 gates broader workloads; it does not imply the current adapter is ready for unrestricted production traffic.
+M1 and the isolated Google configuration/protocol spike in M2 can progress independently. The full live user flow needs both. The user's next MVP milestone now includes F1: a real agent client and MCP calling the live Google tool. Reusable all/allowlist/blocklist policies and write tools follow separately; exact-document reads are the first working slice. See [PR boundaries and delivery order](mvp-delivery.md). M4 gates broader workloads; it does not imply the current adapter is ready for unrestricted production traffic.
 
 ## M1: Real owner sign-in
 
@@ -93,14 +93,17 @@ References: [snapshot adapter limits](storage.md#supported-slice), repository tr
 
 ## F1: Agent client integrations
 
-- [ ] Choose a real agent client and document onboarding, independent agent credential handling, approval-link presentation, polling/token issuance and error handling using the existing HTTP API.
-- [ ] Evaluate whether that client needs an MCP adapter, an SDK/example or direct HTTP support; record the transport and authentication contract before implementation.
+- [ ] Choose the first real client: existing Claude Code path, Codex, or a hosted Claude.ai connector. Document onboarding, independent client authentication, approval-link presentation, polling and errors.
+- [ ] Integrate the Streamable HTTP MCP work in #7 with the merged owner login and #10's real Google runtime, migrations, storage and permission engine. Reconcile owner identity with the verified MCP `uid`/`cid` profile model while preserving connection ownership.
 - [ ] Test the chosen client through request, owner approval, bounded execution, expiry and revocation, including other-agent/document denial. Never hand provider credentials to the agent or widen a grant through the transport.
 
-**Done when:** the selected client completes the existing permission flow and its denial cases. The fixture agent console is not evidence of this integration; MCP is not currently implemented or selected.
+**Done when:** the selected real client completes the live Google permission flow and its denial cases. #7 contains a separate synthetic-tested MCP implementation but conflicts with current main and deliberately leaves Google unavailable; integration and real-client acceptance remain unfinished. The browser test console does not complete this milestone.
 
 ## F2: More tools and providers
 
+- [ ] Add reusable per-agent connection policies with independent read/write rules: none, all, allowlist or all except blocklist. Keep exact-document grants available. Persist and version policy assignments; enforce them at each applicable resource/tool boundary and on policy changes.
+- [ ] Extend the read path and provider scope profiles for supported broader policies, with fresh consent and exact-scope acceptance. Do not silently turn a selected-file Google grant into account-wide access.
+- [ ] Implement named Google document write operations with bounded inputs, revision/conflict checks, audit and uncertain-outcome handling. Define edit/create/delete/share separately; implement each supported action rather than treating a UI permission as an executable tool.
 - [ ] Select each next provider/action and define its manifest, explicit rights, resource selection, limits and fixed execution plan in a separate proposal.
 - [ ] Implement its adapter, owner review copy and provider-specific acceptance tests. Writes, broader document rights or longer access require new reviewed permissions; existing read grants cannot acquire them implicitly.
 

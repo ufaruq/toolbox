@@ -34,7 +34,7 @@ Open http://127.0.0.1:8080. For another port, set `TOOLBOX_ADDR=127.0.0.1:18080`
 
 Connecting an account alone does not grant an agent access. The fixture provider has both documents, but a grant to A never authorizes B. The UI has no real Google Picker. Fixture signing keys, credential pepper and provider state are ephemeral; restarting does not preserve valid fixture credentials/connections even when database records survive. Use synthetic data only.
 
-Agents currently use custom HTTP request, token and invocation endpoints. MCP and external client integrations are future work under [F1](docs/ROADMAP.md#f1-agent-client-integrations).
+Agents currently use custom HTTP request, token and invocation endpoints. A real MCP agent client is the next MVP milestone under [F1](docs/ROADMAP.md#f1-agent-client-integrations); #7 needs integration with this live Google runtime. Reusable all/allowlist/blocklist policies and write tools follow separately. See [PR scope and delivery order](docs/mvp-delivery.md).
 
 ## Optional real local stores
 
