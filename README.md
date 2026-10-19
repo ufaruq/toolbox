@@ -2,7 +2,7 @@
 
 Controlled, user-delegated access to external tools and data. The current implementation supports one operation: reading an explicitly approved Google document as plain text.
 
-The runnable service is a local fixture: owner sign-in and Google are simulated. PostgreSQL, OpenBao, the authorization flow and browser UI can be exercised locally. Real Google library adapters exist, but the executable does not wire them. Production OIDC, Picker, live Google acceptance and deployment work remain pending in the [roadmap](docs/ROADMAP.md).
+The local fixture simulates owner sign-in and Google. A separate loopback-only mode supports real Okta owner sign-in; see [Okta setup](docs/okta-setup.md). PostgreSQL, OpenBao, the authorization flow and browser UI can be exercised locally. Real Google library adapters exist, but the executable does not wire them. Public production OIDC, Picker, live Google acceptance and deployment work remain pending in the [roadmap](docs/ROADMAP.md).
 
 ## Start here
 
@@ -66,7 +66,7 @@ See [implementation status](docs/implementation-status.md) for the actual checke
 
 ## Layout and technical references
 
-- `cmd/toolbox`: explicit fixture-only executable.
+- `cmd/toolbox`: explicit fixture and local Okta owner sign-in modes.
 - `internal/server`: owner/agent API, approval UI, dispatch and final live authorization checks.
 - `internal/security`: agent credential hashing and scoped Ed25519 delegation tokens.
 - `internal/oauth`: bound OAuth/PKCE transactions, Google adapter and fixture provider.
@@ -78,3 +78,11 @@ See [implementation status](docs/implementation-status.md) for the actual checke
 - [Storage](docs/storage.md): permissions, transactional guarantees and the current low-throughput snapshot adapter.
 
 The database adapter serializes application transactions and needs scoped queries before larger workloads. Production startup, durable keys, operational recovery and live validation are tracked in [M1–M4](docs/ROADMAP.md#milestones-and-dependencies). No production deployment is claimed.
+
+## Local Okta owner sign-in
+
+`TOOLBOX_MODE=oidc-local` provides real owner identity through an Okta OIDC Web Application on a loopback-only HTTP origin. It requires PostgreSQL, OpenBao, an exact configured origin and issuer, server-side client credentials, and a stable session pepper. Google connections, document access, agents and delegation are disabled in this mode. The fixture instructions above remain the separate synthetic demo.
+
+Follow [Okta setup](docs/okta-setup.md) for the placeholder-only [.env.example](.env.example), disposable dependency setup, exact app settings and startup command. The code and [synthetic OIDC browser test](tests/browser/README.md#synthetic-oidc-browser-flow) can be verified before creating an Okta tenant; no account or client secret is needed for automated verification. Toolbox logout ends its own session, while an existing Okta browser session can sign in again.
+
+[Live Okta checks passed for one assigned user](docs/okta-verification.md): sign-in, reload after application restart, logout and repeat sign-in with stable owner identity. A second live user and the remaining M1 gates are still pending. Live Google, agent integration and production deployment remain open.

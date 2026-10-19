@@ -2,6 +2,10 @@
 
 This page records evidence, not the task backlog. See the [roadmap](ROADMAP.md) for remaining work and the [handoff](HANDOFF.md) for continuation. Earlier results are preserved in the [historical ledger](history/implementation-checkpoints.md).
 
+## Local Okta owner sign-in
+
+PR #5 adds a loopback-only real Okta owner mode. Its [verification record](okta-verification.md) covers automated identity/session/browser checks and one-user live sign-in, application restart, logout and repeat login. A second live Okta user, Google runtime wiring and public production acceptance remain open. The checkpoint below is historical PR #2 evidence, not the current local Okta coverage.
+
 ## Recorded application checkpoint
 
 Source: [`621fc2599bdae96661c001999fa0cc311a0e09af`](https://github.com/ufaruq/toolbox/commit/621fc2599bdae96661c001999fa0cc311a0e09af), [implementation PR #2](https://github.com/ufaruq/toolbox/pull/2), now merged into `main` at `6279f3aab67465aadf5b1ee07f50ed8a99d4bcb4`. [Hosted CI succeeded for this application head](https://github.com/ufaruq/toolbox/actions/runs/39105338114).

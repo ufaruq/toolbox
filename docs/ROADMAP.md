@@ -27,12 +27,14 @@ M1 and the isolated Google configuration/protocol spike in M2 can progress indep
 
 ## M1: Real owner sign-in
 
-References: [identity boundary](google-setup.md#1-keep-owner-identity-separate), `internal/server`, `internal/domain`, and `cmd/toolbox/main.go`.
+References: [Okta setup](okta-setup.md), [identity boundary](google-setup.md#1-keep-owner-identity-separate), `internal/server`, `internal/domain`, and `cmd/toolbox/main.go`.
+
+The local Okta owner-only mode and automated protocol/session/browser tests are implemented in PR #5. One-user [live Okta checks](okta-verification.md) passed for login, application restart, logout and stable identity on repeat login. A second live user remains unrun; the checklist below distinguishes implementation from the remaining live gate.
 
 - [ ] Record the selected OIDC provider, trusted issuer, client/audience, callback origins and stable issuer/subject mapping. Toolbox login and the connected Google account must remain independent.
-- [ ] Implement the OIDC authorization callback and session integration, validating signatures, issuer, audience, nonce, state and lifetime before establishing a first-party owner session.
-- [ ] Complete secure session creation, expiry and logout/revocation with CSRF and same-origin checks. Keep agent authentication independent of browser sessions.
-- [ ] Add an explicitly configured non-fixture startup path that fails closed for missing identity settings and never exposes fixture login/authorization routes. Keep the local fixture mode available for development.
+- [x] Implement the OIDC authorization callback and session integration, validating signatures, issuer, audience, nonce, state and lifetime before establishing a first-party owner session.
+- [x] Complete secure session creation, expiry and logout/revocation with CSRF and same-origin checks. Keep agent authentication independent of browser sessions.
+- [x] Add an explicitly configured non-fixture startup path that fails closed for missing identity settings and never exposes fixture login/authorization routes. Keep the local fixture mode available for development.
 - [ ] Verify valid sign-in and sign-out, expired/replayed transactions and sessions, wrong issuer/audience/nonce, invalid signatures, cross-owner access and CSRF. Exercise the flow with a test IdP in the browser, then record acceptance against the chosen provider.
 
 **Done when:** a real user can establish and end an authenticated Toolbox session, a second user cannot access the first user's state, and automated negative identity/session tests pass. The hosted flow is verified again in M3.
