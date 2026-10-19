@@ -94,6 +94,7 @@ func (m *Manager) localLock(ctx context.Context, id string) (func(), error) {
 type Lease struct {
 	Token      string
 	Generation int64
+	Expiry     time.Time
 }
 
 func (m *Manager) Access(ctx context.Context, id string, authorize func(context.Context) error) (string, error) {
@@ -166,7 +167,7 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 		if _, e = m.sameConnection(ctx, conn); e != nil {
 			return Lease{}, e
 		}
-		return Lease{Token: bundle.AccessToken, Generation: bundle.Generation}, nil
+		return Lease{Token: bundle.AccessToken, Generation: bundle.Generation, Expiry: bundle.Expiry}, nil
 	}
 	if m.Provider == nil || bundle.RefreshToken == "" {
 		m.markReauth(ctx, conn)
@@ -284,7 +285,7 @@ func (m *Manager) accessLease(ctx context.Context, id string, authorize func(con
 	if _, e = m.sameConnection(ctx, conn); e != nil {
 		return Lease{}, e
 	}
-	return Lease{Token: next.AccessToken, Generation: next.Generation}, nil
+	return Lease{Token: next.AccessToken, Generation: next.Generation, Expiry: next.Expiry}, nil
 }
 
 func validRefreshScopes(scopes, storedScopes, connectionScopes []string) bool {

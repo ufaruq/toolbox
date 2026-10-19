@@ -169,6 +169,10 @@ func (s *Server) fixtureAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, u, 303)
 }
 func (s *Server) completeConnection(w http.ResponseWriter, r *http.Request) {
+	if s.WorkspaceLocal {
+		s.workspaceCallback(w, r)
+		return
+	}
 	owner, ok := s.requireOwner(w, r, false)
 	if !ok {
 		return

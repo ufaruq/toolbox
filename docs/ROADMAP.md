@@ -43,9 +43,16 @@ The local Okta owner-only mode and automated protocol/session/browser tests are 
 
 References: [Google setup and release gates](google-setup.md), `internal/oauth`, `internal/connectors/gdrive`, `internal/app/integration.go` and the approval UI in `internal/server/web`.
 
+The `workspace-local` runtime, connector-first UI and owner-authorized Picker
+boundary are implemented in the live Workspace draft. The hermetic browser flow
+uses controlled providers and does not close the real-provider gates below.
+[Workspace setup](workspace-demo.md) documents exact configuration and the
+interactive four-code client checker. The runtime explicitly requests the
+`openid email drive.file` identity contract; default/fixture scopes are unchanged.
+
 - [ ] Configure a dedicated Google test project, OAuth web client, exact callbacks, test users and Picker project/API settings. Inject credentials through the server's secret mechanism; record only non-secret configuration identifiers.
 - [ ] Complete the [real PKCE enforcement spike](google-setup.md#3-mandatory-pkce-enforcement-spike): independent fresh-code positive, missing-verifier and wrong-verifier cases, followed by another positive case. Keep `PKCEValidated` false until the gate passes.
-- [ ] Verify ID-token issuance and exact granted scopes for the intended `openid` plus `drive.file` request. If the minimal request fails, record and review the identity/scope decision before changing it; do not silently broaden scopes.
+- [ ] Verify ID-token issuance and exact granted scopes for the intended live contract. The explicit `workspace-local` identity mode requests `openid email drive.file`; the minimal library/fixture contract remains `openid drive.file`. No broad Drive or profile fallback is allowed.
 - [ ] Wire the existing real Google OAuth, refresh/revocation and Drive metadata/export adapters into the non-fixture runtime. Preserve the fixed endpoints, bounded requests, generation coordination and exact-document dispatch checks.
 - [ ] Implement trusted owner document selection with Google Picker and bind selection to the reviewed connection/account. Review the required access-token exposure to the owner browser, its expiry and in-memory handling; provider refresh tokens must never reach the browser or agent. `drive.file` itself is not read-only.
 - [ ] Run the full human/agent browser flow with a synthetic document in the real test account: consent, selection, request, review, approval, permitted read, other-document denial, grant revocation and disconnect. Verify provider credentials are absent from agent responses, logs and artifacts.

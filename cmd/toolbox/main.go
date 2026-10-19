@@ -32,6 +32,12 @@ func main() {
 	}
 }
 func run() error {
+	if len(os.Args) > 1 {
+		if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
+			return runGooglePKCECheck()
+		}
+		return errors.New("unknown command")
+	}
 	cfg, e := loadConfig(os.Getenv)
 	if e != nil {
 		return e
@@ -169,6 +175,7 @@ func runOIDCLocal(cfg runtimeConfig) error {
 		}
 		serverConfig.OwnerOnly, serverConfig.WorkspaceLocal = false, true
 		serverConfig.SessionPepper, serverConfig.Pepper = cfg.pepper, cfg.workspace.credentialPepper
+		serverConfig.Picker = server.PickerConfig{APIKey: cfg.workspace.pickerAPIKey, ProjectNumber: cfg.workspace.projectNumber}
 	}
 	var providerBoundary server.Integration
 	if integration != nil {

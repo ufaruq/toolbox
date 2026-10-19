@@ -19,7 +19,7 @@ func newWorkspaceIntegration(cfg runtimeConfig, repo domain.Repository, secrets 
 	provider, err := oauth.NewGoogleProvider(oauth.GoogleConfig{
 		ClientID: cfg.workspace.googleClientID, ClientSecret: cfg.workspace.googleClientSecret,
 		CallbackURL: cfg.origin + "/oauth/callback", AllowLoopbackHTTP: true,
-		PKCEValidated: true, IdentityScopes: true, // loadConfig requires the actual-client gate.
+		PKCEValidated: cfg.workspace.pkceValidated, IdentityScopes: true,
 	})
 	if err != nil {
 		return nil, err

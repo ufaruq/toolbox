@@ -22,6 +22,7 @@ type workspaceConfig struct {
 	googleClientID, googleClientSecret, pickerAPIKey, projectNumber string
 	signingKeyID                                                    string
 	signingSeed, credentialPepper                                   []byte
+	pkceValidated                                                   bool
 }
 
 func loadConfig(getenv func(string) string) (runtimeConfig, error) {
@@ -86,6 +87,7 @@ func loadWorkspaceConfig(getenv func(string) string, sessionPepper []byte) (work
 	if getenv("TOOLBOX_GOOGLE_PKCE_VALIDATED") != "true" {
 		return c, errors.New("actual Google Web-client PKCE verification is required")
 	}
+	c.pkceValidated = true
 	var err error
 	c.signingSeed, err = base64.StdEncoding.DecodeString(getenv("TOOLBOX_SIGNING_SEED"))
 	if err != nil || len(c.signingSeed) != 32 {

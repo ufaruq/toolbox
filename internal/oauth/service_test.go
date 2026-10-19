@@ -72,6 +72,39 @@ func (h *harness) connection(t *testing.T, id string) domain.Connection {
 	}
 	return result
 }
+
+func TestRejectConsumesOnlyBoundTransactionWithoutExchanging(t *testing.T) {
+	h := newHarness(t)
+	start, state, code := h.begin(t)
+	ctx := context.Background()
+	for _, ids := range [][2]string{{"other", "other-session"}, {"owner", "session-2"}} {
+		if err := h.service.Reject(ctx, ids[0], ids[1], state); !errors.Is(err, ErrCallback) {
+			t.Fatal("wrong binding consumed", err)
+		}
+	}
+	if err := h.service.Reject(ctx, "owner", "session", strings.Split(state, ".")[0]+"."+security.Random()); !errors.Is(err, ErrCallback) {
+		t.Fatal("wrong state consumed")
+	}
+	if err := h.service.Reject(ctx, "owner", "session", state); err != nil {
+		t.Fatal(err)
+	}
+	if h.provider.ExchangeCalls() != 0 {
+		t.Fatal("cancellation exchanged a code")
+	}
+	if h.connection(t, start.ConnectionID).Status != "cancelled" {
+		t.Fatal("pending connection left usable")
+	}
+	if _, err := h.service.Complete(ctx, "owner", "session", state, code); !errors.Is(err, ErrCallback) {
+		t.Fatal("cancelled transaction replayed", err)
+	}
+	if err := h.service.Reject(ctx, "owner", "session", state); !errors.Is(err, ErrCallback) {
+		t.Fatal("cancellation replayed", err)
+	}
+	var secret transactionSecret
+	if _, err := h.secrets.GetJSON(ctx, transactionPath(strings.Split(state, ".")[0]), &secret); !errors.Is(err, tokens.ErrNotFound) {
+		t.Fatal("cancelled verifier retained")
+	}
+}
 func TestCompleteDurableAndReplay(t *testing.T) {
 	h := newHarness(t)
 	start, state, code := h.begin(t)

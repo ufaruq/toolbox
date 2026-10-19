@@ -27,6 +27,7 @@ type Config struct {
 	OwnerOnly      bool
 	WorkspaceLocal bool
 	OwnerLogin     *ownerlogin.Service
+	Picker         PickerConfig
 	Readiness      func(context.Context) error
 }
 type Server struct {
@@ -77,6 +78,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	if s.WorkspaceLocal && (r.URL.Path == "/" || strings.HasPrefix(r.URL.Path, "/approve/")) {
+		// Picker supplies its own iframe and inline positioning styles. Keep
+		// scripts confined to Google's loader and our own assets. The origin-only
+		// referrer supports the restricted Picker key without forwarding paths.
+		w.Header().Set("Referrer-Policy", "strict-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' https://apis.google.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://www.googleapis.com https://apis.google.com; frame-src https://docs.google.com https://drive.google.com; img-src 'self' data: https://ssl.gstatic.com; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	}
 	if (r.URL.RawQuery != "" || r.URL.ForceQuery) && r.URL.Path != "/oauth/callback" && r.URL.Path != "/fixture/authorize" && !(s.OwnerLogin != nil && r.URL.Path == "/auth/oidc/callback") {
 		fail(w, 400, "INVALID_QUERY")
 		return
@@ -126,6 +134,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/connections/google/start", s.startConnection)
 	s.mux.HandleFunc("GET /oauth/callback", s.completeConnection)
 	s.mux.HandleFunc("GET /v1/connections", s.connections)
+	if s.WorkspaceLocal {
+		s.mux.HandleFunc("GET /v1/workspace/config", s.workspaceConfig)
+		s.mux.HandleFunc("POST /v1/connections/{id}/picker-token", s.pickerToken)
+	}
 	s.mux.HandleFunc("POST /v1/connections/{id}/disconnect", s.disconnect)
 	s.mux.HandleFunc("POST /v1/delegation-requests", s.createRequest)
 	s.mux.HandleFunc("GET /v1/delegation-requests/{id}", s.pollRequest)
