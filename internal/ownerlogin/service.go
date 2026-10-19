@@ -416,31 +416,45 @@ func (s *Service) Logout(ctx context.Context, sessionID, browserToken string) er
 		if !authenticated && len(matchingIDs) == 0 {
 			return domain.ErrDenied
 		}
-		actor := ""
+		// Seed authority only from a live authenticated session or a matching
+		// HttpOnly binding. Expired session cookies alone confer no authority.
+		sessions := map[string]bool{}
 		if authenticated {
-			session := st.Sessions[sessionID]
-			actor = session.UserID
-			session.ExpiresAt = st.Now
-			st.Sessions[sessionID] = session
+			sessions[sessionID] = true
 		}
-		for id, tx := range st.OwnerLogins {
-			bound := matchingIDs[id]
-			if !bound && (!authenticated || tx.PreviousSessionID != sessionID) {
-				continue
+		for id := range matchingIDs {
+			if issued := st.OwnerLogins[id].IssuedSessionID; issued != "" {
+				sessions[issued] = true
 			}
+		}
+		// Follow all generations before mutating them, within the same serializable
+		// transaction as cancellation and expiry. Independent browsers are excluded.
+		for changed := true; changed; {
+			changed = false
+			for id, tx := range st.OwnerLogins {
+				if !s.bound(tx) || matchingIDs[id] || !sessions[tx.PreviousSessionID] {
+					continue
+				}
+				matchingIDs[id] = true
+				if tx.IssuedSessionID != "" {
+					sessions[tx.IssuedSessionID] = true
+				}
+				changed = true
+			}
+		}
+		actor := ""
+		for id := range sessions {
+			if session, ok := st.Sessions[id]; ok {
+				actor = session.UserID
+				session.ExpiresAt = st.Now
+				st.Sessions[id] = session
+			}
+		}
+		for id := range matchingIDs {
+			tx := st.OwnerLogins[id]
 			if tx.Status == "pending" || tx.Status == "exchanging" {
 				tx.Status = "cancelled"
 				st.OwnerLogins[id] = tx
-			}
-			// An expired prior session alone grants no authority over its replacement.
-			if bound && tx.Status == "complete" && tx.IssuedSessionID != "" {
-				if replacement, ok := st.Sessions[tx.IssuedSessionID]; ok {
-					replacement.ExpiresAt = st.Now
-					st.Sessions[replacement.ID] = replacement
-					if actor == "" {
-						actor = replacement.UserID
-					}
-				}
 			}
 		}
 		if actor != "" {
@@ -543,11 +557,8 @@ func (s *Service) Cleanup(ctx context.Context) error {
 			if tx.Status == "pending" || tx.Status == "exchanging" {
 				return nil
 			}
-			if tx.IssuedSessionID != "" {
-				session, exists := st.Sessions[tx.IssuedSessionID]
-				if exists && st.Now.Before(session.ExpiresAt) {
-					return nil
-				}
+			if domain.OwnerLoginInUse(st, tx) {
+				return nil
 			}
 			delete(st.OwnerLogins, tx.ID)
 			return nil

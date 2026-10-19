@@ -1029,3 +1029,46 @@ func TestOwnerLoginSessionConfigurationBinding(t *testing.T) {
 		t.Fatal("old client session remains authorized after reconfiguration")
 	}
 }
+
+func TestOwnerLoginDelayedLogoutRevokesDescendants(t *testing.T) {
+	for _, cleanup := range []bool{false, true} {
+		for _, completed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("cleanup=%t/completed=%t", cleanup, completed), func(t *testing.T) {
+				f := newLoginFixture(t)
+				independent := f.complete(t, "")
+				initial := f.complete(t, "")
+				binding, state := f.start(t, security.Hash(initial.SessionToken))
+				first, err := f.service.Complete(context.Background(), state, "code", binding.BrowserToken)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The first callback cleared its binding in the browser. A fresh
+				// binding creates a second replacement before the delayed logout.
+				f.clock.Add(TransactionLifetime + time.Second)
+				next, nextState := f.start(t, security.Hash(first.SessionToken))
+				if completed {
+					if _, err := f.service.Complete(context.Background(), nextState, "code", next.BrowserToken); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if cleanup {
+					if err := f.service.Cleanup(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := f.service.Logout(context.Background(), "", binding.BrowserToken); err != nil {
+					t.Fatal(err)
+				}
+				if !completed {
+					if _, err := f.service.Complete(context.Background(), nextState, "code", next.BrowserToken); err == nil {
+						t.Fatal("descendant callback restored access after logout")
+					}
+				}
+				st := f.snapshot(t)
+				if liveLoginSessions(st) != 1 || !ownerSessionLive(st, security.Hash(independent.SessionToken)) {
+					t.Fatal("delayed logout must revoke every linked replacement and preserve independent browsers")
+				}
+			})
+		}
+	}
+}

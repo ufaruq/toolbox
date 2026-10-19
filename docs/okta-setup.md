@@ -2,7 +2,7 @@
 
 `TOOLBOX_MODE=oidc-local` signs an owner into Toolbox through an Okta-hosted login page. It binds to loopback HTTP and requires PostgreSQL and OpenBao. Google connections, Picker, document access, agents and delegation are disabled in this mode, including when a database contains old fixture records. It is a local development milestone; there is no public production mode.
 
-The code and synthetic tests can be prepared and reviewed before you create an Okta account or supply a client secret. **Real Okta acceptance is unrun.** A synthetic pass does not complete M1's live owner-login acceptance. Live Google and production milestones remain open. See the [owner sign-in design](superpowers/specs/2026-10-18-okta-owner-oidc-design.md) and [roadmap in PR #3](https://github.com/ufaruq/toolbox/blob/docs/consolidate-roadmap/docs/ROADMAP.md#m1-real-owner-sign-in).
+The code and synthetic tests can be prepared and reviewed before you create an Okta account or supply a client secret. **Real Okta acceptance is unrun.** A synthetic pass does not complete M1's live owner-login acceptance. Live Google and production milestones remain open. See the [owner sign-in design](superpowers/specs/2026-10-18-okta-owner-oidc-design.md) and [roadmap](ROADMAP.md#m1-real-owner-sign-in).
 
 ## Verify without an Okta tenant
 
@@ -35,7 +35,7 @@ Unset `TOOLBOX_TEST_DATABASE_URL` or `TOOLBOX_TEST_OPENBAO_ADDR` causes the corr
 
 Toolbox requests only `openid` and discards OIDC tokens after establishing its own eight-hour owner session. It does not request email/profile or retain an ID token for provider logout. Application code exchanges the authorization code server-side with the client secret and PKCE verifier; no client secret goes to the browser.
 
-Toolbox logout revokes the current authenticated session and the recognized login cookie's pending/replacement chain. Independently initialized anonymous flows that do not yet share a cookie are separate cancellation scopes, including initial flows in different tabs. This is not account-wide or Okta-wide logout. Concurrent replacement starts can fail closed; begin a fresh login if that occurs. Sessions originating from fixture login or a different configured OIDC client are rejected in owner mode.
+Toolbox logout atomically revokes the current authenticated session and all reachable generations of the recognized login cookie's pending/replacement chain. Cleanup retains the non-secret links while any descendant login or issued session is still usable; dependency failures do not clear cookies or publish a replacement login. Independently initialized anonymous flows that do not yet share a cookie are separate cancellation scopes, including initial flows in different tabs. This is not account-wide or Okta-wide logout. Concurrent replacement starts can fail closed; begin a fresh login if that occurs. Sessions originating from fixture login or a different configured OIDC client are rejected in owner mode.
 
 ## Configure local dependencies and secrets
 

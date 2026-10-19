@@ -51,6 +51,9 @@ func (s *Server) startOwnerLogin(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.owner(r, false); err == nil {
 		cookie, _ := r.Cookie("toolbox_session")
 		previous = security.Hash(cookie.Value)
+	} else if !errors.Is(err, domain.ErrDenied) {
+		ownerAuthError(w, err)
+		return
 	}
 	binding := ""
 	if cookie, err := r.Cookie("toolbox_login"); err == nil && len(cookie.Value) == 43 {
@@ -144,11 +147,14 @@ func (s *Server) logoutOwner(w http.ResponseWriter, r *http.Request) {
 	sessionID := ""
 	if _, err := s.owner(r, false); err == nil {
 		if _, err = s.owner(r, true); err != nil {
-			fail(w, 403, "NOT_AUTHORIZED")
+			ownerAuthError(w, err)
 			return
 		}
 		cookie, _ := r.Cookie("toolbox_session")
 		sessionID = security.Hash(cookie.Value)
+	} else if !errors.Is(err, domain.ErrDenied) {
+		ownerAuthError(w, err)
+		return
 	}
 	binding := ""
 	if cookie, err := r.Cookie("toolbox_login"); err == nil && len(cookie.Value) == 43 {

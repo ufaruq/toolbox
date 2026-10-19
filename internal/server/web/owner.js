@@ -79,7 +79,12 @@ action('login', async () => {
 });
 
 action('logout', async () => {
-  await request('/v1/session/logout', {});
+  try {
+    await request('/v1/session/logout', {});
+  } catch (error) {
+    if (error.status === 401 || error.status === 403) await loadSession();
+    throw error;
+  }
   showSignedOut();
   element('status').textContent = 'Signed out of Toolbox. Your Okta session may still be active.';
 });

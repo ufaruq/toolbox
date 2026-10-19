@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,6 +29,81 @@ func (httpOwnerProvider) AuthorizationURL(state, nonce, challenge string) (strin
 	q := url.Values{"state": {state}, "nonce": {nonce}, "code_challenge": {challenge}}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+type ownerLookupFailure struct {
+	domain.Repository
+	failAt int
+}
+
+func (r *ownerLookupFailure) Transact(ctx context.Context, fn func(*domain.State) error) error {
+	r.failAt--
+	if r.failAt == 0 {
+		return errors.New("temporary repository failure")
+	}
+	return r.Repository.Transact(ctx, fn)
+}
+
+func TestOwnerAuthLookupFailureDoesNotPublishSuccess(t *testing.T) {
+	for _, test := range []struct {
+		path   string
+		failAt int
+	}{
+		{"/auth/oidc/start", 1}, {"/v1/session/logout", 1}, {"/v1/session/logout", 2},
+	} {
+		t.Run(fmt.Sprintf("%s/lookup=%d", test.path, test.failAt), func(t *testing.T) {
+			api, repo := newOwnerHTTP(t)
+			state, binding := beginOwnerHTTP(t, api)
+			callback := ownerRequest(api, "GET", "/auth/oidc/callback?state="+url.QueryEscape(state)+"&code=c", "", "", "", binding)
+			if callback.Code != 303 {
+				t.Fatalf("login failed: %d", callback.Code)
+			}
+			var session *http.Cookie
+			for _, cookie := range callback.Result().Cookies() {
+				if cookie.Name == "toolbox_session" {
+					session = cookie
+				}
+			}
+			if session == nil {
+				t.Fatal("missing session")
+			}
+			current := ownerRequest(api, "GET", "/v1/session", "", "", "", session)
+			var body struct {
+				CSRF string `json:"csrf_token"`
+			}
+			if err := json.Unmarshal(current.Body.Bytes(), &body); err != nil || body.CSRF == "" {
+				t.Fatal("missing CSRF")
+			}
+			pending := ownerRequest(api, "POST", "/auth/oidc/start", "{}", ownerTestOrigin, "", session)
+			if pending.Code != 200 {
+				t.Fatal("pending login failed")
+			}
+			binding = pending.Result().Cookies()[0]
+			var before int
+			if err := repo.Transact(context.Background(), func(st *domain.State) error { before = len(st.OwnerLogins); return nil }); err != nil {
+				t.Fatal(err)
+			}
+			api.Repository = &ownerLookupFailure{Repository: repo, failAt: test.failAt}
+			failed := ownerRequest(api, "POST", test.path, "{}", ownerTestOrigin, body.CSRF, session, binding)
+			if failed.Code != 503 || len(failed.Result().Cookies()) != 0 {
+				t.Fatalf("dependency failure must return 503 without replacing or clearing cookies; got %d", failed.Code)
+			}
+			if err := repo.Transact(context.Background(), func(st *domain.State) error {
+				if len(st.OwnerLogins) != before || !st.Now.Before(st.Sessions[security.Hash(session.Value)].ExpiresAt) {
+					t.Fatal("failed request mutated login/session")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if recovered := ownerRequest(api, "POST", "/v1/session/logout", "{}", ownerTestOrigin, body.CSRF, session, binding); recovered.Code != 200 {
+				t.Fatalf("logout after recovery: %d", recovered.Code)
+			}
+			if stale := ownerRequest(api, "GET", "/v1/session", "", "", "", session); stale.Code != 403 {
+				t.Fatal("recovered logout left old session live")
+			}
+		})
+	}
 }
 func (httpOwnerProvider) Exchange(context.Context, string, string, string) (ownerlogin.Identity, error) {
 	return ownerlogin.Identity{Issuer: "https://idp.example.test", Subject: "owner-alice"}, nil

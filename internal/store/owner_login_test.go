@@ -295,3 +295,57 @@ func TestOwnerLoginDatabaseConstraints(t *testing.T) {
 		})
 	}
 }
+
+func TestOwnerLoginDatabaseRetainsAncestorOfPendingReplacement(t *testing.T) {
+	p := testPostgres(t)
+	seed(t, p)
+	ctx := context.Background()
+	if err := p.Transact(ctx, func(s *domain.State) error {
+		v := ownerLoginRecord(s.Now)
+		v.PreviousSessionID = ""
+		s.OwnerLogins[v.ID] = v
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"exchanging", "complete"} {
+		if err := p.Transact(ctx, func(s *domain.State) error {
+			v := s.OwnerLogins["login1"]
+			v.Status = status
+			if status == "complete" {
+				v.IssuedSessionID = "s1"
+			}
+			s.OwnerLogins[v.ID] = v
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := p.Transact(ctx, func(s *domain.State) error {
+		session := s.Sessions["s1"]
+		session.ExpiresAt = s.Now
+		s.Sessions["s1"] = session
+		child := ownerLoginRecord(s.Now)
+		child.ID, child.StateHash = "child", "child-state"
+		s.OwnerLogins[child.ID] = child
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := p.pool.Exec(ctx, "DELETE FROM owner_login_transactions WHERE id='login1'")
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+		t.Fatalf("ancestor deletion must preserve the pending replacement link, got %v", err)
+	}
+	if err := p.Transact(ctx, func(s *domain.State) error {
+		child := s.OwnerLogins["child"]
+		child.Status = "cancelled"
+		s.OwnerLogins[child.ID] = child
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.pool.Exec(ctx, "DELETE FROM owner_login_transactions WHERE id='login1'"); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -198,10 +198,7 @@ func validate(old, s *domain.State) error {
 		if _, ok := s.OwnerLogins[k]; ok {
 			continue
 		}
-		if s.Now.Before(previous.ExpiresAt) && (previous.Status == "pending" || previous.Status == "exchanging") {
-			return invalid("active owner login deletion")
-		}
-		if session, ok := s.Sessions[previous.IssuedSessionID]; ok && s.Now.Before(session.ExpiresAt) {
+		if domain.OwnerLoginInUse(s, previous) {
 			return invalid("live owner login relationship deletion")
 		}
 	}

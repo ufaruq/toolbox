@@ -197,6 +197,19 @@ class OIDCBrowser:
         }""")
         assert denied == 403, "Logout without CSRF was accepted"
         assert self.session(first)["user_id"] == first_id
+        self.stage = "live session with stale CSRF"
+        first.evaluate("csrfToken = 'stale-csrf'")
+        with first.expect_response(
+            lambda response: urlsplit(response.url).path == "/v1/session/logout"
+        ) as csrf_logout:
+            first.locator("#logout").click()
+        assert csrf_logout.value.status == 403
+        expect(first.locator("#status")).not_to_be_empty()
+        expect(first.locator("#owner-panel")).to_be_visible()
+        expect(first.locator("#login-panel")).to_be_hidden()
+        assert "Signed out" not in first.locator("#status").inner_text()
+        first.reload(wait_until="domcontentloaded")
+        expect(first.locator("#owner-panel")).to_be_visible()
         self.capture(first, "01-owner-signed-in.png")
 
         self.stage = "independent second owner"
@@ -211,7 +224,18 @@ class OIDCBrowser:
         self.logout(first, first_cookie)
         assert self.session(second)["user_id"] == second_id, "Logout revoked another browser"
         self.capture(first, "03-owner-signed-out.png")
+        stale_tab = second.context.new_page()
+        stale_tab.goto(self.app_origin + "/", wait_until="domcontentloaded")
+        expect(stale_tab.locator("#owner-panel")).to_be_visible()
         self.logout(second, second_cookie)
+        self.stage = "logout after another tab ended the session"
+        with stale_tab.expect_response(
+            lambda response: urlsplit(response.url).path == "/v1/session/logout"
+        ) as expired_logout:
+            stale_tab.locator("#logout").click()
+        assert expired_logout.value.status == 403
+        expect(stale_tab.locator("#owner-panel")).to_be_hidden()
+        expect(stale_tab.locator("#login")).to_be_enabled()
         assert not self.javascript_errors, "Unhandled JavaScript exception"
         assert not self.external_requests, "A request escaped the two synthetic origins"
 
