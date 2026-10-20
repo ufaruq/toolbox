@@ -13,7 +13,7 @@ make workspace-browser-check
 `TestWorkspaceBrowserFlow` starts the real Workspace UI and authorization engine
 with a signed synthetic TLS OIDC provider, simulated Google consent/Drive and a
 controlled Picker loader. It covers account connection, document picking,
-approval/read, a different document's denial, revocation, disconnect, logout,
+approval/read, MCP client approval/disable/enable, a different document's denial, revocation, disconnect, logout,
 late reads after revoke, late revoke responses after a new grant, late approvals
 after account changes, approval links through owner login and mobile overflow.
 Approval return paths are restricted to local request URLs, and their temporary

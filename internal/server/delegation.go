@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"time"
 
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/security"
@@ -24,10 +23,6 @@ func (s *Server) createRequest(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.allowed("request:"+a.ID, 10) {
-		fail(w, 429, "RATE_LIMITED")
-		return
-	}
 	var in struct {
 		Tool            string `json:"tool"`
 		FileID          string `json:"file_id"`
@@ -40,45 +35,24 @@ func (s *Server) createRequest(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "INVALID_SCHEMA")
 		return
 	}
-	var q domain.Request
-	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
-		if !credentialActive(st, credential, a.ID) {
-			return domain.ErrDenied
-		}
-		q = domain.Request{ID: security.ID(), AgentID: a.ID, FileID: in.FileID, Tool: in.Tool, Status: "pending", Version: 1, DurationSeconds: in.DurationSeconds, RequestedExpiry: st.Now.Add(time.Duration(in.DurationSeconds) * time.Second), ExpiresAt: st.Now.Add(10 * time.Minute)}
-		q.Digest = digest(q)
-		st.Requests[q.ID] = q
-		addAudit(st, "agent", a.ID, a.OwnerID, "delegation.requested", "", "", q.FileID, "pending", "", 0)
-		return nil
-	})
+	result, e := s.createDelegation(r.Context(), agentAccess{AgentID: a.ID, CredentialID: credential}, in.Tool, in.FileID, in.DurationSeconds)
 	if e != nil {
-		fail(w, 503, "DEPENDENCY_UNAVAILABLE")
+		operationFailure(w, e)
 		return
 	}
-	jsonOut(w, 201, map[string]any{"request_id": q.ID, "status": q.Status, "approval_url": s.Origin + "/approve/" + q.ID, "expires_at": q.ExpiresAt})
+	jsonOut(w, 201, result)
 }
 func (s *Server) pollRequest(w http.ResponseWriter, r *http.Request) {
 	a, cred, ok := s.requireAgent(w, r)
 	if !ok {
 		return
 	}
-	var q domain.Request
-	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
-		v, ok := st.Requests[r.PathValue("id")]
-		if !ok || v.AgentID != a.ID || !credentialActive(st, cred, a.ID) {
-			return domain.ErrDenied
-		}
-		q = v
-		if q.Status == "pending" && !st.Now.Before(q.ExpiresAt) {
-			q.Status = "expired"
-		}
-		return nil
-	})
+	result, e := s.pollDelegation(r.Context(), agentAccess{AgentID: a.ID, CredentialID: cred}, r.PathValue("id"))
 	if e != nil {
-		fail(w, 403, "NOT_AUTHORIZED")
+		operationFailure(w, e)
 		return
 	}
-	jsonOut(w, 200, map[string]string{"request_id": q.ID, "status": q.Status, "grant_id": q.GrantID})
+	jsonOut(w, 200, result)
 }
 
 type reviewInput struct {
@@ -104,11 +78,26 @@ func (s *Server) ownerConnectionCheck(ctx context.Context, ownerID, sessionID, c
 		return nil
 	})
 }
+func (s *Server) pendingConnectionCheck(ctx context.Context, ownerID, sessionID, connID, requestID string) error {
+	return s.Repository.Transact(ctx, func(st *domain.State) error {
+		u := st.Users[ownerID]
+		session := st.Sessions[sessionID]
+		c, ok := st.Connections[connID]
+		if !ok || u.Status != "active" || session.UserID != ownerID || !st.Now.Before(session.ExpiresAt) || c.OwnerID != ownerID || c.Status != "active" || !domain.HasScope(c.Scopes, domain.DriveScope) {
+			return domain.ErrDenied
+		}
+		if s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, sessionID) {
+			return domain.ErrDenied
+		}
+		_, _, e := pending(st, requestID, ownerID, connID)
+		return e
+	})
+}
 func pending(st *domain.State, id, ownerID, connID string) (domain.Request, domain.Connection, error) {
 	q, ok := st.Requests[id]
 	a := st.Agents[q.AgentID]
 	c, exists := st.Connections[connID]
-	if !ok || !exists || a.OwnerID != ownerID || a.Status != "active" || c.OwnerID != ownerID || c.Status != "active" || q.Status != "pending" || !st.Now.Before(q.ExpiresAt) || !st.Now.Before(q.RequestedExpiry) || q.Digest != digest(q) || q.Tool != domain.Tool || !domain.HasScope(c.Scopes, domain.DriveScope) {
+	if !ok || !exists || a.OwnerID != ownerID || a.Status != "active" || c.OwnerID != ownerID || c.Status != "active" || q.Status != "pending" || !st.Now.Before(q.ExpiresAt) || !st.Now.Before(q.RequestedExpiry) || q.Digest != digest(q) || q.Tool != domain.Tool || !pendingProfileAllowed(st, q) || !domain.HasScope(c.Scopes, domain.DriveScope) {
 		return q, c, domain.ErrDenied
 	}
 	return q, c, nil
@@ -125,23 +114,32 @@ func (s *Server) reviewRequest(w http.ResponseWriter, r *http.Request) {
 	var q domain.Request
 	var c domain.Connection
 	var a domain.Agent
+	var clientID string
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		var e error
 		q, c, e = pending(st, r.PathValue("id"), owner.UserID, in.ConnectionID)
 		a = st.Agents[q.AgentID]
+		if p, ok := profileForAgent(st, a.ID); ok {
+			clientID = p.ClientID
+		}
 		return e
 	})
 	if e != nil {
 		fail(w, 403, "NOT_AUTHORIZED")
 		return
 	}
-	check := func(ctx context.Context) error { return s.ownerConnectionCheck(ctx, owner.UserID, owner.ID, c.ID) }
+	check := func(ctx context.Context) error {
+		return s.pendingConnectionCheck(ctx, owner.UserID, owner.ID, c.ID, q.ID)
+	}
 	doc, e := s.integration.Inspect(r.Context(), c.ID, q.FileID, check)
+	if e == nil {
+		e = check(r.Context())
+	}
 	if e != nil {
 		fail(w, 403, "RESOURCE_UNAVAILABLE")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"request_id": q.ID, "agent_id": a.ID, "agent_name": a.Name, "account_subject": c.Subject, "connection_id": c.ID, "tool": q.Tool, "description": "Read only the plain-text export of this Google document.", "file_id": q.FileID, "document_name": doc.Name, "expires_at": q.RequestedExpiry, "version": q.Version, "digest": approvalDigest(q, c), "provider_scope_notice": "Google drive.file includes broader app file authority. This grant permits only this exact document read."})
+	jsonOut(w, 200, map[string]any{"request_id": q.ID, "agent_id": a.ID, "agent_name": a.Name, "verified_client": clientID, "account_subject": c.Subject, "connection_id": c.ID, "tool": q.Tool, "description": "Read only the plain-text export of this Google document.", "file_id": q.FileID, "document_name": doc.Name, "expires_at": q.RequestedExpiry, "version": q.Version, "digest": approvalDigest(q, c), "provider_scope_notice": "Google drive.file includes broader app file authority. This grant permits only this exact document read."})
 }
 func (s *Server) approveRequest(w http.ResponseWriter, r *http.Request) {
 	owner, ok := s.requireOwner(w, r, true)
@@ -166,7 +164,9 @@ func (s *Server) approveRequest(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "APPROVAL_CHANGED_OR_EXPIRED")
 		return
 	}
-	check := func(ctx context.Context) error { return s.ownerConnectionCheck(ctx, owner.UserID, owner.ID, c.ID) }
+	check := func(ctx context.Context) error {
+		return s.pendingConnectionCheck(ctx, owner.UserID, owner.ID, c.ID, q.ID)
+	}
 	doc, e := s.integration.Inspect(r.Context(), c.ID, q.FileID, check)
 	if e != nil {
 		fail(w, 403, "RESOURCE_UNAVAILABLE")
@@ -224,33 +224,16 @@ func (s *Server) mintToken(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.allowed("mint:"+a.ID, 30) {
-		fail(w, 429, "RATE_LIMITED")
-		return
-	}
 	var in struct {
 		GrantID string `json:"grant_id"`
 	}
 	if !body(w, r, &in) {
 		return
 	}
-	var raw string
-	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
-		g := st.Grants[in.GrantID]
-		g, e := grantCheck(st, a.ID, cred, in.GrantID, g.FileID, nil)
-		if e != nil {
-			return e
-		}
-		raw, e = s.Signer.Mint(g, st.Now)
-		if e != nil {
-			return e
-		}
-		addAudit(st, "agent", a.ID, g.OwnerID, "delegation.token_issued", g.ID, g.ConnectionID, g.FileID, "allowed", "", 0)
-		return nil
-	})
+	result, e := s.mintDelegation(r.Context(), agentAccess{AgentID: a.ID, CredentialID: cred}, in.GrantID)
 	if e != nil {
-		fail(w, 403, "NOT_AUTHORIZED")
+		operationFailure(w, e)
 		return
 	}
-	jsonOut(w, 200, map[string]string{"delegation_token": raw, "token_type": "Toolbox-Delegation"})
+	jsonOut(w, 200, result)
 }

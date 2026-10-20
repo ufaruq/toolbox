@@ -59,7 +59,7 @@ func TestWorkspaceBrowserFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, err := server.New(server.Config{Repository: repo, Origin: origin, Signer: signer, Pepper: []byte(strings.Repeat("c", 32)), SessionPepper: sessionPepper, OwnerLogin: login, WorkspaceLocal: true, Picker: server.PickerConfig{APIKey: "synthetic-picker-key", ProjectNumber: "123456"}}, integration)
+	api, err := server.New(server.Config{Repository: repo, Origin: origin, Signer: signer, Pepper: []byte(strings.Repeat("c", 32)), SessionPepper: sessionPepper, OwnerLogin: login, Identity: workspaceMCPIdentity{ownerIssuer: idp.Issuer, subject: "workspace-owner"}, WorkspaceLocal: true, Picker: server.PickerConfig{APIKey: "synthetic-picker-key", ProjectNumber: "123456"}}, integration)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ product's permanent limit.
 | PR / work | Scope | Completion gate |
 |---|---|---|
 | #5 — owner identity | Real Okta owner login/session lifecycle. Already merged. | Existing live one-user verification and automated identity/session tests; retain the recorded second-user limitation. |
-| #6 — optional corporate matching | Opt-in exact-person Google account matching and fixture session/UI fixes. Ready for review/merge; it does not provide live Google wiring. | Its existing checks and review. #10 currently includes its branch history. |
+| #6 — optional corporate matching | Opt-in exact-person Google account matching and fixture session/UI fixes. Already merged; it does not provide live Google wiring. | Retain its existing checks and review. |
 | #10 — real Google tool foundation | Verified owner session plus real Google connection/Picker, exact-document approval/read, revocation and persistent local stores. | Real Google Picker and document read/denial/revoke/disconnect/restart acceptance, plus CI. The actual-client PKCE/scope check has passed. |
 | #7 — first real MCP agent client | Integrate Streamable HTTP MCP and approved per-client identity with the shared owner/Google runtime and permission engine. | A real selected client discovers the tool, requests access, receives owner approval and reads an actual Google Doc. Other-document/other-client denial, revocation and disabled-client denial must pass. |
 | New policy PR — reusable permissions | Persisted policies with independent read/write resource rules, agent assignments, policy UI, versioning and live evaluation. Extend the read path first; do not display unsupported write capabilities as usable. | All/allowlist/blocklist cases, conflicting deny rules, agent/owner isolation, changes during a call, token invalidation and old-grant compatibility. |
@@ -49,25 +49,27 @@ or a grant. The agent authenticates independently, and every tool call still
 passes the shared authorization and provider boundary. MCP is a transport for
 those calls, not a separate permissions implementation.
 
-## #7 integration work still required
+## #7 integration and remaining acceptance
 
-The current #7 head predates the merged owner login and #10. It conflicts with
-current main and explicitly installs an unavailable Google provider. Its existing
-synthetic SDK tests therefore do not prove a live Google client demo.
+The conflict-resolution update includes #10 and current main. It keeps the
+existing owner login, session lifecycle and Google adapter, and enables MCP in
+`workspace-local` through explicit optional configuration. Migrations 001–003 are
+unchanged; additive 004/005 provide caller profiles and audit attribution.
 
-- Rebase/integrate the shared owner login, migrations, session/revocation behavior,
-  Google runtime and token manager without replacing them with the older duplicate
-  owner-auth implementation.
-- Reconcile the existing organization-issuer owner identity with #7's custom Okta
-  authorization-server `uid`/`cid` access-token/profile model. Preserve owner and
-  Google-connection ownership; never infer that binding from an unverified email.
-- Reuse the same Google adapter and grant checks for MCP and HTTP.
-- Verify Codex/Claude Code registration, callback, scope, audience and supported
-  standard transport/authentication without hard-coding a client brand into
-  authorization. Start with the SDK and an installed local client, then verify
-  the other client configuration.
-- Keep synthetic SDK coverage, and add real-client/live-provider acceptance before
-  reporting the integration ready for merge.
+Same-tenant, verified Okta access-token `uid` resolves to the existing organization
+owner. Owner IDs and Google connections remain intact; email never establishes
+the binding. MCP and HTTP use the same Google provider and authorization checks.
+The older standalone hosted runtime and duplicate owner login are superseded;
+production deployment remains in #4. See [MCP setup](mcp-setup.md).
+
+Automated SDK, identity, schema-upgrade and browser checks exercise this
+integration. Actual Okta custom-server issuance and Codex CLI 0.163.0 have now
+completed discovery → request → owner approval → actual Google document read,
+including no-grant and other-document denial and persistence across a server
+restart. The native checks used Codex app-server's tool-call API without a model
+invocation. Live revocation, disabled-client denial, second-client isolation and
+disconnect/provider cleanup remain to be recorded; Claude Code is also unverified.
+See the revision-bound [acceptance record](mcp-setup.md#actual-local-acceptance-19-october-2026).
 
 ## Policy expansion: impact and boundaries
 

@@ -24,6 +24,14 @@ type Session struct {
 	ID, UserID, CSRFHash string
 	ExpiresAt            time.Time
 }
+
+// CallerProfile binds an approved Okta identity and client to one owner agent.
+type CallerProfile struct {
+	ID, OwnerID, AgentID, Issuer, UserID, ClientID, Label, Status string
+	Tools                                                         []string
+	ApprovedAt, ExpiresAt                                         time.Time
+}
+
 type Connection struct {
 	ID, OwnerID, Provider, Subject, ClientID, Status string
 	Epoch, SecretVersion                             int64
@@ -63,6 +71,7 @@ type OwnerLoginTransaction struct {
 	ExpiresAt                                        time.Time
 }
 type Audit struct {
+	AgentID, CallerProfileID, ClientID                                                              string
 	ID                                                                                              string
 	At                                                                                              time.Time
 	ActorType, ActorID, SubjectID, Action, GrantID, ConnectionID, ResourceID, Outcome, InvocationID string
@@ -76,23 +85,24 @@ type Cleanup struct {
 // State is a transaction snapshot. Never retain its maps or pointers after Transact.
 // Provider tokens, OAuth codes and PKCE verifiers never belong in this structure.
 type State struct {
-	Now         time.Time
-	Users       map[string]User
-	Agents      map[string]Agent
-	Credentials map[string]Credential
-	Sessions    map[string]Session
-	Connections map[string]Connection
-	Resources   map[string]Resource
-	Requests    map[string]Request
-	Grants      map[string]Grant
-	OAuth       map[string]OAuthTransaction
-	OwnerLogins map[string]OwnerLoginTransaction
-	Audits      []Audit
-	Cleanup     map[string]Cleanup
+	CallerProfiles map[string]CallerProfile
+	Now            time.Time
+	Users          map[string]User
+	Agents         map[string]Agent
+	Credentials    map[string]Credential
+	Sessions       map[string]Session
+	Connections    map[string]Connection
+	Resources      map[string]Resource
+	Requests       map[string]Request
+	Grants         map[string]Grant
+	OAuth          map[string]OAuthTransaction
+	OwnerLogins    map[string]OwnerLoginTransaction
+	Audits         []Audit
+	Cleanup        map[string]Cleanup
 }
 
 func NewState() *State {
-	return &State{Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
+	return &State{CallerProfiles: map[string]CallerProfile{}, Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
 }
 func ResourceKey(connectionID, fileID string) string { return connectionID + ":" + fileID }
 func HasScope(scopes []string, scope string) bool {

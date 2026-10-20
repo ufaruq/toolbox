@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"github.com/ufaruq/toolbox/internal/identity"
 	"net"
 	"net/url"
 	"strconv"
@@ -16,6 +17,7 @@ type runtimeConfig struct {
 	pepper                                     []byte
 	databaseURL, baoAddr, baoToken             string
 	workspace                                  workspaceConfig
+	mcp                                        *identity.AccessConfig
 }
 
 type workspaceConfig struct {
@@ -68,6 +70,10 @@ func loadConfig(getenv func(string) string) (runtimeConfig, error) {
 		return c, errors.New("TOOLBOX_SESSION_PEPPER must encode exactly 32 random bytes")
 	}
 	if c.mode == "workspace-local" {
+		c.mcp, err = loadMCPConfig(getenv, c.oidcIssuer, c.oidcClientID, c.origin)
+		if err != nil {
+			return c, err
+		}
 		c.workspace, err = loadWorkspaceConfig(getenv, c.pepper)
 		if err != nil {
 			return c, err

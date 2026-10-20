@@ -55,6 +55,38 @@ def main():
             assert urlsplit(page.url).query==''
             expect(page.locator('#policy')).to_have_value('approve_exact_document_read')
             page.screenshot(path=str(artifacts/'connected.png'),full_page=True,animations="disabled")
+            stage='MCP caller controls'
+            expect(page.locator('#callers-panel')).to_be_visible()
+            page.locator('#callers-panel summary').click()
+            page.locator('#caller-client').select_option('code')
+            page.locator('#create-caller').click()
+            # Confirmation must be visible beside the action, and a saved
+            # registration must not invite a second approval POST.
+            expect(page.locator('#callers-panel').get_by_role('status')).to_contain_text('approved')
+            expect(page.locator('#callers-panel').get_by_role('status')).to_be_visible()
+            expect(page.locator('#create-caller')).to_be_disabled()
+            expect(page.locator('#caller-list')).to_contain_text('active')
+            page.reload()
+            expect(page.locator('#workspace')).to_be_visible()
+            page.locator('#callers-panel summary').click()
+            page.locator('#caller-client').select_option('code')
+            expect(page.locator('#create-caller')).to_be_disabled()
+            page.locator('#caller-list').get_by_role('button',name='Disable',exact=True).click()
+            expect(page.locator('#caller-list')).to_contain_text('disabled')
+            expect(page.locator('#callers-panel').get_by_role('status')).to_contain_text('disabled')
+            page.locator('#caller-list').get_by_role('button',name='Enable caller',exact=True).click()
+            expect(page.locator('#caller-list')).to_contain_text('active')
+            expect(page.locator('#callers-panel').get_by_role('status')).to_contain_text('updated')
+            expect(page.locator('#caller-list').get_by_role('button',name='Update permissions',exact=True)).to_be_visible()
+            stage='saved caller can be renamed without approving it again'
+            page.locator('#caller-list').get_by_label('Agent name',exact=True).fill('Codex local')
+            page.locator('#caller-list').get_by_role('button',name='Save name',exact=True).click()
+            expect(page.locator('#callers-panel').get_by_role('status')).to_contain_text('name saved')
+            page.reload()
+            expect(page.locator('#workspace')).to_be_visible()
+            page.locator('#callers-panel summary').click()
+            expect(page.locator('#caller-list').get_by_label('Agent name',exact=True)).to_have_value('Codex local')
+            expect(page.locator('#create-caller')).to_be_disabled()
             stage='Picker'
             page.locator('#pick').click()
             page.locator('#synthetic-picker-select').click()

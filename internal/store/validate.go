@@ -15,6 +15,9 @@ func validate(old, s *domain.State) error {
 	if s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.OwnerLogins == nil || s.Cleanup == nil {
 		return invalid("nil collection")
 	}
+	if s.CallerProfiles == nil {
+		return invalid("nil caller profiles")
+	}
 	identities := map[string]bool{}
 	for k, v := range s.Users {
 		if k == "" || k != v.ID || v.Issuer == "" || v.Subject == "" || v.Status == "" {
@@ -38,6 +41,26 @@ func validate(old, s *domain.State) error {
 		}
 		if prev, ok := old.Agents[k]; ok && prev.OwnerID != v.OwnerID {
 			return invalid("agent owner changed")
+		}
+	}
+	profileIdentities := map[[3]string]bool{}
+	profileAgents := map[string]bool{}
+	for k, v := range s.CallerProfiles {
+		if k == "" || k != v.ID || v.Issuer == "" || v.UserID == "" || v.ClientID == "" || (v.Status != "active" && v.Status != "disabled") || v.ApprovedAt.IsZero() || v.ExpiresAt.IsZero() || !v.ExpiresAt.After(v.ApprovedAt) {
+			return invalid("caller profile")
+		}
+		owner, ok := s.Users[v.OwnerID]
+		agent, aok := s.Agents[v.AgentID]
+		if !ok || !aok || agent.OwnerID != v.OwnerID || owner.Issuer != v.Issuer || owner.Subject != v.UserID {
+			return invalid("caller profile owner identity")
+		}
+		identity := [3]string{v.Issuer, v.UserID, v.ClientID}
+		if profileIdentities[identity] || profileAgents[v.AgentID] {
+			return invalid("duplicate caller profile binding")
+		}
+		profileIdentities[identity], profileAgents[v.AgentID] = true, true
+		if prev, ok := old.CallerProfiles[k]; ok && (prev.OwnerID != v.OwnerID || prev.AgentID != v.AgentID || prev.Issuer != v.Issuer || prev.UserID != v.UserID || prev.ClientID != v.ClientID) {
+			return invalid("caller profile binding changed")
 		}
 	}
 	for k, v := range s.Credentials {

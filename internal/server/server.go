@@ -18,6 +18,7 @@ import (
 )
 
 type Config struct {
+	Identity       Identity
 	Repository     domain.Repository
 	Signer         *security.Signer
 	Pepper         []byte
@@ -68,6 +69,12 @@ func New(cfg Config, integration Integration) (*Server, error) {
 		(!cfg.OwnerOnly && (cfg.Signer == nil || integration == nil || cfg.OwnerLogin != nil && !cfg.WorkspaceLocal)) ||
 		(cfg.WorkspaceLocal && (cfg.Fixture || cfg.OwnerOnly || cfg.OwnerLogin == nil || len(cfg.SessionPepper) != 32 || !validOwnerOrigin(cfg.Origin))) {
 		return nil, errors.New("invalid server configuration")
+	}
+	if cfg.Identity != nil && cfg.OwnerLogin != nil {
+		binding, ok := cfg.Identity.(interface{ OwnerIssuer() string })
+		if !ok || binding.OwnerIssuer() != cfg.OwnerLogin.Issuer() {
+			return nil, errors.New("MCP owner issuer binding mismatch")
+		}
 	}
 	s := &Server{Config: cfg, mux: http.NewServeMux(), limits: map[string]window{}, slots: make(chan struct{}, 8), integration: integration}
 	s.routes()
@@ -128,6 +135,8 @@ func (s *Server) routes() {
 		s.staticRoutes()
 		return
 	}
+	s.mcpRoutes()
+	s.ownerRoutes()
 	s.mux.HandleFunc("POST /v1/agents", s.createAgent)
 	s.mux.HandleFunc("POST /v1/agents/{id}/credentials", s.rotateCredential)
 	s.mux.HandleFunc("POST /v1/credentials/{id}/revoke", s.revokeCredential)
@@ -269,7 +278,7 @@ func (s *Server) agent(r *http.Request) (domain.Agent, string, error) {
 	e = s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		c, ok := st.Credentials[id]
 		v := st.Agents[c.AgentID]
-		if !ok || !credentialActive(st, id, v.ID) || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
+		if !ok || authorizeAgent(st, agentAccess{AgentID: v.ID, CredentialID: id}, "") != nil || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
 			return domain.ErrDenied
 		}
 		a = v
@@ -296,11 +305,31 @@ func (s *Server) requireAgent(w http.ResponseWriter, r *http.Request) (domain.Ag
 	return a, id, true
 }
 func addAudit(st *domain.State, actorType, actorID, subject, action, grant, connection, resource, outcome, invocation string, bytes int) {
-	st.Audits = append(st.Audits, domain.Audit{ID: security.ID(), At: st.Now, ActorType: actorType, ActorID: actorID, SubjectID: subject, Action: action, GrantID: grant, ConnectionID: connection, ResourceID: resource, Outcome: outcome, InvocationID: invocation, Bytes: bytes})
+	event := domain.Audit{ID: security.ID(), At: st.Now, ActorType: actorType, ActorID: actorID, SubjectID: subject, Action: action, GrantID: grant, ConnectionID: connection, ResourceID: resource, Outcome: outcome, InvocationID: invocation, Bytes: bytes}
+	agentID := ""
+	if actorType == "agent" {
+		agentID = actorID
+	} else if g, ok := st.Grants[grant]; ok && g.OwnerID == subject {
+		agentID = g.AgentID
+	}
+	if a, ok := st.Agents[agentID]; ok && a.OwnerID == subject {
+		event.AgentID = a.ID
+		if p, ok := profileForAgent(st, a.ID); ok {
+			event.CallerProfileID = p.ID
+			event.ClientID = p.ClientID
+		}
+	}
+	st.Audits = append(st.Audits, event)
 }
 func grantCheck(st *domain.State, agentID, credentialID, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
+	if authorizeAgent(st, agentAccess{AgentID: agentID, CredentialID: credentialID}, domain.Tool) != nil {
+		return domain.Grant{}, domain.ErrDenied
+	}
+	return grantRules(st, agentID, grantID, fileID, c)
+}
+func grantRules(st *domain.State, agentID, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
 	g, ok := st.Grants[grantID]
-	if !ok || g.AgentID != agentID || !credentialActive(st, credentialID, agentID) {
+	if !ok || g.AgentID != agentID {
 		return domain.Grant{}, domain.ErrDenied
 	}
 	conn := st.Connections[g.ConnectionID]

@@ -17,6 +17,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/app"
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
 	"github.com/ufaruq/toolbox/internal/domain"
+	"github.com/ufaruq/toolbox/internal/identity"
 	"github.com/ufaruq/toolbox/internal/oauth"
 	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
@@ -176,6 +177,14 @@ func runOIDCLocal(cfg runtimeConfig) error {
 		serverConfig.OwnerOnly, serverConfig.WorkspaceLocal = false, true
 		serverConfig.SessionPepper, serverConfig.Pepper = cfg.pepper, cfg.workspace.credentialPepper
 		serverConfig.Picker = server.PickerConfig{APIKey: cfg.workspace.pickerAPIKey, ProjectNumber: cfg.workspace.projectNumber}
+		if cfg.mcp != nil {
+			discovery, cancel := context.WithTimeout(ctx, 15*time.Second)
+			serverConfig.Identity, err = identity.NewAccess(discovery, *cfg.mcp)
+			cancel()
+			if err != nil {
+				return err
+			}
+		}
 	}
 	var providerBoundary server.Integration
 	if integration != nil {
