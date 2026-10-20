@@ -12,8 +12,11 @@ func invalid(kind string) error { return fmt.Errorf("%w: %s", ErrInvariant, kind
 // validate is shared by both adapters. SQL constraints are a second boundary;
 // application policy must still authorize every mutation before this layer.
 func validate(old, s *domain.State) error {
-	if s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.Cleanup == nil {
+	if s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.OwnerLogins == nil || s.Cleanup == nil {
 		return invalid("nil collection")
+	}
+	if s.CallerProfiles == nil {
+		return invalid("nil caller profiles")
 	}
 	identities := map[string]bool{}
 	for k, v := range s.Users {
@@ -25,6 +28,9 @@ func validate(old, s *domain.State) error {
 			return invalid("duplicate user identity")
 		}
 		identities[key] = true
+		if previous, ok := old.Users[k]; ok && (previous.Issuer != v.Issuer || previous.Subject != v.Subject) {
+			return invalid("user identity changed")
+		}
 	}
 	for k, v := range s.Agents {
 		if k == "" || k != v.ID || v.Status == "" {
@@ -35,6 +41,26 @@ func validate(old, s *domain.State) error {
 		}
 		if prev, ok := old.Agents[k]; ok && prev.OwnerID != v.OwnerID {
 			return invalid("agent owner changed")
+		}
+	}
+	profileIdentities := map[[3]string]bool{}
+	profileAgents := map[string]bool{}
+	for k, v := range s.CallerProfiles {
+		if k == "" || k != v.ID || v.Issuer == "" || v.UserID == "" || v.ClientID == "" || (v.Status != "active" && v.Status != "disabled") || v.ApprovedAt.IsZero() || v.ExpiresAt.IsZero() || !v.ExpiresAt.After(v.ApprovedAt) {
+			return invalid("caller profile")
+		}
+		owner, ok := s.Users[v.OwnerID]
+		agent, aok := s.Agents[v.AgentID]
+		if !ok || !aok || agent.OwnerID != v.OwnerID || owner.Issuer != v.Issuer || owner.Subject != v.UserID {
+			return invalid("caller profile owner identity")
+		}
+		identity := [3]string{v.Issuer, v.UserID, v.ClientID}
+		if profileIdentities[identity] || profileAgents[v.AgentID] {
+			return invalid("duplicate caller profile binding")
+		}
+		profileIdentities[identity], profileAgents[v.AgentID] = true, true
+		if prev, ok := old.CallerProfiles[k]; ok && (prev.OwnerID != v.OwnerID || prev.AgentID != v.AgentID || prev.Issuer != v.Issuer || prev.UserID != v.UserID || prev.ClientID != v.ClientID) {
+			return invalid("caller profile binding changed")
 		}
 	}
 	for k, v := range s.Credentials {
@@ -153,6 +179,52 @@ func validate(old, s *domain.State) error {
 			return invalid("cleanup owner")
 		}
 	}
+	states := map[string]bool{}
+	for k, v := range s.OwnerLogins {
+		if k == "" || k != v.ID || v.StateHash == "" || v.BrowserHash == "" || v.NonceHash == "" || v.SecretRef == "" || v.Issuer == "" || v.ClientID == "" || v.RedirectURI == "" || v.ExpiresAt.IsZero() {
+			return invalid("owner login binding")
+		}
+		if states[v.StateHash] {
+			return invalid("duplicate owner login state")
+		}
+		states[v.StateHash] = true
+		if !ownerLoginStatus(v.Status) || (v.Status == "complete") != (v.IssuedSessionID != "") {
+			return invalid("owner login status")
+		}
+		if v.PreviousSessionID != "" {
+			if _, ok := s.Sessions[v.PreviousSessionID]; !ok {
+				return invalid("owner login previous session")
+			}
+		}
+		if v.IssuedSessionID != "" {
+			if _, ok := s.Sessions[v.IssuedSessionID]; !ok {
+				return invalid("owner login issued session")
+			}
+		}
+		previous, exists := old.OwnerLogins[k]
+		if !exists {
+			if v.Status != "pending" || v.IssuedSessionID != "" {
+				return invalid("owner login initial status")
+			}
+			continue
+		}
+		p, next := previous, v
+		p.Status, next.Status, p.IssuedSessionID, next.IssuedSessionID = "", "", "", ""
+		if !reflect.DeepEqual(p, next) || !ownerLoginTransition(previous.Status, v.Status) {
+			return invalid("owner login mutation")
+		}
+		if previous.IssuedSessionID != v.IssuedSessionID && !(previous.IssuedSessionID == "" && previous.Status == "exchanging" && v.Status == "complete") {
+			return invalid("owner login issued session mutation")
+		}
+	}
+	for k, previous := range old.OwnerLogins {
+		if _, ok := s.OwnerLogins[k]; ok {
+			continue
+		}
+		if domain.OwnerLoginInUse(s, previous) {
+			return invalid("live owner login relationship deletion")
+		}
+	}
 	if len(s.Audits) < len(old.Audits) {
 		return invalid("audit deletion")
 	}
@@ -167,4 +239,15 @@ func validate(old, s *domain.State) error {
 		}
 	}
 	return nil
+}
+
+func ownerLoginStatus(status string) bool {
+	return status == "pending" || status == "exchanging" || status == "complete" || status == "failed" || status == "cancelled"
+}
+
+func ownerLoginTransition(previous, next string) bool {
+	if previous == next {
+		return true
+	}
+	return previous == "pending" && (next == "exchanging" || next == "cancelled") || previous == "exchanging" && (next == "complete" || next == "failed" || next == "cancelled")
 }

@@ -1,5 +1,5 @@
-// Toolbox's executable is deliberately fixture-only until a production owner IdP
-// and live Google integration gates have been selected and reviewed.
+// Toolbox supports the synthetic fixture and local owner OIDC sign-in.
+// Neither mode is a public production deployment.
 package main
 
 import (
@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,7 +17,9 @@ import (
 	"github.com/ufaruq/toolbox/internal/app"
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
 	"github.com/ufaruq/toolbox/internal/domain"
+	"github.com/ufaruq/toolbox/internal/identity"
 	"github.com/ufaruq/toolbox/internal/oauth"
+	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
@@ -32,17 +33,20 @@ func main() {
 	}
 }
 func run() error {
-	if os.Getenv("TOOLBOX_MODE") != "fixture" {
-		return errors.New("only explicitly selected fixture mode is supported")
+	if len(os.Args) > 1 {
+		if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
+			return runGooglePKCECheck()
+		}
+		return errors.New("unknown command")
 	}
-	addr := os.Getenv("TOOLBOX_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:8080"
+	cfg, e := loadConfig(os.Getenv)
+	if e != nil {
+		return e
 	}
-	host, _, e := net.SplitHostPort(addr)
-	if e != nil || !(host == "127.0.0.1" || host == "localhost" || host == "::1") {
-		return errors.New("fixture server must bind loopback")
+	if cfg.mode == "oidc-local" || cfg.mode == "workspace-local" {
+		return runOIDCLocal(cfg)
 	}
+	addr := cfg.addr
 	origin := "http://" + addr
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -125,4 +129,111 @@ func run() error {
 		}
 		return e
 	}
+}
+
+func runOIDCLocal(cfg runtimeConfig) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	repo, err := store.OpenPostgres(ctx, cfg.databaseURL)
+	if err != nil {
+		return err
+	}
+	defer repo.Close()
+	if err = repo.Migrate(ctx); err != nil {
+		return err
+	}
+	secrets, err := tokens.NewOpenBaoFixture(tokens.OpenBaoConfig{Address: cfg.baoAddr, Mount: "secret", Token: cfg.baoToken})
+	if err != nil {
+		return err
+	}
+	if err = secrets.Ping(ctx); err != nil {
+		return err
+	}
+	callback := cfg.origin + "/auth/oidc/callback"
+	provider, err := ownerlogin.NewProvider(ctx, ownerlogin.ProviderConfig{Issuer: cfg.oidcIssuer, ClientID: cfg.oidcClientID, ClientSecret: cfg.oidcClientSecret, RedirectURI: callback}, nil)
+	if err != nil {
+		return err
+	}
+	login, err := ownerlogin.NewService(repo, secrets, provider, ownerlogin.ServiceConfig{Issuer: cfg.oidcIssuer, ClientID: cfg.oidcClientID, RedirectURI: callback, Pepper: cfg.pepper})
+	if err != nil {
+		return err
+	}
+	serverConfig := server.Config{Repository: repo, Pepper: cfg.pepper, Origin: cfg.origin, OwnerOnly: true, OwnerLogin: login, Readiness: func(ctx context.Context) error {
+		if err := repo.Ping(ctx); err != nil {
+			return err
+		}
+		return secrets.Ping(ctx)
+	}}
+	var integration *app.Integration
+	if cfg.mode == "workspace-local" {
+		integration, err = newWorkspaceIntegration(cfg, repo, secrets)
+		if err != nil {
+			return err
+		}
+		serverConfig.Signer, err = security.NewSigner(cfg.origin, cfg.workspace.signingKeyID, ed25519.NewKeyFromSeed(cfg.workspace.signingSeed))
+		if err != nil {
+			return err
+		}
+		serverConfig.OwnerOnly, serverConfig.WorkspaceLocal = false, true
+		serverConfig.SessionPepper, serverConfig.Pepper = cfg.pepper, cfg.workspace.credentialPepper
+		serverConfig.Picker = server.PickerConfig{APIKey: cfg.workspace.pickerAPIKey, ProjectNumber: cfg.workspace.projectNumber}
+		if cfg.mcp != nil {
+			discovery, cancel := context.WithTimeout(ctx, 15*time.Second)
+			serverConfig.Identity, err = identity.NewAccess(discovery, *cfg.mcp)
+			cancel()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	var providerBoundary server.Integration
+	if integration != nil {
+		providerBoundary = integration
+	}
+	api, err := server.New(serverConfig, providerBoundary)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Addr: cfg.addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	stopped := make(chan error, 1)
+	go func() { stopped <- srv.ListenAndServe() }()
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanupCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+				if login.Cleanup(cleanupCtx) != nil {
+					log.Print("Owner login cleanup deferred; check dependency availability.")
+				}
+				if integration != nil && api.CleanupOnce(cleanupCtx) != nil {
+					log.Print("Google connection cleanup deferred; check dependency availability.")
+				}
+				stop()
+			}
+		}
+	}()
+	if cfg.mode == "workspace-local" {
+		log.Printf("Toolbox local Workspace: %s (real providers; live acceptance must be recorded)", cfg.origin)
+	} else {
+		log.Printf("Toolbox local owner sign-in: %s (Google and agent operations are disabled)", cfg.origin)
+	}
+	select {
+	case <-ctx.Done():
+		shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		err = srv.Shutdown(shutdown)
+	case err = <-stopped:
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+	}
+	cancel()
+	<-cleanupDone
+	return err
 }

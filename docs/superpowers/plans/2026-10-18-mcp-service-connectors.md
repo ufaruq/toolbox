@@ -2,25 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Proposed future work. All steps are unchecked; this documentation PR executes none of them.
+**Status:** Docker MCP Gateway selected; runtime implementation is future work. All steps are unchecked; this design PR executes none of them.
 
 **Goal:** Validate that existing MCP servers reduce provider integration work, then add one opt-in GitHub read action while retaining Toolbox's owner-approved delegation contract.
 
-**Architecture:** A shared outbound MCP client calls reviewed servers directly or through an operator-managed Docker gateway. Provider-specific policy maps an immutable grant to a bounded call; Toolbox retains identity, approval, current-state authorization and final result release.
+**Architecture:** A shared outbound MCP client calls reviewed service servers through an operator-managed Docker MCP Gateway. Direct downstream connections are not part of the production route or an automatic fallback. Provider-specific policy maps an immutable grant to a bounded call; Toolbox retains identity, approval, current-state authorization and final result release.
 
-**Tech Stack:** Existing Go 1.27.2 application, PostgreSQL and current secret-store boundary; official Go MCP SDK where compatible; optional Docker MCP Gateway and GitHub Official server. Task 1 records exact SDK, gateway, protocol and server revisions before implementation depends on them.
+**Tech Stack:** Existing Go 1.27.2 application, PostgreSQL, current secret-store boundary and the merged official Go MCP SDK; MIT-licensed Docker MCP Gateway on Docker Engine and the GitHub Official server. Docker Desktop is optional for development; enterprise/governance services are not required. Task 1 records exact SDK, gateway, protocol and server revisions before implementation depends on them.
 
 **Spec:** [Reusing MCP service connectors with Docker Gateway](../specs/2026-10-18-mcp-service-connectors-design.md).
 
 ## Global constraints
 
+- New MCP-backed service calls use the selected Docker MCP Gateway; no direct-server fallback. Preserve the existing Google Drive connector.
 - The first pilot supports one reviewed read action; no provider writes, arbitrary tool forwarding or agent-controlled server registration.
 - Preserve the existing Drive path, exact-document rights, independent agent identity, trusted owner review and live authorization checks.
 - Apply a 20-second total invocation deadline and a 1 MiB application-result limit, including protocol framing/decoding bounds.
 - Keep provider credentials, inbound Okta tokens and internal delegation tokens in separate trust contexts. Never pass the latter two to downstream servers.
 - Docker profiles are not owner credential isolation. Multi-user operation requires verified owner-to-connection credential binding.
 - No automatic call retry after dispatch, silent permission fallback or automatic authorization of discovered tools.
-- Reconcile then-merged PR #5/#7 authentication and inbound transport work before implementing server integration. This plan does not merge those branches.
+- Start from current `main` (reviewed baseline `cac87b6d2d7d1f869c1794a68e63e3f874222aea`), which includes #5, #6, #7 and #10. Reuse owner login, live Google runtime, inbound MCP SDK/caller profiles and current migrations; add only the outbound connector path.
 
 ## Review focus
 
@@ -34,20 +35,21 @@
 
 ## Task 1: Establish the feasibility and credential boundary
 
-**Files:** Create `docs/experiments/mcp-github-feasibility.md` and `work/mcp-github-probe/` for ignored, disposable probe assets. Do not commit credentials or probe state.
+**Files:** Create `docs/experiments/mcp-github-feasibility.md` and disposable assets under `work/mcp-github-probe/` only after verifying the ignore rule. Current main ignores `work/`; modify `.gitignore` first if the execution checkout lacks that rule. Do not commit credentials or probe state.
 
 **Consumes:** The spec's GitHub issue-read scenario and existing `internal/app/integration.go` credential/execution boundary.
 
-**Produces:** A decision record with exact image digests, gateway/SDK/protocol versions, tool/schema inventory, credential ownership, single-owner limits, direct-MCP comparison and a go/no-go decision. This is a prerequisite for Tasks 2–4, not evidence of a production integration.
+**Produces:** A decision record with exact image digests, gateway/SDK/protocol versions, tool/schema inventory, credential ownership, single-owner limits, Docker launch/connection configuration and a rollout go/no-go decision. Docker Gateway is selected; this gate checks whether the integration meets its required contract. This is a prerequisite for Tasks 2–4, not evidence of a production integration.
 
+- [ ] Before creating probe assets, run `git check-ignore --no-index work/mcp-github-probe/ignore-check` and require exit 0 with that path. If it fails, add `/work/mcp-github-probe/` to `.gitignore`, commit the rule and rerun the check. Use a non-secret sentinel; never create credentials to test ignoring.
 - [ ] Inventory the selected GitHub Official server's pinned `issue_read` schema and supported credential method. Verify `method=get`, repository identity lookup/provenance and result fields. Record unsupported requirements explicitly.
 - [ ] Prove the upstream read is bound to the approved immutable repository ID through dispatch, using ID-bound execution or provider-enforced credentials restricted to that repository ID. Test rename/transfer, reuse of the old owner/name by a different repository, and identity changes between resolution and dispatch. A preflight lookup plus a broadly credentialed name-based read is insufficient; failure to prevent an authorized read of the replacement repository is **no-go**.
 - [ ] Configure one local private gateway/server context with a dedicated test credential. Enable only the needed read tools; keep management/discovery capabilities inaccessible to the agent. Record how credentials enter, refresh and leave that context without committing values.
-- [ ] Read one synthetic issue through both the gateway and a direct MCP connection using the same server. Record setup steps, tool inventory, result shape, latency and runtime overhead; write no new GitHub issue REST client.
+- [ ] Read one synthetic issue through Docker MCP Gateway and the pinned server. Record reproducible Docker Engine/plugin setup, private gateway transport, tool inventory, result shape, latency and runtime overhead; write no new GitHub issue REST client. Do not add a parallel direct-MCP execution mode.
 - [ ] Verify provider-scope limits independently of tool allowlists. Identify whether the selected credential model supports owner-specific connections, cleanup and stable provider account identity.
 - [ ] Probe two isolated synthetic-owner contexts and concurrent calls using distinguishable test credentials. Record evidence that no credential, session, refresh or disconnect state crosses contexts. A single installation with different profiles does not satisfy this test.
 - [ ] Document gateway/server crash, restart and disconnect outcomes and the minimum isolation topology required. If multi-user isolation remains unproven, mark multi-user use blocked and keep subsequent live work single-owner only.
-- [ ] Record **go** only if the read operation, schema, resource provenance and isolated credential route can satisfy the contract. On **no-go**, stop this implementation sequence and document direct MCP or the existing connector as the alternative; do not loosen Toolbox's grants.
+- [ ] Record **go** only if the read operation, schema, resource provenance and isolated credential route can satisfy the contract. On **no-go**, stop this route's rollout and document the failed requirement and corrective work; do not switch transports or loosen Toolbox's grants.
 
 **Verify:** Another engineer can reproduce the recorded synthetic issue read with private test credentials, understand all limits and find an explicit pass/fail for each requirement. Record code that would be reused versus code still needed; do not invent a savings percentage.
 
@@ -65,12 +67,12 @@ type Client interface {
 }
 ```
 
-`json` is `encoding/json`. The credential-context reference is internal, not raw provider credentials and not agent input. Transport implementations resolve it using the topology accepted in Task 1. Discovery is an operator function; public invocation code receives only approved bindings and calls.
+`json` is `encoding/json`. The credential-context reference is internal, not raw provider credentials and not agent input. The selected transport reaches only the configured private Docker gateway and resolves the reference using the isolated topology accepted in Task 1. Discovery is an operator function; public invocation code receives only approved bindings and calls.
 
 - [ ] Write table-driven tests named `TestClientNegotiation`, `TestClientInventoryPin`, `TestClientBindingIsolation`, `TestClientResultLimits`, `TestClientCancellation`, `TestClientNoRetry`, and `TestClientRejectsCallbacks`. Cover negotiated protocol mismatch, duplicate tool names across servers, schema drift, malformed/error results, excessive framing/chunked output, hanging calls and unsupported server requests.
 - [ ] Run `go test ./internal/mcpclient -count=1` and observe the new behavior fail before implementation.
 - [ ] Implement the interface through the selected SDK and bounded transport. Apply the total deadline and protocol/result limits before unrestricted allocation. Treat server error results as failures, close invalid sessions and retain connection separation. Do not follow links, accept sampling/elicitation requests or retry a dispatched call.
-- [ ] Exercise two different synthetic service schemas through the exact same client implementation. Assert the returned content and recorded calls match each binding, with no provider-specific client branches.
+- [ ] Exercise two different synthetic service schemas through the exact same gateway-facing client implementation. Assert the returned content and recorded calls match each binding, with no provider-specific client branches.
 - [ ] Run `go test -race -count=1 ./internal/mcpclient/...` and commit the independently verified client and tests.
 
 **Done when:** Both fixture services work through one implementation and every negative case above fails closed. Live provider accounts are unnecessary for this task.
@@ -102,7 +104,7 @@ Use an explicit tagged resource kind (`google_drive.document` or `github.reposit
 
 - [ ] Write failing runtime tests for missing or conflicting configuration, unreachable/incorrect server identity, inventory drift, direct gateway access, connection mismatch and dependency failure. Enabling a route must not enable arbitrary MCP forwarding.
 - [ ] Wire the client and reviewed bindings into execution. Verify the private gateway boundary, connection lifecycle and provider secret ownership. Do not move existing Google credentials or remove token cleanup code.
-- [ ] Write exact setup steps for the pinned Docker/server versions, private endpoints, required provider permissions, secret injection, read allowlists, owner approval and cleanup. Keep real tenant values and credentials outside committed files and test artifacts.
+- [ ] Write exact setup steps for Docker Engine plus the pinned open-source gateway/plugin and server image, private transport/endpoints, required provider permissions, secret injection, read allowlists, owner approval and cleanup. Desktop/enterprise subscriptions must not be prerequisites for the server deployment. Keep real tenant values and credentials outside committed files and test artifacts.
 - [ ] Run the isolated live GitHub scenario: approved read; other-repository denial; different-agent denial; expiry; grant revocation; disconnect during execution; reconnect requiring fresh approval; server failure; wrong credential context; and absence of secrets in agent responses/logs. Verify actual upstream requests remain scoped, not just that the final UI hides denied results.
 - [ ] Repeat the two-owner concurrency/isolation cases before enabling multi-user use. Record multi-user use as blocked if those cases have not passed.
 - [ ] Disable the new route, revoke its grants and verify that the existing Drive fixture still operates. This is the rollback acceptance test.
@@ -114,9 +116,9 @@ Use an explicit tagged resource kind (`google_drive.document` or `github.reposit
 
 **Files:** Update `docs/experiments/mcp-github-feasibility.md` and `docs/mcp-service-setup.md`; propose a separate provider adapter only after this evaluation.
 
-- [ ] Compare the direct-MCP and Docker paths for setup, private credential contexts, server/version maintenance, runtime cost and supported calls. Choose the simpler acceptable topology from measured evidence.
+- [ ] Record the selected Docker topology's setup steps, isolated credential contexts, server/version maintenance, runtime cost and supported calls. Optimize that topology using measured evidence; do not reopen the gateway selection or add a direct-server fallback.
 - [ ] Select a second service with a suitable maintained MCP server. Inventory its real tools and credential model; draft its resource/action permission mapping. Keep its provider API implementation external and verify the shared client needs no provider branches.
 - [ ] Record which code is reused, which policy and lifecycle code remains, and whether its maintenance cost is lower than a custom connector. If the mapping recreates most of the connector, keep the narrow custom path instead.
 - [ ] Propose any removal of existing OAuth/token/connector code separately, with equivalent identity, refresh, revocation, cleanup and final-release evidence. Do not infer equivalence from a successful read.
 
-**Decision:** Expand only when reusable server coverage and the measured setup/maintenance savings justify the runtime and permission-mapping work. Docker is optional; the owner-approved authorization contract is the acceptance criterion.
+**Decision:** Expand only when reusable server coverage and the measured setup/maintenance savings justify the runtime and permission-mapping work. Docker MCP Gateway is the selected runtime; the owner-approved authorization contract remains the rollout acceptance criterion.

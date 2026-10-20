@@ -1,6 +1,6 @@
 # Reusing MCP service connectors with Docker Gateway
 
-**Status:** Proposed design for review. This PR changes documentation only; it does not add a client, deploy a gateway, migrate credentials, or replace a connector.
+**Status:** Docker MCP Gateway is the selected runtime for new MCP-backed service connectors. This PR records that decision and updates the implementation plan; it does not implement or deploy the gateway/client, migrate credentials, or replace the existing Drive connector.
 
 **Goal:** Make adding services to Toolbox cheaper by reusing existing MCP servers while preserving owner-approved, agent-specific access to selected resources.
 
@@ -10,9 +10,11 @@
 
 An MCP server is a reusable service connector. For example, GitHub's existing server already implements GitHub operations and describes their inputs. Toolbox can call that server using the same protocol it uses for another service's MCP server.
 
-We build one outbound MCP client in Toolbox. Docker's gateway can aggregate the selected servers and manage their configuration, execution and routing. For supported services, adding an integration becomes server configuration plus a reviewed permission mapping and acceptance tests, instead of another complete REST client.
+We build one outbound MCP client in Toolbox and route new MCP-backed service calls through Docker MCP Gateway. The gateway manages the reviewed servers' configuration, execution and routing. For supported services, adding an integration becomes server configuration plus a reviewed permission mapping and acceptance tests, instead of another complete REST client.
 
-The reusable server supplies the API implementation. Docker supplies a way to discover, configure and operate it. MCP also permits calling compatible servers directly; Docker is an evaluated runtime choice, not a requirement of the protocol.
+The reusable server supplies the API implementation. Docker supplies the selected way to configure and operate it. Direct MCP connections remain a protocol alternative, but are not an implementation option or automatic fallback in this plan. The existing custom Google Drive path stays in place.
+
+Use the MIT-licensed open-source gateway on Docker Engine for the server deployment. Docker Desktop is an optional developer convenience with separate licensing; paid enterprise/governance services are not required. Pin gateway, server image and SDK revisions before runtime implementation.
 
 | Work needed for another service | Proposed responsibility |
 | --- | --- |
@@ -27,16 +29,14 @@ There is no promised percentage reduction yet. The first pilot measures custom A
 
 ## Current baseline and related work
 
-At the reviewed `main` commit `6279f3aab67465aadf5b1ee07f50ed8a99d4bcb4`, Toolbox has a fixture-oriented HTTP service, a Google OAuth/token lifecycle, a fixed Drive executor, trusted owner approval, immutable document grants and live checks before content release. Live Google acceptance remains unfinished. See [implementation status](../../implementation-status.md) and [Google setup](../../google-setup.md).
+The integration baseline is `main` commit `cac87b6d2d7d1f869c1794a68e63e3f874222aea`. It includes the original Drive authorization/token lifecycle, merged Okta owner login, optional corporate account linking, the `workspace-local` real Google runtime and the incoming MCP endpoint. These are code integrations, not a claim that every real provider/client acceptance gate has passed. See [implementation status](../../implementation-status.md), [Google setup](../../google-setup.md) and [MCP setup](../../mcp-setup.md).
 
-Several changes are separate proposals or unmerged implementations as of this review:
-
-- [PR #3](https://github.com/ufaruq/toolbox/pull/3) consolidates the roadmap.
-- [PR #5](https://github.com/ufaruq/toolbox/pull/5) adds local Okta owner login.
-- [PR #7](https://github.com/ufaruq/toolbox/pull/7) adds an **inbound MCP endpoint**: agents call Toolbox, with direct Okta authentication and per-client permissions. It does not provide the outbound service-connector client proposed here. Its hosted live Google path is unavailable pending separate work.
+- [PR #3](https://github.com/ufaruq/toolbox/pull/3), [PR #5](https://github.com/ufaruq/toolbox/pull/5) and [PR #6](https://github.com/ufaruq/toolbox/pull/6) are merged: roadmap, owner login and optional corporate account matching.
+- [PR #10](https://github.com/ufaruq/toolbox/pull/10) is merged: real Google/Picker runtime using existing grants and provider adapters.
+- [PR #7](https://github.com/ufaruq/toolbox/pull/7) is merged: the **inbound MCP endpoint**, through which agents call Toolbox. Reuse its shared owner identity, caller profiles, grant checks and existing MCP SDK rather than rebuilding them. It does not provide this outbound service-connector client.
 - [PR #8](https://github.com/ufaruq/toolbox/pull/8) proposes service-account principals. The first connector pilot here keeps the existing human-owner model.
 
-This documentation PR targets `main` independently. An implementation must reconcile the then-merged authentication, transport and storage changes; it must not assume the other PRs have merged or redo their inbound MCP work.
+This design PR remains separate from runtime implementation. Integrate from then-current `main`, preserve its existing migrations and session guarantees, and coordinate any secret/deployment changes with [PR #4](https://github.com/ufaruq/toolbox/pull/4).
 
 ## Proposed architecture
 
@@ -84,7 +84,7 @@ Repository rename, transfer or an ambiguous identity match must fail closed unti
 | `internal/security`, `internal/server/delegation.go`, live grant checks | Retain the authorization contract. Adapt it to the new action/resource type with additive persistence; do not reinterpret document IDs as repository IDs. |
 | `internal/store` and grant/connection audit | Retain authoritative grants, expiry, revocation and approval evidence. Gateway call logs supplement these records. |
 | Owner login and approval UI | Retain trusted owner identity and review. Docker's provider login does not establish a Toolbox owner session. |
-| Inbound MCP work in PR #7 | Reuse when integrated; the outbound client is a separate responsibility. |
+| Merged inbound MCP work from PR #7 | Reuse current owner/caller identity, SDK and authorization; add the outbound client as a separate responsibility. |
 
 The future client lives in `internal/mcpclient`; the first permission adapter lives in `internal/servicepolicy/github`. Operator-controlled bindings select an exact server identity, tool/schema revision and connection credential context. Generic transport code does not decide authorization. The service adapter does not implement GitHub's issue REST client.
 
@@ -109,19 +109,19 @@ Disconnect must invalidate the Toolbox connection and grants before remote clean
 
 ### Docker governance is a separate decision
 
-The baseline evaluates the open-source gateway with a fixed operator-managed inventory. It does not require Docker's enterprise or Sandboxes organization-governance offering.
+The selected baseline uses the open-source gateway with a fixed operator-managed inventory. It does not require Docker's enterprise or Sandboxes organization-governance offering.
 
 Docker's documented Sandboxes Cedar policies can inspect JSON tool arguments, so Docker policy may overlap resource restrictions. Its `@requireApproval` asks the originating MCP client for confirmation; an autonomous client can answer programmatically. That is not a substitute for Toolbox's independently authenticated owner review. Verify the chosen product's availability, identity model and enforcement surface before proposing any policy replacement. Gateway rules apply only to traffic passing through it; isolate its endpoint and credentials so agents cannot bypass Toolbox.
 
-## Alternatives and decision
+## Selected architecture and alternatives considered
 
 | Approach | Benefit | Cost or condition |
 | --- | --- | --- |
 | Continue custom provider API connectors | Full control of narrowly defined behavior | Reimplement and maintain each provider's API work |
 | Shared MCP client calling selected servers directly | Reuse connectors with fewer runtime components | Toolbox/operator handles more connection and lifecycle configuration |
-| Shared MCP client through Docker gateway | Reuse connectors plus catalog, container lifecycle and centralized routing | Additional runtime, credential-isolation work and a product/version decision |
+| **Selected: shared MCP client through Docker gateway** | Reuse connectors plus catalog, container lifecycle and centralized routing | Additional runtime, credential-isolation work and a product/version decision |
 
-Evaluate Docker with the GitHub read pilot and compare a direct-MCP route using the same server. Keep policy and domain types independent of Docker, so its operational benefit can be measured without committing the authorization model to it. The result may favor Docker, direct MCP, or the existing narrow connector for a particular service.
+Use Docker MCP Gateway for the new service-connector path. Keep policy and domain types independent of the gateway's configuration format, while requiring calls to use its trusted bindings. The GitHub pilot validates compatibility, credential isolation and resource enforcement; it no longer reopens the gateway selection. If those checks fail, stop that route's rollout and document the incompatibility. Do not automatically switch to a direct connection, broader credential or custom connector.
 
 ## Rollout and acceptance
 
@@ -133,9 +133,10 @@ Success means the GitHub API implementation is reused, the same client operates 
 
 ## Primary references
 
-Reviewed on 2026-10-18; pin actual versions and recheck these evolving interfaces in the feasibility task.
+Initial source review: 2026-10-18. The selected runtime must use pinned versions and recheck evolving interfaces in the feasibility task.
 
 - [Docker MCP Gateway](https://docs.docker.com/ai/mcp-catalog-and-toolkit/mcp-gateway/) and [open-source implementation](https://github.com/docker/mcp-gateway).
+- [Open-source gateway MIT license](https://github.com/docker/mcp-gateway/blob/main/LICENSE) and [Docker Desktop licensing](https://docs.docker.com/subscription-billing/desktop-license/).
 - [Docker MCP Toolkit setup and OAuth](https://docs.docker.com/ai/mcp-catalog-and-toolkit/toolkit/).
 - [Docker profiles and shared OAuth credentials](https://docs.docker.com/ai/mcp-catalog-and-toolkit/profiles/).
 - [GitHub Official catalog entry](https://hub.docker.com/mcp/server/github-official/overview) and [GitHub MCP server tools/configuration](https://github.com/github/github-mcp-server).
