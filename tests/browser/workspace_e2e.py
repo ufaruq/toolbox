@@ -69,8 +69,28 @@ def main():
             page.locator('#pick').click()
             page.locator('#synthetic-picker-select').click()
             expect(page.locator('#selected-document')).to_contain_text('Synthetic document A')
+            stage='failed review is visible beside approval controls'
+            page.locator('#request').click()
+            expect(page.locator('#approval-status')).to_contain_text('Request pending')
+            closed_request=page.locator('#request-id').input_value()
+            # Another owner tab closes the request while this tab still shows it
+            # as pending. Keep the actual server rejection and UI error handling.
+            assert page.evaluate("""async id => {
+                const session=await (await fetch('/v1/session')).json();
+                return (await fetch('/v1/delegation-requests/'+id+'/deny', {
+                    method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf_token},body:'{}'
+                })).status;
+            }""",closed_request)==200
+            with page.expect_response(lambda response: urlsplit(response.url).path=='/v1/delegation-requests/'+closed_request+'/review') as failed_review:
+                page.locator('#review').click()
+            assert failed_review.value.status==403
+            expect(page.locator('#approval-status')).to_contain_text('NOT_AUTHORIZED')
+            expect(page.locator('#approval-status')).not_to_contain_text('Request pending')
+            expect(page.locator('#review-details')).to_be_hidden()
+            expect(page.locator('#approve')).to_be_disabled()
             stage='request and review'
             page.locator('#request').click()
+            expect(page.locator('#request-id')).not_to_have_value(closed_request)
             expect(page.locator('#approval-panel')).to_be_visible()
             expect(page.locator('#approve')).to_be_disabled()
             page.locator('#review').click()
