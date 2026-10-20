@@ -133,3 +133,11 @@ The user approved inline implementation and selected Docker on a VM, then explic
 
 
 Implementation completed on 2026-10-18. See [verification evidence and remaining environment checks](../../deployment-verification.md), [operator commands](../../deployment-docker.md), and [recovery](../../recovery-docker.md). The implementation and independent review supersede the original unchecked planning checklist. Production serving remains gated; cloud apply and live provider checks are intentionally unrun.
+
+
+2026-10-19 integration update: preserve released main migrations001–005, append
+key-version/cleanup migrations006–007, and retain main's local owner/Workspace/MCP
+commands. Restore fencing now includes MCP approvals and unfinished authorizations.
+The CI checkpoint directory regression and the independent review's missing-bundle
+retention starvation finding were reproduced and fixed. See the updated deployment
+verification record for exact tests and remaining hosted/cloud gates.

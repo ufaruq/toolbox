@@ -1,6 +1,51 @@
 # Deployment verification
 
-Validated locally on 2026-10-18. Production owner authentication and live Google validation remain release gates; no GCP resources were applied.
+The original portable stack was validated locally on 2026-10-18. The 2026-10-19
+update integrates merged Okta/Google/MCP code from main while preserving the
+production serving gate. Real loopback Workspace/MCP and synthetic persistent
+containers are separate entry points; the hosted identity/provider integration is
+still required. No GCP resources were applied.
+
+## Main integration and review follow-up (2026-10-19)
+
+- Released migrations001–005 are unchanged. Upgrades from003 and005 preserve owner
+  identity, original session/CSRF hash, Google connection generations and saved MCP
+  profiles; deployment migrations are appended as006/007. Actual PostgreSQL tests passed.
+- Restored MCP approvals and agents are disabled; pending requests and pending or
+  exchanging owner sign-ins are cancelled. Provider references remain available for
+  reconciliation. Memory and actual PostgreSQL tests passed, including idempotency.
+- The CI restart failure was reproduced: Docker created the checkpoint bind source
+  as root before the operator could write it. The workflow now creates an
+  operator-owned0700 directory before any browser mount, rejects symlinks and
+  keeps checkpoint files0600. Command-boundary regressions passed.
+- Both old review comments are covered: credential envelope AAD includes the
+  credential schema, and standalone cleanup does not load HTTP signing/pepper keys.
+- `make check` passed with actual PostgreSQL/OpenBao; Terraform init, format and
+  validate passed without plan/apply.
+- The rebuilt container passed the full Go race/integration suite, Chromium fixture
+  approval/revocation/disconnect and delayed-review cases, Linux host checks and
+  PostgreSQL/application restart with the original session, agent credential,
+  delegation signature and encrypted provider generation. Encrypted SQL/static
+  backups, an actual isolated SQL restore with authority invalidation, and healthy
+  monitoring reports also passed. The test project used a separate host port to
+  preserve the existing developer stacks.
+- Synthetic OIDC, Workspace and Google-probe browser checks passed in Docker.
+  These browser checks ran without the race flag because that browser helper
+  image has no C compiler; the full application race suite passed separately.
+- The independent whole-branch review found one additional retention starvation
+  bug: a disconnected OAuth attempt with no issued bundle aborted every scan.
+  The regression failed before the fix and passed afterward against PostgreSQL.
+  Missing bundles now retain/count uncertain verifier material as blocked and
+  advance the cursor; other storage errors still abort. The full `make check`
+  passed again after this fix. No other actionable findings were identified.
+
+The real-account tests completed before the #10/#7 merges included four Google
+PKCE/scope checks, an owner-approved Google document read, a native Codex MCP read
+of that document and denial of another document. Those tests did not exercise GCP
+KMS or hosted deployment. Live revocation, disabled-client, disconnect,
+second-client isolation and enforced fresh eight-hour authentication remain open.
+
+## Original portable-stack verification (2026-10-18)
 
 | Check | Result |
 | --- | --- |

@@ -4,4 +4,6 @@ bin/
 coverage.out
 .deploy/
 .evidence/
+work/
+
 __pycache__/

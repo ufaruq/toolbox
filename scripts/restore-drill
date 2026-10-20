@@ -27,6 +27,9 @@ IF EXISTS(SELECT 1 FROM toolbox.credentials WHERE status<>'revoked')
 OR EXISTS(SELECT 1 FROM toolbox.grants WHERE payload->'RevokedAt'='null'::jsonb)
 OR EXISTS(SELECT 1 FROM toolbox.sessions WHERE (payload->>'ExpiresAt')::timestamptz>clock_timestamp())
 OR EXISTS(SELECT 1 FROM toolbox.connections WHERE status NOT IN ('disconnecting','disconnected'))
+OR EXISTS(SELECT 1 FROM toolbox.caller_profiles WHERE payload->>'Status'='active')
+OR EXISTS(SELECT 1 FROM toolbox.owner_login_transactions WHERE payload->>'Status' IN ('pending','exchanging'))
+OR EXISTS(SELECT 1 FROM toolbox.delegation_requests WHERE payload->>'Status'='pending')
 THEN RAISE EXCEPTION 'restored authority was not invalidated'; END IF;
 END $$;
 SQL

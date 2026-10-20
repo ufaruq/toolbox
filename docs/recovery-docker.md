@@ -24,7 +24,7 @@ make deploy-backup
 make deploy-restore-drill
 ```
 
-The drill creates a uniquely named project/database volume with no published ports, authenticates the age stream, restores into that isolated database, expires sessions, revokes agent credentials and grants, advances active connection epochs, consumes outstanding OAuth callbacks and queues provider cleanup. It verifies those fences with actual SQL and stops the drill database. It never starts HTTP serving. Drill volumes remain for inspection; remove only a specifically identified drill project after review. No cleanup command deletes production volumes.
+The drill creates a uniquely named project/database volume with no published ports, authenticates the age stream, restores into that isolated database, expires sessions, revokes agent credentials and grants, disables MCP caller approvals and their agents, cancels pending document requests and unfinished owner sign-ins, advances active connection epochs, consumes outstanding OAuth callbacks and queues provider cleanup. It verifies those fences with actual SQL and stops the drill database. It never starts HTTP serving. Drill volumes remain for inspection; remove only a specifically identified drill project after review. No cleanup command deletes production volumes.
 
 The drill uses the protected local recovery identity. For offline key custody, provide that identity through a controlled temporary file mount during an authorized rehearsal; remove the temporary copy afterward. Never place it in an image, Terraform, command-line argument or build context.
 

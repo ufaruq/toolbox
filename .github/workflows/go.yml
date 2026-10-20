@@ -36,6 +36,17 @@ jobs:
         run: |
           python -m pip install -r tests/browser/requirements.txt
           python -m playwright install --with-deps chromium
+      - name: Synthetic OIDC owner browser flow
+        env:
+          TOOLBOX_TEST_OIDC_BROWSER: '1'
+          TOOLBOX_BROWSER_ARTIFACT_DIR: /tmp/toolbox-browser-artifacts
+          TOOLBOX_E2E_REVISION: ${{ github.sha }}
+        run: go test -race -count=1 ./internal/server -run '^TestOIDCBrowserFlow$'
+      - name: Synthetic Workspace and Google probe browser flows
+        env:
+          TOOLBOX_TEST_WORKSPACE_BROWSER: '1'
+          TOOLBOX_BROWSER_ARTIFACT_DIR: /tmp/toolbox-browser-artifacts
+        run: go test -race -count=1 ./internal/app ./cmd/toolbox -run 'Test(Workspace|Probe)BrowserFlow'
       - name: Start fixture service for browser tests
         env:
           TOOLBOX_MODE: fixture
@@ -84,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Operator workflow regression checks
+        run: make deploy-workflow-check
       - name: Build and initialize persistent local containers
         run: make deploy-init && make deploy-up
       - name: Container verification and restart

@@ -28,10 +28,16 @@ import (
 	"time"
 )
 
-var errProductionGate = errors.New("production owner authentication and live Google validation are not implemented release gates")
+var errProductionGate = errors.New("hosted production owner authentication and live Google validation remain release gates")
 
 func output(v any) error { return json.NewEncoder(os.Stdout).Encode(v) }
 func run() error {
+	if len(os.Args) == 1 && (os.Getenv("TOOLBOX_DATABASE_FILE") == "" || os.Getenv("TOOLBOX_MODE") == "oidc-local" || os.Getenv("TOOLBOX_MODE") == "workspace-local") {
+		return runLegacy()
+	}
+	if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
+		return runGooglePKCECheck()
+	}
 	command := "fixture"
 	if len(os.Args) > 1 {
 		command = os.Args[1]
@@ -106,7 +112,7 @@ func run() error {
 		return migrate(ctx)
 	}
 	if command == "serve" {
-		fmt.Fprintln(os.Stderr, "Production serve is blocked: owner OIDC and live Google validation are unfinished.")
+		fmt.Fprintln(os.Stderr, "Production serve is blocked: hosted owner OIDC and live Google integration remain unverified.")
 		return errProductionGate
 	}
 	if command == "fixture" && os.Getenv("TOOLBOX_DATABASE_FILE") == "" {

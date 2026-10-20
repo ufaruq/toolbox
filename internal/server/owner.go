@@ -15,13 +15,19 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, _ := r.Cookie("toolbox_session")
-	csrf, err := s.PepperKeys.Hash(v.PepperID, c.Value)
-	if err != nil {
-		fail(w, 403, "NOT_AUTHORIZED")
-		return
+	c, _ := r.Cookie(s.sessionCookieName())
+	var csrf string
+	if s.OwnerLogin != nil {
+		csrf = security.KeyedHash(s.sessionPepper(), c.Value)
+	} else {
+		var err error
+		csrf, err = s.PepperKeys.Hash(v.PepperID, c.Value)
+		if err != nil {
+			fail(w, 403, "NOT_AUTHORIZED")
+			return
+		}
 	}
-	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": csrf, "fixture": s.Fixture})
+	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": csrf, "fixture": s.Fixture, "owner_only": s.OwnerOnly, "mcp": s.Identity != nil})
 }
 func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != s.Origin {
@@ -41,7 +47,7 @@ func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "DEPENDENCY_UNAVAILABLE")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "toolbox_session", Value: raw, Path: "/", HttpOnly: true, Secure: !s.Fixture, SameSite: http.SameSiteLaxMode, MaxAge: 8 * 3600})
+	http.SetCookie(w, &http.Cookie{Name: s.sessionCookieName(), Value: raw, Path: "/", HttpOnly: true, Secure: !s.Fixture, SameSite: http.SameSiteLaxMode, MaxAge: 8 * 3600})
 	jsonOut(w, 200, map[string]string{"csrf_token": csrf})
 }
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
@@ -173,6 +179,10 @@ func (s *Server) fixtureAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, u, 303)
 }
 func (s *Server) completeConnection(w http.ResponseWriter, r *http.Request) {
+	if s.WorkspaceLocal {
+		s.workspaceCallback(w, r)
+		return
+	}
 	owner, ok := s.requireOwner(w, r, false)
 	if !ok {
 		return

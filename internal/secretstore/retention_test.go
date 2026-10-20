@@ -2,6 +2,7 @@ package secretstore
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5"
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/store"
 	"github.com/ufaruq/toolbox/internal/tokens"
@@ -92,5 +93,45 @@ func TestOAuthRetentionHidesVerifierKeepsFence(t *testing.T) {
 	}
 	if _, err = s.PutJSON(ctx, "oauth-transactions/o", map[string]string{}, 0); err != tokens.ErrCAS {
 		t.Fatal("OAuth fence removed", err)
+	}
+}
+
+func TestRetentionMissingBundlePreservesVerifierAndAdvancesCursor(t *testing.T) {
+	s := testPostgres(t)
+	ctx := context.Background()
+	repo := store.NewMemory()
+	if err := repo.Transact(ctx, func(st *domain.State) error {
+		st.Users["u"] = domain.User{ID: "u", Issuer: "fixture", Subject: "u", Status: "active"}
+		st.Sessions["session"] = domain.Session{ID: "session", UserID: "u", CSRFHash: "hash", ExpiresAt: st.Now.Add(time.Hour)}
+		for _, id := range []string{"a", "b"} {
+			st.Connections[id] = domain.Connection{ID: id, OwnerID: "u", Provider: "google_drive", Status: "disconnected", Epoch: 2}
+			st.OAuth[id] = domain.OAuthTransaction{ID: id, OwnerID: "u", SessionID: "session", StateHash: id, NonceHash: id, SecretRef: "oauth-transactions/" + id, ConnectionID: id, Consumed: true, ExpiresAt: st.Now.Add(-2 * time.Hour)}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a", "b"} {
+		if _, err := s.PutJSON(ctx, "oauth-transactions/"+id, map[string]string{"verifier": "synthetic"}, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Neither attempt reached the exchange that creates a connection bundle.
+	for _, id := range []string{"a", "b"} {
+		report, err := s.RunRetention(ctx, repo, RetentionPolicy{Limit: 1})
+		if err != nil || report.Scanned != 1 || report.Blocked != 1 || report.Deleted != 0 {
+			t.Fatalf("missing bundle blocked the entire scan: %+v %v", report, err)
+		}
+		var cursor string
+		if err := s.pool.QueryRow(ctx, "SELECT path FROM "+pgx.Identifier{s.envelope.schema}.Sanitize()+".retention_cursor WHERE id").Scan(&cursor); err != nil {
+			t.Fatal(err)
+		}
+		if cursor != "oauth-transactions/"+id {
+			t.Fatalf("retention did not progress: cursor=%q", cursor)
+		}
+		var verifier map[string]string
+		if _, err := s.GetJSON(ctx, "oauth-transactions/"+id, &verifier); err != nil || verifier["verifier"] != "synthetic" {
+			t.Fatal("uncertain verifier was destroyed", err)
+		}
 	}
 }

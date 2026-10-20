@@ -63,6 +63,11 @@ case "$1" in
   ;;
  test)
   [[ "${TOOLBOX_ENV:-local}" == local ]] || { echo 'Verification requires the local fixture profile.' >&2; exit 2; }
+  # Create bind sources as the operator before Docker can create them as root.
+  [[ ! -L .deploy && ! -L .deploy/verification ]] || { echo 'Verification state must not be a symlink.' >&2; exit 2; }
+  mkdir -p .deploy/verification
+  [[ -O .deploy/verification ]] || { echo 'Verification state must belong to the operator.' >&2; exit 2; }
+  chmod 700 .deploy/verification
   mkdir -p .evidence
   files+=(-f deploy/verify.yaml)
   compose up -d --wait postgres-test openbao
@@ -71,7 +76,6 @@ case "$1" in
   compose run --rm --build host-checks traversal
   compose run --rm host-checks ordering
   compose run --rm --build browser
-  mkdir -p .deploy/verification
   [[ ! -f .deploy/verification/restart.json ]] || unlink .deploy/verification/restart.json
   compose run --rm -T --no-deps browser python deployment/persistence.py before
   compose restart postgres

@@ -1,4 +1,4 @@
-.PHONY: run test check deps dev
+.PHONY: run test check deps dev workspace google-pkce-check workspace-browser-check
 run:
 	TOOLBOX_MODE=fixture go run ./cmd/toolbox
 
@@ -51,3 +51,18 @@ gcp-prepare:
 
 gcp-deploy:
 	./scripts/gcp-release deploy
+# .env is private, trusted shell configuration. Quote literal secret values.
+workspace:
+	@test -f .env || (echo 'Create .env from .env.workspace.example first.'; exit 1)
+	@set -a; . ./.env; set +a; TOOLBOX_MODE=workspace-local go run ./cmd/toolbox
+
+google-pkce-check:
+	@test -f .env || (echo 'Create .env from .env.workspace.example first.'; exit 1)
+	@set -a; . ./.env; set +a; go run ./cmd/toolbox google-pkce-check
+
+workspace-browser-check:
+	TOOLBOX_TEST_WORKSPACE_BROWSER=1 go test -race -count=1 ./internal/app ./cmd/toolbox -run 'Test(Workspace|Probe)BrowserFlow'
+
+.PHONY: deploy-workflow-check
+deploy-workflow-check:
+	python3 tests/deployment/workflow_test.py

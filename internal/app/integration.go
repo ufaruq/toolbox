@@ -32,6 +32,12 @@ func (i *Integration) Start(ctx context.Context, owner, session string) (string,
 func (i *Integration) Complete(ctx context.Context, owner, session, state, code string) (domain.Connection, error) {
 	return i.OAuth.Complete(ctx, owner, session, state, code)
 }
+func (i *Integration) Reject(ctx context.Context, owner, session, state string) error {
+	return i.OAuth.Reject(ctx, owner, session, state)
+}
+func (i *Integration) PickerToken(ctx context.Context, connection string, auth func(context.Context) error) (tokens.Lease, error) {
+	return i.TokenManager.AccessLease(ctx, connection, auth)
+}
 func (i *Integration) access(connectionID string, auth func(context.Context) error) func(context.Context) (string, error) {
 	var generation int64
 	return func(ctx context.Context) (string, error) {

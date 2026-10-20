@@ -10,10 +10,34 @@ import (
 	"time"
 )
 
-type Report struct{ Sessions, Credentials, Grants, Connections int }
+type Report struct{ Sessions, Credentials, Grants, Connections, Callers, OwnerLogins, Requests int }
 
 func Invalidate(ctx context.Context, repo domain.Repository) (r Report, err error) {
 	err = repo.Transact(ctx, func(st *domain.State) error {
+		for id, p := range st.CallerProfiles {
+			if p.Status == "active" {
+				p.Status = "disabled"
+				st.CallerProfiles[id] = p
+				a := st.Agents[p.AgentID]
+				a.Status = "disabled"
+				st.Agents[p.AgentID] = a
+				r.Callers++
+			}
+		}
+		for id, login := range st.OwnerLogins {
+			if login.Status == "pending" || login.Status == "exchanging" {
+				login.Status = "cancelled"
+				st.OwnerLogins[id] = login
+				r.OwnerLogins++
+			}
+		}
+		for id, request := range st.Requests {
+			if request.Status == "pending" {
+				request.Status = "cancelled"
+				st.Requests[id] = request
+				r.Requests++
+			}
+		}
 		for id, s := range st.Sessions {
 			if s.ExpiresAt.After(st.Now) {
 				s.ExpiresAt = st.Now.Add(-time.Second)
@@ -54,7 +78,7 @@ func Invalidate(ctx context.Context, repo domain.Repository) (r Report, err erro
 			j := domain.Cleanup{ID: security.ID(), ConnectionID: id, OwnerID: c.OwnerID, Epoch: c.Epoch, Status: "pending", CreatedAt: st.Now}
 			st.Cleanup[j.ID] = j
 		}
-		if r.Sessions+r.Credentials+r.Grants+r.Connections > 0 {
+		if r.Sessions+r.Credentials+r.Grants+r.Connections+r.Callers+r.OwnerLogins+r.Requests > 0 {
 			st.Audits = append(st.Audits, domain.Audit{ID: security.ID(), At: st.Now, ActorType: "service", ActorID: "recovery", Action: "recovery.authority_invalidated", Outcome: "blocked_pending_reconciliation"})
 		}
 		return nil

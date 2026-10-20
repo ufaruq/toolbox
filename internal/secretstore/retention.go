@@ -2,6 +2,7 @@ package secretstore
 
 import (
 	"context"
+	"errors"
 	"github.com/jackc/pgx/v5"
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/tokens"
@@ -144,6 +145,11 @@ func (s *Postgres) retainLocked(ctx context.Context, repo domain.Repository, p R
 		return 0, true, nil
 	}
 	bundle, version, err := s.Get(ctx, tokens.Path(id))
+	if errors.Is(err, tokens.ErrNotFound) {
+		// Abandoned consent can finish cleanup without ever issuing a bundle.
+		// Preserve uncertain verifier material but do not starve later pages.
+		return 0, true, nil
+	}
 	if err != nil {
 		return 0, true, err
 	}
