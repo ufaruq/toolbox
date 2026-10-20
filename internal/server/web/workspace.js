@@ -145,11 +145,20 @@ action('request', async () => {
 action('review', async () => {
  invalidateReview(); const requestId = $('request-id').value, connection = $('connection').value, generation = reviewGeneration;
  if (!requestId || !connection) throw new Error('Choose a connection and enter a request ID.');
- const q = await request('/v1/delegation-requests/' + encodeURIComponent(requestId) + '/review', {connection_id: connection});
+ $('approval-status').textContent = 'Checking the request and document…';
+ let q;
+ try { q = await request('/v1/delegation-requests/' + encodeURIComponent(requestId) + '/review', {connection_id: connection}); }
+ catch (error) {
+  if (generation === reviewGeneration && requestId === $('request-id').value && connection === $('connection').value) {
+   $('approval-status').textContent = 'Review failed (' + error.message + '). ' + (error.message === 'NOT_AUTHORIZED' ? 'A denied or expired request cannot be approved. Click “Request a test read” to create a new request.' : 'Approval is unavailable until the document can be reviewed.');
+  }
+  throw error;
+ }
  if (generation !== reviewGeneration || requestId !== $('request-id').value || connection !== $('connection').value) return;
  reviewed = q;
  $('review-details').textContent = 'Agent: ' + q.agent_name + '\nVerified agent ID: ' + q.agent_id + '\nGoogle account: ' + q.account_subject + '\nDocument: ' + q.document_name + '\nDocument ID: ' + q.file_id + '\nExpires: ' + q.expires_at + '\n\n' + q.description + '\n\n' + q.provider_scope_notice;
  $('review-details').hidden = false; $('approve').disabled = false;
+ $('approval-status').textContent = 'Review ready. Check the document and account, then approve or deny.';
 });
 action('approve', async () => {
  if (!reviewed) throw new Error('Review the request first.');
@@ -159,7 +168,7 @@ action('approve', async () => {
  resultGeneration++; approvedFile = snapshot.file_id; $('grant-id').value = q.grant_id; invalidateReview();
  $('approval-status').textContent = 'Approved for this document only.'; $('result-panel').hidden = false; $('grant-badge').textContent = 'Approved'; $('document').textContent = 'The document has not been read yet.';
 });
-action('deny', async () => { await request('/v1/delegation-requests/' + encodeURIComponent($('request-id').value) + '/deny', {}); invalidateReview(); $('approval-status').textContent = 'Request denied. No document access was granted.'; });
+action('deny', async () => { await request('/v1/delegation-requests/' + encodeURIComponent($('request-id').value) + '/deny', {}); invalidateReview(); $('approval-status').textContent = 'Request denied. No document access was granted. Click “Request a test read” to create a new request.'; });
 action('read', async () => {
  const grant = $('grant-id').value, epoch = uiEpoch, generation = resultGeneration, file = approvedFile;
  const token = await request('/v1/delegation-tokens', {grant_id: grant}, true);
