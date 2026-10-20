@@ -1,6 +1,33 @@
-# Fixture browser E2E
+# Browser acceptance checks
 
-Use the [roadmap](../../docs/ROADMAP.md) for pending work and [implementation status](../../docs/implementation-status.md) for recorded results. This page documents the existing fixture runner; live sign-in/Google and hosted acceptance belong to M1–M3.
+Use the [roadmap](../../docs/ROADMAP.md) for pending work and [implementation status](../../docs/implementation-status.md) for recorded results. These automated tests use synthetic providers. Real-account Google and hosted acceptance remain separate gates.
+
+## Synthetic Workspace and client-check flows
+
+After installing the pinned Python dependencies and Chromium described below:
+
+```sh
+make workspace-browser-check
+```
+
+`TestWorkspaceBrowserFlow` starts the real Workspace UI and authorization engine
+with a signed synthetic TLS OIDC provider, simulated Google consent/Drive and a
+controlled Picker loader. It covers account connection, document picking,
+approval/read, a different document's denial, revocation, disconnect, logout,
+late reads after revoke, late revoke responses after a new grant, late approvals
+after account changes, approval links through owner login and mobile overflow.
+Approval return paths are restricted to local request URLs, and their temporary
+tab storage is cleared after sign-in; unsafe destinations are rejected.
+All external network calls are intercepted or rejected. Screenshots mask the
+tab-only agent credential. `TestProbeBrowserFlow` verifies that the local Google
+client-check form can navigate to a controlled Google consent destination under
+its actual CSP and referrer policy. It does not contact Google or validate PKCE.
+
+The real-client checker is the separate interactive `make google-pkce-check`
+command. See [Workspace setup](../../docs/workspace-demo.md) for console settings,
+the four actual-client exchanges and unperformed live acceptance gates.
+
+## Fixture browser flow
 
 These checks drive the running Toolbox UI in headless Chromium. They cover fixture owner login, the synthetic OAuth redirect, an independent agent credential, the trusted approval link, review interrupted by reload, exact-document approval, approval replay rejection, a successful `doc-A` read, denied `doc-B` access, revoked-grant denial, request denial, disconnect and redacted audit events. Unhandled browser JavaScript exceptions fail the run.
 

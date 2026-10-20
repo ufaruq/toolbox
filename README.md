@@ -2,7 +2,7 @@
 
 Controlled, user-delegated access to external tools and data. The current implementation supports one operation: reading an explicitly approved Google document as plain text.
 
-The local fixture simulates owner sign-in and Google. A separate loopback-only mode supports real Okta owner sign-in; see [Okta setup](docs/okta-setup.md). PostgreSQL, OpenBao, the authorization flow and browser UI can be exercised locally. Real Google library adapters exist, but the executable does not wire them. Public production OIDC, Picker, live Google acceptance and deployment work remain pending in the [roadmap](docs/ROADMAP.md).
+The local fixture simulates owner sign-in and Google. Separate loopback-only modes support real Okta owner sign-in and the combined Google Workspace tool flow. See [Okta setup](docs/okta-setup.md) and [real Workspace setup](docs/workspace-demo.md). `workspace-local` wires actual Google adapters and Picker with PostgreSQL and OpenBao. The [actual-client PKCE/scope check passed](docs/workspace-verification.md); real document acceptance is still required before calling it demo-ready. Public deployment remains pending in the [roadmap](docs/ROADMAP.md).
 
 ## Start here
 
@@ -12,7 +12,7 @@ The local fixture simulates owner sign-in and Google. A separate loopback-only m
 - [Design PR #1](https://github.com/ufaruq/toolbox/pull/1): merged architecture and design artifacts.
 - [Implementation PR #2](https://github.com/ufaruq/toolbox/pull/2): merged application baseline.
 
-The document approval/read/revocation demo is available in `fixture` mode with simulated identity and Google. The `oidc-local` mode demonstrates real owner sign-in only and intentionally hides tool operations. A live Google tool demo still requires the runtime integration and acceptance work in [M2](docs/ROADMAP.md#m2-live-google-document-flow).
+The document approval/read/revocation demo is available in `fixture` mode with simulated identity and Google. The `oidc-local` mode demonstrates real owner sign-in only and intentionally hides tool operations. The new `workspace-local` mode combines verified owner sign-in, real Google consent, document selection, and exact-document approval/read/revocation. Follow [Workspace setup](docs/workspace-demo.md), run `make google-pkce-check`, then `make workspace`. It has no fixture fallback; live [M2 acceptance](docs/ROADMAP.md#m2-live-google-document-flow) remains unperformed.
 
 ## Run the local fixture
 
@@ -34,7 +34,7 @@ Open http://127.0.0.1:8080. For another port, set `TOOLBOX_ADDR=127.0.0.1:18080`
 
 Connecting an account alone does not grant an agent access. The fixture provider has both documents, but a grant to A never authorizes B. The UI has no real Google Picker. Fixture signing keys, credential pepper and provider state are ephemeral; restarting does not preserve valid fixture credentials/connections even when database records survive. Use synthetic data only.
 
-Agents currently use custom HTTP request, token and invocation endpoints. MCP and external client integrations are future work under [F1](docs/ROADMAP.md#f1-agent-client-integrations).
+Agents currently use custom HTTP request, token and invocation endpoints. A real MCP agent client is the next MVP milestone under [F1](docs/ROADMAP.md#f1-agent-client-integrations); #7 needs integration with this live Google runtime. Reusable all/allowlist/blocklist policies and write tools follow separately. See [PR scope and delivery order](docs/mvp-delivery.md).
 
 ## Optional real local stores
 
@@ -68,7 +68,7 @@ See [implementation status](docs/implementation-status.md) for the actual checke
 
 ## Layout and technical references
 
-- `cmd/toolbox`: explicit fixture and local Okta owner sign-in modes.
+- `cmd/toolbox`: explicit fixture, local Okta owner, real Workspace modes and actual-client PKCE checker.
 - `internal/server`: owner/agent API, approval UI, dispatch and final live authorization checks.
 - `internal/security`: agent credential hashing and scoped Ed25519 delegation tokens.
 - `internal/oauth`: bound OAuth/PKCE transactions, Google adapter and fixture provider.

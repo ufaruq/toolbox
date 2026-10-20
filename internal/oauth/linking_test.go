@@ -80,6 +80,25 @@ func TestCorporateConstructorRequiresResolverAndExplicitIdentityMode(t *testing.
 	}
 }
 
+func TestIndependentGoogleIdentityServiceIsExplicit(t *testing.T) {
+	h := newHarness(t)
+	p := corporateGoogle(t)
+	service, err := NewIndependentGoogleService(h.repo, h.secrets, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.service = service
+	// This mode explicitly keeps the connected Google identity independent from
+	// the owner. Only the corporate constructor may enforce a trusted mapping.
+	_, state, _ := beginCorporate(t, h, p, func(c map[string]any) { c["email"] = "another@company.com" }, nil)
+	if connection, err := service.Complete(context.Background(), "owner", "session", state, "code"); err != nil || connection.Status != "active" {
+		t.Fatalf("explicit independent identity linking failed: %v", err)
+	}
+	if _, err := NewIndependentGoogleService(h.repo, h.secrets, h.provider); !errors.Is(err, ErrConfiguration) {
+		t.Fatal("independent email identity mode accepted the minimal fixture contract")
+	}
+}
+
 func TestCorporateCompleteAllowsOnlyExactVerifiedWorkspaceIdentity(t *testing.T) {
 	cases := []struct {
 		name    string

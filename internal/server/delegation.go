@@ -98,6 +98,9 @@ func (s *Server) ownerConnectionCheck(ctx context.Context, ownerID, sessionID, c
 		if !ok || u.Status != "active" || session.UserID != ownerID || !st.Now.Before(session.ExpiresAt) || c.OwnerID != ownerID || c.Status != "active" || !domain.HasScope(c.Scopes, domain.DriveScope) {
 			return domain.ErrDenied
 		}
+		if s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, sessionID) {
+			return domain.ErrDenied
+		}
 		return nil
 	})
 }

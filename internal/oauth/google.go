@@ -41,7 +41,7 @@ type GoogleConfig struct {
 	CallbackURL       string
 	PKCEValidated     bool
 	AllowLoopbackHTTP bool
-	// IdentityScopes explicitly requests email claims for corporate linking.
+	// IdentityScopes explicitly requests email claims for identity-aware linking.
 	IdentityScopes bool
 }
 
@@ -77,7 +77,7 @@ func NewGoogleProvider(config GoogleConfig) (*GoogleProvider, error) {
 }
 
 // ExpectedScopes returns a fresh copy of the exact configured grant contract.
-// Email identity mode must be paired with NewCorporateService.
+// Email identity mode requires an explicit identity-aware service constructor.
 func (p *GoogleProvider) ExpectedScopes() []string {
 	if p.identityScopes {
 		return []string{"openid", "email", domain.DriveScope}
@@ -167,7 +167,7 @@ func (p *GoogleProvider) Exchange(ctx context.Context, code, verifier, nonceHash
 	}
 	// Parsed credentials from a successful token response remain cleanup material
 	// even if validation fails. A non-nil error never authorizes activation.
-	result := ExchangeResult{ClientID: p.clientID, AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: strings.Fields(response.Scope)}
+	result := ExchangeResult{ClientID: p.clientID, AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: googleScopes(response.Scope)}
 	if err != nil {
 		return result, err
 	}
@@ -192,7 +192,7 @@ func (p *GoogleProvider) Refresh(ctx context.Context, refreshToken string) (toke
 	if err != nil && response.AccessToken == "" && response.RefreshToken == "" {
 		return none, err
 	}
-	result := tokens.RefreshResult{AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: strings.Fields(response.Scope)}
+	result := tokens.RefreshResult{AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: googleScopes(response.Scope)}
 	if err != nil {
 		return result, err
 	}
@@ -201,6 +201,20 @@ func (p *GoogleProvider) Refresh(ctx context.Context, refreshToken string) (toke
 	}
 	return result, nil
 }
+
+// Google may return the documented userinfo.email spelling for OIDC email.
+// Preserve all entries so exact-contract validation still rejects duplicates
+// after canonicalization and never accepts broader Google permissions.
+func googleScopes(value string) []string {
+	scopes := strings.Fields(value)
+	for i, scope := range scopes {
+		if scope == "https://www.googleapis.com/auth/userinfo.email" {
+			scopes[i] = "email"
+		}
+	}
+	return scopes
+}
+
 func (p *GoogleProvider) Revoke(ctx context.Context, token string) error {
 	if token == "" {
 		return nil

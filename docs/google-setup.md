@@ -15,11 +15,17 @@ The repository includes real Google OAuth and Drive adapters and an explicit
 fixture provider. The fixture mode wires simulated Google/Drive and creates an ephemeral signer
 and credential pepper on each start. The separate `oidc-local` mode provides
 [real owner sign-in](okta-setup.md) while disabling Google and agent operations.
-Neither mode wires the real Google adapters or a real Picker UI.
-The real adapters are not configured or validated for live use. This work has
-**not** created a Google Cloud project or OAuth client,
-used real credentials, completed a real Google consent flow, proved Google's
-PKCE enforcement, or run the real Drive/Picker integration spike.
+The separate `workspace-local` mode now wires real Google adapters and Picker with
+verified owner sessions. Follow [Workspace setup](workspace-demo.md) for exact
+Google console settings, private configuration, `make google-pkce-check` and
+`make workspace`. It uses the explicit independent-account identity contract
+`openid email drive.file`; the default/fixture scope contract is unchanged.
+The user has now configured a dedicated Google test project/client privately, and
+the [actual-client PKCE/scope check passed](workspace-verification.md): four fresh
+consent/code rounds, matching/missing/wrong/matching verifiers, signed ID-token
+validation and known probe-token cleanup. The combined Workspace app starts with
+the real providers. The real Drive/Picker document flow and remaining release
+gates are still unverified; the protocol result alone does not establish a demo.
 
 The runnable fixture is deliberately a development demonstration. A fixture
 owner session or fixture Google subject is not human authentication. Production
@@ -51,8 +57,9 @@ These are operator steps, not actions performed by this implementation:
    integrating the real selection UI, Google Picker API.
 2. Configure the consent screen and limited test users. Request only `openid` and
    `https://www.googleapis.com/auth/drive.file`. No `drive.readonly`, broad `drive`,
-   or `profile` fallback is implemented. The corporate mode below explicitly adds
-   `email`; it does not change the default or fixture request.
+   or `profile` fallback is implemented. The corporate mode below and the explicit
+   independent `workspace-local` identity mode add `email`; neither changes the
+   default or fixture request.
 3. Create a web-application OAuth client. Register the **exact** configured
    callback URI. The fixture server currently uses
    `http://127.0.0.1:8080/oauth/callback`; use the actual configured local port.
@@ -131,8 +138,9 @@ if err != nil {
 service, err := oauth.NewService(repo, bao, provider)
 ```
 
-This shows the library API, not an assertion that live server configuration is
-wired or production owner login is complete. The same `provider` implements
+This shows the minimal library API. The local Workspace runtime instead explicitly
+requests email identity scopes and uses `NewIndependentGoogleService`; a production
+runtime still needs deployment configuration and live acceptance. The same `provider` implements
 `tokens.Provider` for coordinated refresh and revocation. There is no SDK token
 source performing background refresh outside that coordinator.
 
@@ -181,7 +189,9 @@ The service rechecks the live owner session before activation.
 set to `openid email https://www.googleapis.com/auth/drive.file`. This requests
 additional personal identity data and requires explicit deployment consent/review.
 `NewService` refuses this mode; `NewCorporateService` refuses a provider without
-this exact contract or a missing resolver. The default provider and fixture still
+this exact contract or a missing resolver. `NewIndependentGoogleService` explicitly
+accepts the email identity contract without enforcing a corporate owner mapping;
+the local Workspace runtime selects it. The default provider and fixture still
 request exactly `openid` and `drive.file`. Unknown, additional, duplicate or missing
 granted scopes fail closed. The email contract also survives refresh: omitted
 refresh scope fields retain the stored contract; a changed explicit scope set is
@@ -230,8 +240,9 @@ The trusted owner endpoint calls:
   first-party session. Do not derive owner/session from query parameters or
   from the Google subject. Do not treat the callback as grant approval.
 
-Provider cancellation or an unknown exchange outcome leaves a blocked pending
-connection. A rejected response containing known credentials is retained only for
+The Workspace callback consumes a correctly bound provider cancellation without
+exchanging a code and marks the connection cancelled. An unknown exchange outcome
+leaves a blocked pending connection. A rejected response containing known credentials is retained only for
 cleanup; a missing refresh token can mark the connection `needs_reauth`. None of
 these states has execution rights. Completing a new connection does not create a
 document selection or agent grant. The owner must select/verify the document and

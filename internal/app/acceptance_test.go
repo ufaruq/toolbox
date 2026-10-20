@@ -23,11 +23,80 @@ import (
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/oauth"
+	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
 	"github.com/ufaruq/toolbox/internal/tokens"
 )
+
+type workspaceOwnerProvider struct{}
+
+func (workspaceOwnerProvider) AuthorizationURL(state, nonce, challenge string) (string, error) {
+	return "https://owner.example.test/authorize?state=" + url.QueryEscape(state), nil
+}
+func (workspaceOwnerProvider) Exchange(context.Context, string, string, string) (ownerlogin.Identity, error) {
+	return ownerlogin.Identity{Issuer: "https://owner.example.test", Subject: "real-owner"}, nil
+}
+
+func TestWorkspaceRoutesRequireVerifiedOwnerAndSeparateSessionPepper(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ts = httptest.NewUnstartedServer(nil)
+	t.Cleanup(h.ts.Close)
+	origin := "http://" + h.ts.Listener.Addr().String()
+	sessionPepper := bytes.Repeat([]byte("s"), 32)
+	login, err := ownerlogin.NewService(h.repo, h.secrets, workspaceOwnerProvider{}, ownerlogin.ServiceConfig{
+		Issuer: "https://owner.example.test", ClientID: "owner-client", RedirectURI: origin + "/auth/oidc/callback", Pepper: sessionPepper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := oauth.NewFixtureProvider("fixture-client", origin+"/oauth/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow, err := oauth.NewService(h.repo, h.secrets, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	integration := &app.Integration{OAuth: flow, TokenManager: &tokens.Manager{Repository: h.repo, Secrets: h.secrets, Provider: provider}, Drive: gdrive.NewFixture(h.drive)}
+	api, err := server.New(server.Config{Repository: h.repo, Signer: h.api.Signer, Pepper: bytes.Repeat([]byte("c"), 32), SessionPepper: sessionPepper, Origin: origin, WorkspaceLocal: true, OwnerLogin: login}, integration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.ts.Config.Handler = api
+	h.ts.Start()
+	// A fixture login issued by the earlier handler is never a live owner.
+	h.call("GET", "/v1/session", nil, "", "", 403)
+	for _, path := range []string{"/fixture/login", "/fixture/authorize"} {
+		resp, err := h.client.Get(h.ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 404 && resp.StatusCode != 405 {
+			t.Fatal("fixture route exposed")
+		}
+	}
+	started := h.call("POST", "/auth/oidc/start", map[string]any{}, "", "", 200)
+	authorization, _ := url.Parse(started["authorization_url"].(string))
+	resp, err := h.client.Get(h.ts.URL + "/auth/oidc/callback?state=" + url.QueryEscape(authorization.Query().Get("state")) + "&code=test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatal("verified callback failed")
+	}
+	session := h.call("GET", "/v1/session", nil, "", "", 200)
+	if session["fixture"] != false || session["owner_only"] != false {
+		t.Fatal("wrong runtime capabilities")
+	}
+	h.csrf = session["csrf_token"].(string)
+	h.call("POST", "/v1/connections/google/start", map[string]any{}, "", "", 200)
+	h.call("POST", "/v1/session/logout", map[string]any{}, "", "", 200)
+	h.call("GET", "/v1/session", nil, "", "", 403)
+}
 
 type countSecrets struct {
 	*tokens.MemorySecretStore

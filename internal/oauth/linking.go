@@ -32,6 +32,20 @@ type TrustedOwnerIdentityResolver interface {
 	ResolveCorporateIdentity(context.Context, string) (CorporateIdentity, error)
 }
 
+// NewIndependentGoogleService explicitly requests Google email identity while
+// keeping owner and provider accounts independent. Corporate deployments must
+// instead use NewCorporateService with their trusted owner resolver.
+func NewIndependentGoogleService(repo domain.Repository, secrets SecretStore, provider Provider) (*Service, error) {
+	service, err := newService(repo, secrets, provider)
+	if err != nil {
+		return nil, err
+	}
+	if !sameScopes(service.scopes, corporateScopes()) {
+		return nil, ErrConfiguration
+	}
+	return service, nil
+}
+
 // NewCorporateService opts into exact-person Workspace linking. The provider must
 // explicitly advertise the openid+email+drive.file scope contract. The fixture
 // deliberately cannot satisfy this production identity mode.

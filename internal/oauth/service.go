@@ -78,7 +78,7 @@ type transactionSecret struct {
 }
 
 // NewService keeps independent owner/provider accounts and minimal scopes.
-// Email identity scope mode requires NewCorporateService and a trusted resolver.
+// Email identity scope mode requires an explicit identity-aware constructor.
 func NewService(repo domain.Repository, secrets SecretStore, provider Provider) (*Service, error) {
 	service, err := newService(repo, secrets, provider)
 	if err != nil {
@@ -159,6 +159,40 @@ func (s *Service) Start(ctx context.Context, ownerID, sessionID string) (StartRe
 		return result, err
 	}
 	return StartResult{AuthorizationURL: authorizationURL, ConnectionID: connectionID, ExpiresAt: expiry}, nil
+}
+
+// Reject consumes a bound cancellation without contacting the token endpoint.
+// An unrelated browser, owner, or stale transaction cannot cancel a connection.
+func (s *Service) Reject(ctx context.Context, ownerID, sessionID, state string) error {
+	id, _, err := security.CredentialParts(state)
+	if err != nil {
+		return ErrCallback
+	}
+	var secretRef string
+	err = s.repo.Transact(ctx, func(st *domain.State) error {
+		tx, ok := st.OAuth[id]
+		if !ok || tx.Consumed || tx.OwnerID != ownerID || tx.SessionID != sessionID || !liveSession(st, ownerID, sessionID) || !st.Now.Before(tx.ExpiresAt) || !security.Equal(tx.StateHash, security.Hash(state)) || tx.SecretRef != transactionPath(id) {
+			return ErrCallback
+		}
+		c, ok := st.Connections[tx.ConnectionID]
+		if !ok || c.OwnerID != ownerID || c.Status != "pending" || c.Epoch != 1 || c.ClientID != s.provider.ClientID() {
+			return ErrCallback
+		}
+		tx.Consumed, c.Status = true, "cancelled"
+		st.OAuth[id], st.Connections[c.ID] = tx, c
+		secretRef = tx.SecretRef
+		st.Audits = append(st.Audits, domain.Audit{ID: security.ID(), At: st.Now, ActorType: "user", ActorID: ownerID, SubjectID: ownerID, Action: "connection.oauth.cancel", ConnectionID: c.ID, Outcome: "cancelled"})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	if err := s.secrets.DeleteJSON(cleanup, secretRef); err != nil {
+		return ErrPersistence
+	}
+	return nil
 }
 
 // Complete atomically consumes the transaction before any token-endpoint call.

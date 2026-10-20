@@ -17,7 +17,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, _ := r.Cookie(s.sessionCookieName())
-	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": security.KeyedHash(s.Pepper, c.Value), "fixture": s.Fixture, "owner_only": s.OwnerOnly})
+	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": security.KeyedHash(s.sessionPepper(), c.Value), "fixture": s.Fixture, "owner_only": s.OwnerOnly})
 }
 func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != s.Origin {
@@ -169,6 +169,10 @@ func (s *Server) fixtureAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, u, 303)
 }
 func (s *Server) completeConnection(w http.ResponseWriter, r *http.Request) {
+	if s.WorkspaceLocal {
+		s.workspaceCallback(w, r)
+		return
+	}
 	owner, ok := s.requireOwner(w, r, false)
 	if !ok {
 		return

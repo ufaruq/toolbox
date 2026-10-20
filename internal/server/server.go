@@ -18,14 +18,17 @@ import (
 )
 
 type Config struct {
-	Repository domain.Repository
-	Signer     *security.Signer
-	Pepper     []byte
-	Origin     string
-	Fixture    bool
-	OwnerOnly  bool
-	OwnerLogin *ownerlogin.Service
-	Readiness  func(context.Context) error
+	Repository     domain.Repository
+	Signer         *security.Signer
+	Pepper         []byte
+	SessionPepper  []byte
+	Origin         string
+	Fixture        bool
+	OwnerOnly      bool
+	WorkspaceLocal bool
+	OwnerLogin     *ownerlogin.Service
+	Picker         PickerConfig
+	Readiness      func(context.Context) error
 }
 type Server struct {
 	Config
@@ -62,7 +65,8 @@ type Document struct {
 func New(cfg Config, integration Integration) (*Server, error) {
 	if cfg.Repository == nil || len(cfg.Pepper) < 32 || cfg.Origin == "" ||
 		(cfg.OwnerOnly && (cfg.Fixture || cfg.OwnerLogin == nil || !validOwnerOrigin(cfg.Origin))) ||
-		(!cfg.OwnerOnly && (cfg.Signer == nil || integration == nil || cfg.OwnerLogin != nil)) {
+		(!cfg.OwnerOnly && (cfg.Signer == nil || integration == nil || cfg.OwnerLogin != nil && !cfg.WorkspaceLocal)) ||
+		(cfg.WorkspaceLocal && (cfg.Fixture || cfg.OwnerOnly || cfg.OwnerLogin == nil || len(cfg.SessionPepper) != 32 || !validOwnerOrigin(cfg.Origin))) {
 		return nil, errors.New("invalid server configuration")
 	}
 	s := &Server{Config: cfg, mux: http.NewServeMux(), limits: map[string]window{}, slots: make(chan struct{}, 8), integration: integration}
@@ -74,7 +78,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-	if (r.URL.RawQuery != "" || r.URL.ForceQuery) && r.URL.Path != "/oauth/callback" && r.URL.Path != "/fixture/authorize" && !(s.OwnerOnly && r.URL.Path == "/auth/oidc/callback") {
+	if s.WorkspaceLocal && (r.URL.Path == "/" || strings.HasPrefix(r.URL.Path, "/approve/")) {
+		// Picker supplies its own iframe and inline positioning styles. Keep
+		// scripts confined to Google's loader and our own assets. The origin-only
+		// referrer supports the restricted Picker key without forwarding paths.
+		w.Header().Set("Referrer-Policy", "strict-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' https://apis.google.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://www.googleapis.com https://apis.google.com; frame-src https://docs.google.com https://drive.google.com; img-src 'self' data: https://ssl.gstatic.com; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	}
+	if (r.URL.RawQuery != "" || r.URL.ForceQuery) && r.URL.Path != "/oauth/callback" && r.URL.Path != "/fixture/authorize" && !(s.OwnerLogin != nil && r.URL.Path == "/auth/oidc/callback") {
 		fail(w, 400, "INVALID_QUERY")
 		return
 	}
@@ -101,10 +112,12 @@ func (s *Server) routes() {
 	})
 	s.mux.HandleFunc("GET /v1/session", s.session)
 	s.mux.HandleFunc("GET /v1/auth/config", s.authConfig)
-	if s.OwnerOnly {
+	if s.OwnerLogin != nil {
 		s.mux.HandleFunc("POST /auth/oidc/start", s.startOwnerLogin)
 		s.mux.HandleFunc("GET /auth/oidc/callback", s.ownerCallback)
 		s.mux.HandleFunc("POST /v1/session/logout", s.logoutOwner)
+	}
+	if s.OwnerOnly {
 		for _, pattern := range []string{
 			"/v1/agents", "/v1/agents/", "/v1/credentials/", "/v1/connections", "/v1/connections/",
 			"/v1/delegation-requests", "/v1/delegation-requests/", "/v1/delegation-tokens",
@@ -121,6 +134,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/connections/google/start", s.startConnection)
 	s.mux.HandleFunc("GET /oauth/callback", s.completeConnection)
 	s.mux.HandleFunc("GET /v1/connections", s.connections)
+	if s.WorkspaceLocal {
+		s.mux.HandleFunc("GET /v1/workspace/config", s.workspaceConfig)
+		s.mux.HandleFunc("POST /v1/connections/{id}/picker-token", s.pickerToken)
+	}
 	s.mux.HandleFunc("POST /v1/connections/{id}/disconnect", s.disconnect)
 	s.mux.HandleFunc("POST /v1/delegation-requests", s.createRequest)
 	s.mux.HandleFunc("GET /v1/delegation-requests/{id}", s.pollRequest)
@@ -198,6 +215,13 @@ func (s *Server) sessionCookieName() string {
 	return "toolbox_session"
 }
 
+func (s *Server) sessionPepper() []byte {
+	if len(s.SessionPepper) != 0 {
+		return s.SessionPepper
+	}
+	return s.Pepper
+}
+
 func (s *Server) owner(r *http.Request, mutate bool) (domain.Session, error) {
 	var out domain.Session
 	c, e := r.Cookie(s.sessionCookieName())
@@ -213,7 +237,7 @@ func (s *Server) owner(r *http.Request, mutate bool) (domain.Session, error) {
 		if !ok || !st.Now.Before(v.ExpiresAt) || u.Status != "active" {
 			return domain.ErrDenied
 		}
-		if s.OwnerOnly && !s.OwnerLogin.SessionBound(st, v.ID) {
+		if s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, v.ID) {
 			return domain.ErrDenied
 		}
 		if mutate && !security.Equal(v.CSRFHash, security.Hash(r.Header.Get("X-CSRF-Token"))) {

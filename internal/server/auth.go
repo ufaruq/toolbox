@@ -24,10 +24,14 @@ func validOwnerOrigin(value string) bool {
 
 func (s *Server) authConfig(w http.ResponseWriter, _ *http.Request) {
 	loginURL := "/fixture/login"
-	if s.OwnerOnly {
+	if s.OwnerLogin != nil {
 		loginURL = "/auth/oidc/start"
 	}
-	jsonOut(w, 200, map[string]any{"fixture": s.Fixture, "owner_only": s.OwnerOnly, "login_url": loginURL})
+	config := map[string]any{"fixture": s.Fixture, "owner_only": s.OwnerOnly, "login_url": loginURL}
+	if s.WorkspaceLocal {
+		config["workspace"] = true
+	}
+	jsonOut(w, 200, config)
 }
 
 func (s *Server) ownerOrigin(r *http.Request) bool {

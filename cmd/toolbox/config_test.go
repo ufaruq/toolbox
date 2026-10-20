@@ -70,3 +70,47 @@ func TestFixtureConfig(t *testing.T) {
 		t.Fatalf("fixture defaults failed: %v", err)
 	}
 }
+
+func TestWorkspaceLocalConfigRequiresRealProvidersAndStableCrypto(t *testing.T) {
+	valid := map[string]string{
+		"TOOLBOX_MODE": "workspace-local", "TOOLBOX_ADDR": "127.0.0.1:8080",
+		"TOOLBOX_ORIGIN": "http://127.0.0.1:8080", "TOOLBOX_OIDC_ISSUER": "https://idp.example.test",
+		"TOOLBOX_OIDC_CLIENT_ID": "owner-client", "TOOLBOX_OIDC_CLIENT_SECRET": "owner-secret",
+		"TOOLBOX_SESSION_PEPPER":    base64.StdEncoding.EncodeToString([]byte(strings.Repeat("s", 32))),
+		"TOOLBOX_CREDENTIAL_PEPPER": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32))),
+		"TOOLBOX_SIGNING_SEED":      base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32))),
+		"TOOLBOX_SIGNING_KEY_ID":    "workspace-local-1",
+		"DATABASE_URL":              "postgres://test:test@127.0.0.1/test?sslmode=disable",
+		"OPENBAO_ADDR":              "http://127.0.0.1:8200", "OPENBAO_TOKEN": "test-token",
+		"TOOLBOX_GOOGLE_CLIENT_ID": "google-client", "TOOLBOX_GOOGLE_CLIENT_SECRET": "google-secret",
+		"TOOLBOX_GOOGLE_PKCE_VALIDATED": "true", "TOOLBOX_GOOGLE_PICKER_API_KEY": "public-test-key",
+		"TOOLBOX_GOOGLE_PROJECT_NUMBER": "1234567890",
+	}
+	load := func(values map[string]string) (runtimeConfig, error) {
+		return loadConfig(func(k string) string { return values[k] })
+	}
+	if cfg, err := load(valid); err != nil || cfg.mode != "workspace-local" {
+		t.Fatalf("valid real workspace config rejected: %v", err)
+	}
+	for _, key := range []string{"TOOLBOX_CREDENTIAL_PEPPER", "TOOLBOX_SIGNING_SEED", "TOOLBOX_SIGNING_KEY_ID", "TOOLBOX_GOOGLE_CLIENT_ID", "TOOLBOX_GOOGLE_CLIENT_SECRET", "TOOLBOX_GOOGLE_PKCE_VALIDATED", "TOOLBOX_GOOGLE_PICKER_API_KEY", "TOOLBOX_GOOGLE_PROJECT_NUMBER"} {
+		t.Run("missing "+key, func(t *testing.T) {
+			values := copySettings(valid)
+			delete(values, key)
+			if _, err := load(values); err == nil || strings.Contains(err.Error(), "google-secret") {
+				t.Fatal("missing real setting accepted or secret exposed")
+			}
+		})
+	}
+	for _, key := range []string{"TOOLBOX_CREDENTIAL_PEPPER", "TOOLBOX_SIGNING_SEED"} {
+		values := copySettings(valid)
+		values[key] = valid["TOOLBOX_SESSION_PEPPER"]
+		if _, err := load(values); err == nil {
+			t.Fatal("session and credential/signing material must be independent")
+		}
+	}
+	values := copySettings(valid)
+	values["TOOLBOX_GOOGLE_PKCE_VALIDATED"] = "false"
+	if _, err := load(values); err == nil {
+		t.Fatal("unverified real-client PKCE gate accepted")
+	}
+}

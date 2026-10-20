@@ -20,10 +20,10 @@ The application baseline is [PR #2](https://github.com/ufaruq/toolbox/pull/2) at
 | [M2](#m2-live-google-document-flow) | Live Google document flow | Dedicated test configuration; M1 for the complete human flow | Real consent, Picker, approval, read and denial checks pass with sanitized evidence. |
 | [M3](#m3-controlled-pilot-deployment) | Controlled pilot deployment | M1 and M2 | Production configuration, secret lifecycle, recovery and hosted browser acceptance pass. |
 | [M4](#m4-larger-workloads) | Larger workloads | Preserve M1–M3 guarantees | Scoped storage and distributed controls meet a recorded workload target. |
-| [F1](#f1-agent-client-integrations) | Agent client integrations | Choose an initial client; use the existing HTTP authorization boundary | Client integration tests pass; MCP is an option to evaluate. |
+| [F1](#f1-agent-client-integrations) | Real agent client and MCP demonstration — next MVP milestone | M1/M2 foundation; choose the first client | A real client calls scoped live Google tools; denial, expiry and revocation pass. |
 | [F2](#f2-more-tools-and-providers) | More tools and providers | A separately reviewed tool contract | Each new action has explicit permissions, limits and acceptance tests. |
 
-M1 and the isolated Google configuration/protocol spike in M2 can progress independently. The full live user flow needs both. F1 and F2 are future product work, not prerequisites for the initial HTTP-based pilot. M4 gates broader workloads; it does not imply the current adapter is ready for unrestricted production traffic.
+M1 and the isolated Google configuration/protocol spike in M2 can progress independently. The full live user flow needs both. The user's next MVP milestone now includes F1: a real agent client and MCP calling the live Google tool. Reusable all/allowlist/blocklist policies and write tools follow separately; exact-document reads are the first working slice. See [PR boundaries and delivery order](mvp-delivery.md). M4 gates broader workloads; it does not imply the current adapter is ready for unrestricted production traffic.
 
 ## M1: Real owner sign-in
 
@@ -43,9 +43,16 @@ The local Okta owner-only mode and automated protocol/session/browser tests are 
 
 References: [Google setup and release gates](google-setup.md), `internal/oauth`, `internal/connectors/gdrive`, `internal/app/integration.go` and the approval UI in `internal/server/web`.
 
+The `workspace-local` runtime, connector-first UI and owner-authorized Picker
+boundary are implemented in the live Workspace draft. The hermetic browser flow
+uses controlled providers and does not close the real-provider gates below.
+[Workspace setup](workspace-demo.md) documents exact configuration and the
+interactive four-code client checker. The runtime explicitly requests the
+`openid email drive.file` identity contract; default/fixture scopes are unchanged.
+
 - [ ] Configure a dedicated Google test project, OAuth web client, exact callbacks, test users and Picker project/API settings. Inject credentials through the server's secret mechanism; record only non-secret configuration identifiers.
-- [ ] Complete the [real PKCE enforcement spike](google-setup.md#3-mandatory-pkce-enforcement-spike): independent fresh-code positive, missing-verifier and wrong-verifier cases, followed by another positive case. Keep `PKCEValidated` false until the gate passes.
-- [ ] Verify ID-token issuance and exact granted scopes for the intended `openid` plus `drive.file` request. If the minimal request fails, record and review the identity/scope decision before changing it; do not silently broaden scopes.
+- [x] Complete the [real PKCE enforcement spike](google-setup.md#3-mandatory-pkce-enforcement-spike): independent fresh-code positive, missing-verifier and wrong-verifier cases, followed by another positive case. [Passed for the configured test client on 19 October](workspace-verification.md). New configurations must keep `PKCEValidated` false until their own check passes.
+- [x] Verify ID-token issuance and exact granted scopes for the intended live contract. [Passed for the test client](workspace-verification.md). The explicit `workspace-local` identity mode requests `openid email drive.file`; the minimal library/fixture contract remains `openid drive.file`. No broad Drive or profile fallback is allowed.
 - [ ] Wire the existing real Google OAuth, refresh/revocation and Drive metadata/export adapters into the non-fixture runtime. Preserve the fixed endpoints, bounded requests, generation coordination and exact-document dispatch checks.
 - [ ] Implement trusted owner document selection with Google Picker and bind selection to the reviewed connection/account. Review the required access-token exposure to the owner browser, its expiry and in-memory handling; provider refresh tokens must never reach the browser or agent. `drive.file` itself is not read-only.
 - [ ] Run the full human/agent browser flow with a synthetic document in the real test account: consent, selection, request, review, approval, permitted read, other-document denial, grant revocation and disconnect. Verify provider credentials are absent from agent responses, logs and artifacts.
@@ -86,14 +93,17 @@ References: [snapshot adapter limits](storage.md#supported-slice), repository tr
 
 ## F1: Agent client integrations
 
-- [ ] Choose a real agent client and document onboarding, independent agent credential handling, approval-link presentation, polling/token issuance and error handling using the existing HTTP API.
-- [ ] Evaluate whether that client needs an MCP adapter, an SDK/example or direct HTTP support; record the transport and authentication contract before implementation.
+- [ ] Document client-neutral MCP onboarding and independent authentication, approval-link presentation, polling and errors. Use Codex and/or Claude Code locally for the first real acceptance; client-specific registration/configuration must not change permission semantics.
+- [ ] Integrate the Streamable HTTP MCP work in #7 with the merged owner login and #10's real Google runtime, migrations, storage and permission engine. Reconcile owner identity with the verified MCP `uid`/`cid` profile model while preserving connection ownership.
 - [ ] Test the chosen client through request, owner approval, bounded execution, expiry and revocation, including other-agent/document denial. Never hand provider credentials to the agent or widen a grant through the transport.
 
-**Done when:** the selected client completes the existing permission flow and its denial cases. The fixture agent console is not evidence of this integration; MCP is not currently implemented or selected.
+**Done when:** the selected real client completes the live Google permission flow and its denial cases. #7 contains a separate synthetic-tested MCP implementation but conflicts with current main and deliberately leaves Google unavailable; integration and real-client acceptance remain unfinished. The browser test console does not complete this milestone.
 
 ## F2: More tools and providers
 
+- [ ] Add reusable per-agent connection policies with independent read/write rules: none, all, allowlist or all except blocklist. Keep exact-document grants available. Persist and version policy assignments; enforce them at each applicable resource/tool boundary and on policy changes.
+- [ ] Extend the read path and provider scope profiles for supported broader policies, with fresh consent and exact-scope acceptance. Do not silently turn a selected-file Google grant into account-wide access.
+- [ ] Implement named Google document write operations with bounded inputs, revision/conflict checks, audit and uncertain-outcome handling. Define edit/create/delete/share separately; implement each supported action rather than treating a UI permission as an executable tool.
 - [ ] Select each next provider/action and define its manifest, explicit rights, resource selection, limits and fixed execution plan in a separate proposal.
 - [ ] Implement its adapter, owner review copy and provider-specific acceptance tests. Writes, broader document rights or longer access require new reviewed permissions; existing read grants cannot acquire them implicitly.
 

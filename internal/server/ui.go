@@ -18,6 +18,8 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	name := "web/index.html"
 	if s.OwnerOnly {
 		name = "web/owner.html"
+	} else if s.WorkspaceLocal {
+		name = "web/workspace.html"
 	}
 	b, _ := web.ReadFile(name)
 	_, _ = w.Write(b)
@@ -27,12 +29,18 @@ func (s *Server) appJS(w http.ResponseWriter, r *http.Request) {
 	name := "web/app.js"
 	if s.OwnerOnly {
 		name = "web/owner.js"
+	} else if s.WorkspaceLocal {
+		name = "web/workspace.js"
 	}
 	b, _ := web.ReadFile(name)
 	_, _ = w.Write(b)
 }
 func (s *Server) appCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	b, _ := web.ReadFile("web/app.css")
+	name := "web/app.css"
+	if s.WorkspaceLocal {
+		name = "web/workspace.css"
+	}
+	b, _ := web.ReadFile(name)
 	_, _ = w.Write(b)
 }

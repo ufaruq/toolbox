@@ -32,11 +32,17 @@ func main() {
 	}
 }
 func run() error {
+	if len(os.Args) > 1 {
+		if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
+			return runGooglePKCECheck()
+		}
+		return errors.New("unknown command")
+	}
 	cfg, e := loadConfig(os.Getenv)
 	if e != nil {
 		return e
 	}
-	if cfg.mode == "oidc-local" {
+	if cfg.mode == "oidc-local" || cfg.mode == "workspace-local" {
 		return runOIDCLocal(cfg)
 	}
 	addr := cfg.addr
@@ -151,12 +157,31 @@ func runOIDCLocal(cfg runtimeConfig) error {
 	if err != nil {
 		return err
 	}
-	api, err := server.New(server.Config{Repository: repo, Pepper: cfg.pepper, Origin: cfg.origin, OwnerOnly: true, OwnerLogin: login, Readiness: func(ctx context.Context) error {
+	serverConfig := server.Config{Repository: repo, Pepper: cfg.pepper, Origin: cfg.origin, OwnerOnly: true, OwnerLogin: login, Readiness: func(ctx context.Context) error {
 		if err := repo.Ping(ctx); err != nil {
 			return err
 		}
 		return secrets.Ping(ctx)
-	}}, nil)
+	}}
+	var integration *app.Integration
+	if cfg.mode == "workspace-local" {
+		integration, err = newWorkspaceIntegration(cfg, repo, secrets)
+		if err != nil {
+			return err
+		}
+		serverConfig.Signer, err = security.NewSigner(cfg.origin, cfg.workspace.signingKeyID, ed25519.NewKeyFromSeed(cfg.workspace.signingSeed))
+		if err != nil {
+			return err
+		}
+		serverConfig.OwnerOnly, serverConfig.WorkspaceLocal = false, true
+		serverConfig.SessionPepper, serverConfig.Pepper = cfg.pepper, cfg.workspace.credentialPepper
+		serverConfig.Picker = server.PickerConfig{APIKey: cfg.workspace.pickerAPIKey, ProjectNumber: cfg.workspace.projectNumber}
+	}
+	var providerBoundary server.Integration
+	if integration != nil {
+		providerBoundary = integration
+	}
+	api, err := server.New(serverConfig, providerBoundary)
 	if err != nil {
 		return err
 	}
@@ -177,11 +202,18 @@ func runOIDCLocal(cfg runtimeConfig) error {
 				if login.Cleanup(cleanupCtx) != nil {
 					log.Print("Owner login cleanup deferred; check dependency availability.")
 				}
+				if integration != nil && api.CleanupOnce(cleanupCtx) != nil {
+					log.Print("Google connection cleanup deferred; check dependency availability.")
+				}
 				stop()
 			}
 		}
 	}()
-	log.Printf("Toolbox local owner sign-in: %s (Google and agent operations are disabled)", cfg.origin)
+	if cfg.mode == "workspace-local" {
+		log.Printf("Toolbox local Workspace: %s (real providers; live acceptance must be recorded)", cfg.origin)
+	} else {
+		log.Printf("Toolbox local owner sign-in: %s (Google and agent operations are disabled)", cfg.origin)
+	}
 	select {
 	case <-ctx.Done():
 		shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
