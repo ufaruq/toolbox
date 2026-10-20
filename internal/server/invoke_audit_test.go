@@ -55,7 +55,7 @@ func (r *invocationAuditRepository) Transact(ctx context.Context, fn func(*domai
 	})
 }
 
-func invocationFixture(t *testing.T) (*Server, *invocationAuditRepository, *http.Request) {
+func invocationFixture(t *testing.T, users ...domain.User) (*Server, *invocationAuditRepository, *http.Request) {
 	t.Helper()
 	repo := &invocationAuditRepository{Repository: store.NewMemory()}
 	pepper := []byte(strings.Repeat("x", 32))
@@ -68,9 +68,13 @@ func invocationFixture(t *testing.T) (*Server, *invocationAuditRepository, *http
 	if err != nil {
 		t.Fatal(err)
 	}
+	owner := domain.User{ID: "owner", Issuer: "test", Subject: "owner", Status: "active"}
+	if len(users) == 1 {
+		owner = users[0]
+	}
 	var token string
 	if err := repo.Transact(context.Background(), func(st *domain.State) error {
-		st.Users["owner"] = domain.User{ID: "owner", Issuer: "test", Subject: "owner", Status: "active"}
+		st.Users["owner"] = owner
 		st.Agents["agent"] = domain.Agent{ID: "agent", OwnerID: "owner", Status: "active"}
 		st.Credentials[id] = domain.Credential{ID: id, AgentID: "agent", Hash: hash, Status: "active", ExpiresAt: st.Now.Add(time.Hour)}
 		st.Connections["connection"] = domain.Connection{ID: "connection", OwnerID: "owner", Provider: "google_drive", Subject: "provider-owner", ClientID: "test", Status: "active", Epoch: 1, Scopes: []string{domain.DriveScope}}

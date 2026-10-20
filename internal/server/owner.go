@@ -16,8 +16,8 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, _ := r.Cookie("toolbox_session")
-	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": security.KeyedHash(s.Pepper, c.Value), "fixture": s.Fixture})
+	c, _ := r.Cookie(s.sessionCookieName())
+	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": security.KeyedHash(s.sessionPepper(), c.Value), "fixture": s.Fixture, "owner_only": s.OwnerOnly, "mcp": s.Identity != nil})
 }
 func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != s.Origin {
@@ -37,7 +37,7 @@ func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "DEPENDENCY_UNAVAILABLE")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "toolbox_session", Value: raw, Path: "/", HttpOnly: true, Secure: !s.Fixture, SameSite: http.SameSiteLaxMode, MaxAge: 8 * 3600})
+	http.SetCookie(w, &http.Cookie{Name: s.sessionCookieName(), Value: raw, Path: "/", HttpOnly: true, Secure: !s.Fixture, SameSite: http.SameSiteLaxMode, MaxAge: 8 * 3600})
 	jsonOut(w, 200, map[string]string{"csrf_token": csrf})
 }
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +169,10 @@ func (s *Server) fixtureAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, u, 303)
 }
 func (s *Server) completeConnection(w http.ResponseWriter, r *http.Request) {
+	if s.WorkspaceLocal {
+		s.workspaceCallback(w, r)
+		return
+	}
 	owner, ok := s.requireOwner(w, r, false)
 	if !ok {
 		return
@@ -246,9 +250,6 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 
 // CleanupOnce processes durable pending jobs. A cleanup failure keeps access blocked.
 func (s *Server) CleanupOnce(ctx context.Context) error {
-	if e := s.cleanupOwnerLogins(ctx); e != nil {
-		return e
-	}
 	jobs := []domain.Cleanup{}
 	if e := s.Repository.Transact(ctx, func(st *domain.State) error {
 		for _, j := range st.Cleanup {

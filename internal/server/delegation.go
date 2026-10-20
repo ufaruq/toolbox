@@ -64,12 +64,29 @@ type approvalInput struct {
 	Digest       string `json:"digest"`
 }
 
-func (s *Server) ownerConnectionCheck(ctx context.Context, ownerID, sessionID, connID, requestID string) error {
+func (s *Server) ownerConnectionCheck(ctx context.Context, ownerID, sessionID, connID string) error {
 	return s.Repository.Transact(ctx, func(st *domain.State) error {
 		u := st.Users[ownerID]
 		session := st.Sessions[sessionID]
 		c, ok := st.Connections[connID]
 		if !ok || u.Status != "active" || session.UserID != ownerID || !st.Now.Before(session.ExpiresAt) || c.OwnerID != ownerID || c.Status != "active" || !domain.HasScope(c.Scopes, domain.DriveScope) {
+			return domain.ErrDenied
+		}
+		if s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, sessionID) {
+			return domain.ErrDenied
+		}
+		return nil
+	})
+}
+func (s *Server) pendingConnectionCheck(ctx context.Context, ownerID, sessionID, connID, requestID string) error {
+	return s.Repository.Transact(ctx, func(st *domain.State) error {
+		u := st.Users[ownerID]
+		session := st.Sessions[sessionID]
+		c, ok := st.Connections[connID]
+		if !ok || u.Status != "active" || session.UserID != ownerID || !st.Now.Before(session.ExpiresAt) || c.OwnerID != ownerID || c.Status != "active" || !domain.HasScope(c.Scopes, domain.DriveScope) {
+			return domain.ErrDenied
+		}
+		if s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, sessionID) {
 			return domain.ErrDenied
 		}
 		_, _, e := pending(st, requestID, ownerID, connID)
@@ -112,7 +129,7 @@ func (s *Server) reviewRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	check := func(ctx context.Context) error {
-		return s.ownerConnectionCheck(ctx, owner.UserID, owner.ID, c.ID, q.ID)
+		return s.pendingConnectionCheck(ctx, owner.UserID, owner.ID, c.ID, q.ID)
 	}
 	doc, e := s.integration.Inspect(r.Context(), c.ID, q.FileID, check)
 	if e == nil {
@@ -148,7 +165,7 @@ func (s *Server) approveRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	check := func(ctx context.Context) error {
-		return s.ownerConnectionCheck(ctx, owner.UserID, owner.ID, c.ID, q.ID)
+		return s.pendingConnectionCheck(ctx, owner.UserID, owner.ID, c.ID, q.ID)
 	}
 	doc, e := s.integration.Inspect(r.Context(), c.ID, q.FileID, check)
 	if e != nil {

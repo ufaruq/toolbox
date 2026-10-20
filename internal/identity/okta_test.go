@@ -50,8 +50,11 @@ func newTestIssuer(t *testing.T) *testIssuer {
 		defer f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
+		case "/.well-known/openid-configuration", "/oauth2/default/.well-known/openid-configuration":
 			d := map[string]any{"issuer": f.server.URL, "authorization_endpoint": f.server.URL + "/authorize", "token_endpoint": f.server.URL + "/token", "jwks_uri": f.server.URL + "/keys", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"RS256", "RS512"}}
+			if strings.HasPrefix(r.URL.Path, "/oauth2/default/") {
+				d["issuer"] = f.server.URL + "/oauth2/default"
+			}
 			for k, v := range f.discovery {
 				d[k] = v
 			}

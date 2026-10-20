@@ -32,13 +32,6 @@ type CallerProfile struct {
 	ApprovedAt, ExpiresAt                                         time.Time
 }
 
-// OwnerLogin stores only hashes and a reference to separately stored PKCE material.
-type OwnerLogin struct {
-	ID, StateHash, NonceHash, BrowserHash, SecretRef string
-	ExpiresAt                                        time.Time
-	Consumed                                         bool
-}
-
 type Connection struct {
 	ID, OwnerID, Provider, Subject, ClientID, Status string
 	Epoch, SecretVersion                             int64
@@ -67,6 +60,16 @@ type OAuthTransaction struct {
 	ExpiresAt                                                             time.Time
 	Consumed                                                              bool
 }
+
+// OwnerLoginTransaction binds a one-use OIDC login to its originating browser.
+// IssuedSessionID preserves the revocation relationship through response delivery.
+// The PKCE verifier belongs in the secret store referenced by SecretRef.
+type OwnerLoginTransaction struct {
+	ID, StateHash, BrowserHash, NonceHash, SecretRef string
+	Issuer, ClientID, RedirectURI                    string
+	PreviousSessionID, IssuedSessionID, Status       string
+	ExpiresAt                                        time.Time
+}
 type Audit struct {
 	AgentID, CallerProfileID, ClientID                                                              string
 	ID                                                                                              string
@@ -82,9 +85,8 @@ type Cleanup struct {
 // State is a transaction snapshot. Never retain its maps or pointers after Transact.
 // Provider tokens, OAuth codes and PKCE verifiers never belong in this structure.
 type State struct {
-	Now            time.Time
 	CallerProfiles map[string]CallerProfile
-	OwnerLogins    map[string]OwnerLogin
+	Now            time.Time
 	Users          map[string]User
 	Agents         map[string]Agent
 	Credentials    map[string]Credential
@@ -94,12 +96,13 @@ type State struct {
 	Requests       map[string]Request
 	Grants         map[string]Grant
 	OAuth          map[string]OAuthTransaction
+	OwnerLogins    map[string]OwnerLoginTransaction
 	Audits         []Audit
 	Cleanup        map[string]Cleanup
 }
 
 func NewState() *State {
-	return &State{CallerProfiles: map[string]CallerProfile{}, OwnerLogins: map[string]OwnerLogin{}, Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, Cleanup: map[string]Cleanup{}}
+	return &State{CallerProfiles: map[string]CallerProfile{}, Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
 }
 func ResourceKey(connectionID, fileID string) string { return connectionID + ":" + fileID }
 func HasScope(scopes []string, scope string) bool {

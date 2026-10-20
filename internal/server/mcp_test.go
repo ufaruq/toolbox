@@ -46,7 +46,7 @@ func (t mcpBearer) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func mcpFixture(t *testing.T) (*Server, *invocationAuditRepository, *httptest.Server) {
 	t.Helper()
-	s, repo, _ := invocationFixture(t)
+	s, repo, _ := invocationFixture(t, domain.User{ID: "owner", Issuer: (mcpIdentity{}).Issuer(), Subject: "owner", Status: "active"})
 	s.Identity = mcpIdentity{}
 	if err := repo.Transact(context.Background(), func(st *domain.State) error {
 		u := st.Users["owner"]

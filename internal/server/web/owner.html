@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toolbox · Owner sign-in</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<main>
+<header>
+<p class="eyebrow">TOOLBOX / OWNER SIGN-IN</p>
+<h1>Your Toolbox identity.</h1>
+<p>Sign in with your assigned Okta account to establish a local Toolbox session.</p>
+</header>
+<div class="notice" id="owner-notice">Local owner sign-in only. Google connections, document access and agent features are not configured.</div>
+<section id="login-panel">
+<h2>Owner sign-in</h2>
+<p>Continue to Okta to sign in.</p>
+<button id="login" disabled>Sign in with Okta</button>
+</section>
+<section id="owner-panel" hidden>
+<h2>Signed in to Toolbox</h2>
+<p>Internal owner ID: <strong id="owner-id"></strong></p>
+<button id="logout" class="secondary">Sign out of Toolbox</button>
+<p class="small">This ends your local Toolbox session. Your Okta session remains active, so signing in again may not ask for a password.</p>
+</section>
+<p id="status" role="status" aria-live="polite"></p>
+<footer>Local owner identity · Okta OIDC · Toolbox session logout</footer>
+</main>
+</body>
+</html>

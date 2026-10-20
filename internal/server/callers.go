@@ -25,9 +25,6 @@ func (s *Server) ownerRoutes() {
 	s.mux.HandleFunc("POST /v1/callers", s.createCaller)
 	s.mux.HandleFunc("POST /v1/callers/{id}/disable", s.disableCaller)
 	s.mux.HandleFunc("POST /v1/callers/{id}/enable", s.enableCaller)
-	s.mux.HandleFunc("GET /auth/login", s.ownerLogin)
-	s.mux.HandleFunc("GET /auth/okta/callback", s.ownerCallback)
-	s.mux.HandleFunc("POST /auth/logout", s.ownerLogout)
 }
 func (s *Server) callers(w http.ResponseWriter, r *http.Request) {
 	owner, ok := s.requireOwner(w, r, false)
@@ -90,7 +87,7 @@ func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 	var profile domain.CallerProfile
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		u := st.Users[owner.UserID]
-		if u.Status != "active" || u.Issuer != s.Identity.Issuer() {
+		if u.Status != "active" || u.Issuer != s.identityOwnerIssuer() {
 			return domain.ErrDenied
 		}
 		for _, p := range st.CallerProfiles {

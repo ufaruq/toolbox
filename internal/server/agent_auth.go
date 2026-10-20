@@ -18,10 +18,20 @@ type agentAccess struct {
 
 type Identity interface {
 	VerifyAccess(context.Context, string) (identity.Claims, error)
-	AuthorizationURL(state, nonce, verifier string) (string, error)
-	Complete(ctx context.Context, code, verifier, nonceHash string) (identity.Owner, error)
 	Clients() map[string]string
 	Issuer() string
+}
+
+// OwnerIssuer is supplied only by the configured verifier after validating the
+// same-tenant org/custom-server binding. Fixtures retain their single issuer.
+func (s *Server) identityOwnerIssuer() string {
+	if s.Identity == nil {
+		return ""
+	}
+	if binding, ok := s.Identity.(interface{ OwnerIssuer() string }); ok {
+		return binding.OwnerIssuer()
+	}
+	return s.Identity.Issuer()
 }
 
 func profileForAgent(st *domain.State, agentID string) (domain.CallerProfile, bool) {
@@ -71,7 +81,7 @@ func (s *Server) resolveCaller(ctx context.Context, claims identity.Claims) (age
 	}
 	e := s.Repository.Transact(ctx, func(st *domain.State) error {
 		for _, p := range st.CallerProfiles {
-			if p.Issuer == claims.Issuer && p.UserID == claims.UserID && p.ClientID == claims.ClientID {
+			if p.Issuer == s.identityOwnerIssuer() && p.UserID == claims.UserID && p.ClientID == claims.ClientID {
 				access = agentAccess{AgentID: p.AgentID, CallerProfileID: p.ID, TokenExpiresAt: claims.ExpiresAt}
 				return authorizeAgent(st, access, "")
 			}

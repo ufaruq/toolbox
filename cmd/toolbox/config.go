@@ -1,238 +1,114 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"io"
+	"github.com/ufaruq/toolbox/internal/identity"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/ufaruq/toolbox/internal/identity"
-	"github.com/ufaruq/toolbox/internal/tokens"
 )
 
 type runtimeConfig struct {
-	Mode, Addr, Origin, DatabaseURL, KeyID string
-	SigningSeed, Pepper                    []byte
-	Bao                                    tokens.OpenBaoConfig
-	Identity                               identity.Config
+	mode, addr, origin                         string
+	oidcIssuer, oidcClientID, oidcClientSecret string
+	pepper                                     []byte
+	databaseURL, baoAddr, baoToken             string
+	workspace                                  workspaceConfig
+	mcp                                        *identity.AccessConfig
+}
+
+type workspaceConfig struct {
+	googleClientID, googleClientSecret, pickerAPIKey, projectNumber string
+	signingKeyID                                                    string
+	signingSeed, credentialPepper                                   []byte
+	pkceValidated                                                   bool
 }
 
 func loadConfig(getenv func(string) string) (runtimeConfig, error) {
-	cfg := runtimeConfig{Mode: getenv("TOOLBOX_MODE"), Addr: getenv("TOOLBOX_ADDR"), DatabaseURL: getenv("DATABASE_URL")}
-	if cfg.Mode != "fixture" && cfg.Mode != "hosted" {
-		return runtimeConfig{}, errRuntimeConfig
+	c := runtimeConfig{mode: getenv("TOOLBOX_MODE"), addr: getenv("TOOLBOX_ADDR")}
+	if c.mode != "fixture" && c.mode != "oidc-local" && c.mode != "workspace-local" {
+		return c, errors.New("TOOLBOX_MODE must explicitly select fixture, oidc-local or workspace-local")
 	}
-	if cfg.Addr == "" {
-		if cfg.Mode == "fixture" {
-			cfg.Addr = "127.0.0.1:8080"
-		} else {
-			cfg.Addr = "0.0.0.0:8080"
-		}
+	if c.addr == "" {
+		c.addr = "127.0.0.1:8080"
 	}
-	if !validBind(cfg.Addr, cfg.Mode == "fixture") {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	cfg.Bao = tokens.OpenBaoConfig{Address: getenv("OPENBAO_ADDR"), Token: getenv("OPENBAO_TOKEN"), Mount: getenv("OPENBAO_MOUNT"), Namespace: getenv("OPENBAO_NAMESPACE")}
-	if cfg.Bao.Mount == "" {
-		cfg.Bao.Mount = "secret"
-	}
-	if cfg.Mode == "fixture" {
-		cfg.Origin = "http://" + cfg.Addr
-		return cfg, nil
-	}
-	cfg.Origin = strings.TrimSuffix(getenv("TOOLBOX_PUBLIC_ORIGIN"), "/")
-	if !validHTTPS(cfg.Origin, true) || !canonicalPublicOrigin(cfg.Origin) || !validDatabaseURL(cfg.DatabaseURL, true) {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	u, _ := url.Parse(cfg.Origin)
-	if u.Hostname() == "localhost" {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	if ip := net.ParseIP(u.Hostname()); ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	if cfg.Bao.Token == "fixture-only" || cfg.Bao.Token == "root" || cfg.Bao.Token == "dev-root" {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	if _, err := tokens.NewOpenBao(cfg.Bao); err != nil {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	cfg.Identity = identity.Config{Issuer: getenv("TOOLBOX_OKTA_ISSUER"), Audience: cfg.Origin + "/mcp", OwnerClientID: getenv("TOOLBOX_OKTA_OWNER_CLIENT_ID"), OwnerClientSecret: getenv("TOOLBOX_OKTA_OWNER_CLIENT_SECRET"), OwnerCallbackURL: cfg.Origin + "/auth/okta/callback"}
-	if !validHTTPS(cfg.Identity.Issuer, false) || !nonblank(cfg.Identity.OwnerClientID) || cfg.Identity.OwnerClientSecret == "" || cfg.Identity.OwnerClientID == cfg.Identity.Audience {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	clients, err := parseClients(getenv("TOOLBOX_MCP_CLIENTS"))
-	if err != nil {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	for id := range clients {
-		if id == cfg.Identity.Audience || id == cfg.Identity.OwnerClientID {
-			return runtimeConfig{}, errRuntimeConfig
-		}
-	}
-	cfg.Identity.Clients = clients
-	cfg.KeyID = getenv("TOOLBOX_SIGNING_KEY_ID")
-	if !nonblank(cfg.KeyID) {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	cfg.SigningSeed, err = base64.StdEncoding.Strict().DecodeString(getenv("TOOLBOX_SIGNING_SEED"))
-	if err != nil || len(cfg.SigningSeed) != 32 {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	cfg.Pepper, err = base64.StdEncoding.Strict().DecodeString(getenv("TOOLBOX_CREDENTIAL_PEPPER"))
-	if err != nil || len(cfg.Pepper) != 32 {
-		return runtimeConfig{}, errRuntimeConfig
-	}
-	return cfg, nil
-}
-
-var errRuntimeConfig = errors.New("invalid runtime configuration")
-
-func nonblank(s string) bool {
-	return s != "" && strings.TrimSpace(s) == s && !strings.ContainsAny(s, "\r\n\x00")
-}
-func validBind(addr string, fixture bool) bool {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false
-	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n < 1 || n > 65535 {
-		return false
-	}
+	host, port, err := net.SplitHostPort(c.addr)
+	p, portErr := strconv.Atoi(port)
 	ip := net.ParseIP(host)
-	if fixture {
-		return host == "localhost" || ip != nil && ip.IsLoopback()
+	if err != nil || portErr != nil || p < 1 || p > 65535 || (host != "localhost" && (ip == nil || !ip.IsLoopback())) {
+		return c, errors.New("TOOLBOX_ADDR must be a loopback listener with an explicit port")
 	}
-	return host == "" || host == "localhost" || ip != nil
-}
-func validHTTPS(raw string, origin bool) bool {
-	if !nonblank(raw) || strings.Contains(raw, "#") {
-		return false
+	c.origin = "http://" + c.addr
+	c.databaseURL, c.baoAddr, c.baoToken = getenv("DATABASE_URL"), getenv("OPENBAO_ADDR"), getenv("OPENBAO_TOKEN")
+	if c.mode == "fixture" {
+		return c, nil
 	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	if u.Port() != "" {
-		port, err := strconv.Atoi(u.Port())
-		if err != nil || port < 1 || port > 65535 {
-			return false
+	for _, key := range []string{"TOOLBOX_ORIGIN", "TOOLBOX_OIDC_ISSUER", "TOOLBOX_OIDC_CLIENT_ID", "TOOLBOX_OIDC_CLIENT_SECRET", "TOOLBOX_SESSION_PEPPER", "DATABASE_URL", "OPENBAO_ADDR", "OPENBAO_TOKEN"} {
+		if getenv(key) == "" {
+			return c, errors.New("missing required setting " + key)
 		}
 	}
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && u.Opaque == "" && (!origin || u.Path == "" && u.RawPath == "")
+	u, err := url.Parse(getenv("TOOLBOX_ORIGIN"))
+	if err != nil || u.Scheme != "http" || u.Host != c.addr || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+		return c, errors.New("TOOLBOX_ORIGIN must exactly match the loopback HTTP listener")
+	}
+	c.origin = getenv("TOOLBOX_ORIGIN")
+	c.oidcIssuer, c.oidcClientID, c.oidcClientSecret = getenv("TOOLBOX_OIDC_ISSUER"), getenv("TOOLBOX_OIDC_CLIENT_ID"), getenv("TOOLBOX_OIDC_CLIENT_SECRET")
+	u, err = url.Parse(c.oidcIssuer)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+		return c, errors.New("TOOLBOX_OIDC_ISSUER must be an exact trusted HTTPS issuer")
+	}
+	if len(c.oidcClientID) > 1024 || strings.TrimSpace(c.oidcClientID) != c.oidcClientID || strings.ContainsAny(c.oidcClientID+c.oidcClientSecret, "\x00\r\n") {
+		return c, errors.New("invalid OIDC client configuration")
+	}
+	encoded := getenv("TOOLBOX_SESSION_PEPPER")
+	c.pepper, err = base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(c.pepper) != 32 || strings.ContainsAny(encoded, "\r\n") {
+		return c, errors.New("TOOLBOX_SESSION_PEPPER must encode exactly 32 random bytes")
+	}
+	if c.mode == "workspace-local" {
+		c.mcp, err = loadMCPConfig(getenv, c.oidcIssuer, c.oidcClientID, c.origin)
+		if err != nil {
+			return c, err
+		}
+		c.workspace, err = loadWorkspaceConfig(getenv, c.pepper)
+		if err != nil {
+			return c, err
+		}
+	}
+	return c, nil
 }
 
-// Browser Origin serialization lowercases hosts and removes a default port.
-// Reject other spellings so the registered audience and CSRF origin stay exact.
-func canonicalPublicOrigin(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	host := u.Hostname()
-	if strings.HasSuffix(host, ".") {
-		return false
-	}
-	for _, r := range host {
-		if r > 127 || r == '%' {
-			return false
+func loadWorkspaceConfig(getenv func(string) string, sessionPepper []byte) (workspaceConfig, error) {
+	var c workspaceConfig
+	for _, key := range []string{"TOOLBOX_CREDENTIAL_PEPPER", "TOOLBOX_SIGNING_SEED", "TOOLBOX_SIGNING_KEY_ID", "TOOLBOX_GOOGLE_CLIENT_ID", "TOOLBOX_GOOGLE_CLIENT_SECRET", "TOOLBOX_GOOGLE_PKCE_VALIDATED", "TOOLBOX_GOOGLE_PICKER_API_KEY", "TOOLBOX_GOOGLE_PROJECT_NUMBER"} {
+		value := getenv(key)
+		if value == "" || value != strings.TrimSpace(value) || strings.ContainsAny(value, "\x00\r\n") || len(value) > 4096 {
+			return c, errors.New("missing or invalid workspace setting " + key)
 		}
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		host = ip.String()
-	} else {
-		host = strings.ToLower(host)
-		// WHATWG URL parsers interpret numeric final labels as IPv4, including
-		// shortened, octal and hexadecimal spellings that net/url preserves.
-		last := host[strings.LastIndex(host, ".")+1:]
-		if _, err := strconv.ParseUint(last, 10, 64); err == nil {
-			return false
-		}
-		if strings.HasPrefix(last, "0x") {
-			if _, err := strconv.ParseUint(last[2:], 16, 64); err == nil {
-				return false
-			}
-		}
+	if getenv("TOOLBOX_GOOGLE_PKCE_VALIDATED") != "true" {
+		return c, errors.New("actual Google Web-client PKCE verification is required")
 	}
-	expected := host
-	if strings.Contains(host, ":") {
-		expected = "[" + host + "]"
+	c.pkceValidated = true
+	var err error
+	c.signingSeed, err = base64.StdEncoding.DecodeString(getenv("TOOLBOX_SIGNING_SEED"))
+	if err != nil || len(c.signingSeed) != 32 {
+		return c, errors.New("invalid workspace signing seed")
 	}
-	if port := u.Port(); port != "" {
-		if port == "443" {
-			return false
-		}
-		number, err := strconv.Atoi(port)
-		if err != nil {
-			return false
-		}
-		expected = net.JoinHostPort(host, strconv.Itoa(number))
+	c.credentialPepper, err = base64.StdEncoding.DecodeString(getenv("TOOLBOX_CREDENTIAL_PEPPER"))
+	if err != nil || len(c.credentialPepper) != 32 || bytes.Equal(c.credentialPepper, sessionPepper) || bytes.Equal(c.signingSeed, sessionPepper) || bytes.Equal(c.credentialPepper, c.signingSeed) {
+		return c, errors.New("workspace cryptographic material must be independent 32-byte values")
 	}
-	return u.Host == expected
-}
-
-func validDatabaseURL(raw string, requireTLS bool) bool {
-	if raw == "" {
-		return false
+	c.projectNumber = getenv("TOOLBOX_GOOGLE_PROJECT_NUMBER")
+	number, err := strconv.ParseUint(c.projectNumber, 10, 64)
+	if err != nil || number == 0 || strconv.FormatUint(number, 10) != c.projectNumber {
+		return c, errors.New("invalid Google project number")
 	}
-	if !requireTLS {
-		_, err := pgxpool.ParseConfig(raw)
-		return err == nil
-	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Hostname() == "" || u.Fragment != "" || strings.Contains(u.Host, ",") {
-		return false
-	}
-	q, err := url.ParseQuery(u.RawQuery)
-	if err != nil || len(q["sslmode"]) != 1 || q.Get("sslmode") != "verify-full" {
-		return false
-	}
-	cfg, err := pgxpool.ParseConfig(raw)
-	return err == nil && cfg.ConnConfig.TLSConfig != nil && !cfg.ConnConfig.TLSConfig.InsecureSkipVerify && cfg.ConnConfig.TLSConfig.ServerName != "" && len(cfg.ConnConfig.Fallbacks) == 0 && !strings.HasPrefix(cfg.ConnConfig.Host, "/") && cfg.ConnConfig.Password != "fixture-only"
-}
-func parseClients(raw string) (map[string]string, error) {
-	if len(raw) > 65536 {
-		return nil, errRuntimeConfig
-	}
-	dec := json.NewDecoder(strings.NewReader(raw))
-	tok, err := dec.Token()
-	if err != nil || tok != json.Delim('{') {
-		return nil, errRuntimeConfig
-	}
-	clients := map[string]string{}
-	for dec.More() {
-		key, err := dec.Token()
-		if err != nil {
-			return nil, errRuntimeConfig
-		}
-		id, ok := key.(string)
-		if !ok || !nonblank(id) || len(id) > 256 {
-			return nil, errRuntimeConfig
-		}
-		if _, ok := clients[id]; ok {
-			return nil, errRuntimeConfig
-		}
-		var label string
-		if err := dec.Decode(&label); err != nil || !nonblank(label) || len(label) > 256 {
-			return nil, errRuntimeConfig
-		}
-		clients[id] = label
-		if len(clients) > 128 {
-			return nil, errRuntimeConfig
-		}
-	}
-	if _, err := dec.Token(); err != nil {
-		return nil, errRuntimeConfig
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF || len(clients) == 0 {
-		return nil, errRuntimeConfig
-	}
-	return clients, nil
+	c.googleClientID, c.googleClientSecret = getenv("TOOLBOX_GOOGLE_CLIENT_ID"), getenv("TOOLBOX_GOOGLE_CLIENT_SECRET")
+	c.pickerAPIKey, c.signingKeyID = getenv("TOOLBOX_GOOGLE_PICKER_API_KEY"), getenv("TOOLBOX_SIGNING_KEY_ID")
+	return c, nil
 }

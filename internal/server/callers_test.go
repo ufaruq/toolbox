@@ -14,7 +14,6 @@ import (
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/identity"
 	"github.com/ufaruq/toolbox/internal/security"
-	"github.com/ufaruq/toolbox/internal/tokens"
 )
 
 type testIdentity struct {
@@ -45,10 +44,9 @@ func (i *testIdentity) Complete(_ context.Context, code, verifier, nonceHash str
 }
 func callerFixture(t *testing.T) (*Server, *invocationAuditRepository, *http.Request, *testIdentity) {
 	t.Helper()
-	s, repo, r := invocationFixture(t)
 	idp := &testIdentity{}
+	s, repo, r := invocationFixture(t, domain.User{ID: "owner", Issuer: idp.Issuer(), Subject: "uid-owner", Status: "active"})
 	s.Identity = idp
-	s.LoginSecrets = tokens.NewMemorySecretStore()
 	e := repo.Transact(context.Background(), func(st *domain.State) error {
 		u := st.Users["owner"]
 		u.Issuer = idp.Issuer()
@@ -233,7 +231,7 @@ func TestCallerCreateAcceptsOnlyConfiguredClientAndIgnoresOwnerInputs(t *testing
 }
 
 func TestCallerAcceptsExplicitEmptyCeilingAndThirtyDayExpiry(t *testing.T) {
-	s, repo, _ := invocationFixture(t)
+	s, repo, _ := invocationFixture(t, domain.User{ID: "owner", Issuer: (&testIdentity{}).Issuer(), Subject: "uid-owner", Status: "active"})
 	idp := &testIdentity{}
 	s.Identity = idp
 	if e := repo.Transact(context.Background(), func(st *domain.State) error {
@@ -466,4 +464,13 @@ func TestReviewFinalReleaseRechecksProfile(t *testing.T) {
 	if w.Code != 403 || strings.Contains(w.Body.String(), "private-metadata") {
 		t.Fatalf("released stale profile metadata: %d %s", w.Code, w.Body)
 	}
+}
+
+type loginClockRepository struct {
+	domain.Repository
+	now time.Time
+}
+
+func (r *loginClockRepository) Transact(ctx context.Context, fn func(*domain.State) error) error {
+	return r.Repository.Transact(ctx, func(st *domain.State) error { st.Now = r.now; return fn(st) })
 }

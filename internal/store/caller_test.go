@@ -41,9 +41,6 @@ func callerRecords(now time.Time) map[string]any {
 		"CallerProfiles": map[string]any{"p1": map[string]any{
 			"ID": "p1", "OwnerID": "u1", "AgentID": "a1", "Issuer": "https://issuer.example", "UserID": "u1", "ClientID": "cli1", "Label": "Desktop", "Status": "active", "Tools": []any{domain.Tool}, "ApprovedAt": now, "ExpiresAt": now.Add(time.Hour),
 		}},
-		"OwnerLogins": map[string]any{"login1": map[string]any{
-			"ID": "login1", "StateHash": "state-hash", "NonceHash": "nonce-hash", "BrowserHash": "browser-hash", "SecretRef": "owner-login/login1", "ExpiresAt": now.Add(time.Minute), "Consumed": false,
-		}},
 	}
 }
 func exerciseCallerRecords(t *testing.T, r domain.Repository) {
@@ -60,7 +57,7 @@ func exerciseCallerRecords(t *testing.T, r domain.Repository) {
 	t.Run("persist records", func(t *testing.T) {
 		if err := r.Transact(ctx, func(s *domain.State) error {
 			got := recordState(t, s)
-			for collection, id := range map[string]string{"CallerProfiles": "p1", "OwnerLogins": "login1"} {
+			for collection, id := range map[string]string{"CallerProfiles": "p1"} {
 				records, ok := got[collection].(map[string]any)
 				if !ok {
 					t.Errorf("missing %s", collection)
@@ -77,7 +74,6 @@ func exerciseCallerRecords(t *testing.T, r domain.Repository) {
 	})
 	invalidChanges := map[string]func(map[string]any){
 		"nil profiles":                    func(s map[string]any) { s["CallerProfiles"] = nil },
-		"nil logins":                      func(s map[string]any) { s["OwnerLogins"] = nil },
 		"otherwise valid agent rebinding": func(s map[string]any) { s["CallerProfiles"].(map[string]any)["p1"].(map[string]any)["AgentID"] = "a3" },
 		"otherwise valid owner identity rebinding": func(s map[string]any) {
 			p := s["CallerProfiles"].(map[string]any)["p1"].(map[string]any)
@@ -87,16 +83,6 @@ func exerciseCallerRecords(t *testing.T, r domain.Repository) {
 	for _, field := range []string{"OwnerID", "AgentID", "Issuer", "UserID", "ClientID"} {
 		field := field
 		invalidChanges["immutable profile "+field] = func(s map[string]any) { s["CallerProfiles"].(map[string]any)["p1"].(map[string]any)[field] = "changed" }
-	}
-	for _, field := range []string{"ID", "StateHash", "NonceHash", "BrowserHash", "SecretRef", "ExpiresAt"} {
-		field := field
-		invalidChanges["immutable login "+field] = func(s map[string]any) {
-			value := any("changed")
-			if field == "ExpiresAt" {
-				value = time.Now().Add(2 * time.Hour)
-			}
-			s["OwnerLogins"].(map[string]any)["login1"].(map[string]any)[field] = value
-		}
 	}
 	for name, change := range invalidChanges {
 		t.Run(name, func(t *testing.T) {
@@ -163,23 +149,6 @@ func exerciseCallerRecords(t *testing.T, r domain.Repository) {
 			t.Fatalf("wanted invariant rejection, got %v", err)
 		}
 	})
-	t.Run("consume once", func(t *testing.T) {
-		setConsumed := func(s *domain.State, consumed bool) error {
-			records := recordState(t, s)
-			if records["OwnerLogins"] == nil {
-				records["OwnerLogins"] = callerRecords(s.Now)["OwnerLogins"]
-			}
-			records["OwnerLogins"].(map[string]any)["login1"].(map[string]any)["Consumed"] = consumed
-			applyRecords(t, s, records)
-			return nil
-		}
-		if err := r.Transact(ctx, func(s *domain.State) error { return setConsumed(s, true) }); err != nil {
-			t.Fatal(err)
-		}
-		if err := r.Transact(ctx, func(s *domain.State) error { return setConsumed(s, false) }); !errors.Is(err, ErrInvariant) {
-			t.Fatalf("consumption reverted: %v", err)
-		}
-	})
 	t.Run("disable and update label", func(t *testing.T) {
 		if err := r.Transact(ctx, func(s *domain.State) error {
 			records := recordState(t, s)
@@ -200,11 +169,8 @@ func TestMemoryCallerRecords(t *testing.T)   { exerciseCallerRecords(t, NewMemor
 func TestPostgresCallerRecords(t *testing.T) { exerciseCallerRecords(t, testPostgres(t)) }
 
 func TestMemoryCallerRecordExpiryAndHashes(t *testing.T) {
-	for _, collection := range []string{"CallerProfiles", "OwnerLogins"} {
+	for _, collection := range []string{"CallerProfiles"} {
 		fields := []string{"ExpiresAt"}
-		if collection == "OwnerLogins" {
-			fields = append(fields, "StateHash", "NonceHash", "BrowserHash", "SecretRef")
-		}
 		for _, field := range fields {
 			t.Run(collection+" missing "+field, func(t *testing.T) {
 				r := NewMemory()
@@ -212,9 +178,6 @@ func TestMemoryCallerRecordExpiryAndHashes(t *testing.T) {
 				err := r.Transact(context.Background(), func(s *domain.State) error {
 					records := callerRecords(s.Now)
 					id := "p1"
-					if collection == "OwnerLogins" {
-						id = "login1"
-					}
 					v := records[collection].(map[string]any)[id].(map[string]any)
 					if field == "ExpiresAt" {
 						v[field] = time.Time{}
@@ -257,9 +220,8 @@ func TestPostgresCallerDatabaseConstraints(t *testing.T) {
 		})
 	}
 	for name, query := range map[string]string{
-		"owner identity drift":    `UPDATE users SET payload=jsonb_set(payload,'{Subject}','"changed"') WHERE id='u1'`,
-		"raw verifier prohibited": `UPDATE owner_logins SET payload=payload || '{"Verifier":"secret"}'::jsonb WHERE id='login1'`,
-		"raw token prohibited":    `UPDATE caller_profiles SET payload=payload || '{"AccessToken":"secret"}'::jsonb WHERE id='p1'`,
+		"owner identity drift": `UPDATE users SET payload=jsonb_set(payload,'{Subject}','"changed"') WHERE id='u1'`,
+		"raw token prohibited": `UPDATE caller_profiles SET payload=payload || '{"AccessToken":"secret"}'::jsonb WHERE id='p1'`,
 	} {
 		t.Run(name, func(t *testing.T) { reject(t, query) })
 	}
@@ -280,24 +242,11 @@ func TestPostgresCallerDatabaseConstraints(t *testing.T) {
 			reject(t, "INSERT INTO caller_profiles(payload) VALUES($1)", body)
 		})
 	}
-	if _, err := p.pool.Exec(ctx, `UPDATE owner_logins SET payload=jsonb_set(payload,'{Consumed}','true') WHERE id='login1'`); err != nil {
-		t.Fatal(err)
-	}
-	reject(t, `UPDATE owner_logins SET payload=jsonb_set(payload,'{Consumed}','false') WHERE id='login1'`)
-	for _, field := range []string{"ID", "StateHash", "NonceHash", "BrowserHash", "SecretRef", "ExpiresAt"} {
-		t.Run("immutable login "+field, func(t *testing.T) {
-			value := "changed"
-			if field == "ExpiresAt" {
-				value = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
-			}
-			reject(t, "UPDATE owner_logins SET payload=jsonb_set(payload,ARRAY[$1],to_jsonb($2::text)) WHERE id='login1'", field, value)
-		})
-	}
 }
 
 func TestNewStateCallerMaps(t *testing.T) {
 	state := recordState(t, domain.NewState())
-	for _, name := range []string{"CallerProfiles", "OwnerLogins"} {
+	for _, name := range []string{"CallerProfiles"} {
 		if !reflect.DeepEqual(state[name], map[string]any{}) {
 			t.Errorf("%s not initialized", name)
 		}

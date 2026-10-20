@@ -16,7 +16,7 @@ func TestPostgresCheckSchema(t *testing.T) {
 	}
 	// Missing migration 003 leaves every runtime table available; neither a
 	// connection probe nor a read-only snapshot catches its missing constraint.
-	if _, err := p.pool.Exec(ctx, "DELETE FROM toolbox_migrations WHERE name=$1", "003_audit_caller_attribution.sql"); err != nil {
+	if _, err := p.pool.Exec(ctx, "DELETE FROM toolbox_migrations WHERE name=$1", "005_audit_caller_attribution.sql"); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.Ping(ctx); err != nil {
@@ -34,7 +34,7 @@ func TestPostgresCheckSchema(t *testing.T) {
 	if err := p.CheckSchema(ctx); err != nil {
 		t.Fatalf("restored ledger rejected: %v", err)
 	}
-	if _, err := p.pool.Exec(ctx, "UPDATE toolbox_migrations SET checksum='tampered' WHERE name=$1", "003_audit_caller_attribution.sql"); err != nil {
+	if _, err := p.pool.Exec(ctx, "UPDATE toolbox_migrations SET checksum='tampered' WHERE name=$1", "005_audit_caller_attribution.sql"); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.CheckSchema(ctx); !errors.Is(err, ErrUnavailable) {

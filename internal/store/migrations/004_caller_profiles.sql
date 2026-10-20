@@ -31,23 +31,6 @@ CREATE TABLE caller_profiles (
   UNIQUE (agent_id)
 );
 
-CREATE TABLE owner_logins (
-  payload jsonb NOT NULL CHECK (
-    jsonb_typeof(payload) = 'object'
-    AND payload ?& ARRAY['ID','StateHash','NonceHash','BrowserHash','SecretRef','ExpiresAt','Consumed']
-    AND (payload - ARRAY['ID','StateHash','NonceHash','BrowserHash','SecretRef','ExpiresAt','Consumed']) = '{}'::jsonb
-  ),
-  id text GENERATED ALWAYS AS (payload->>'ID') STORED NOT NULL PRIMARY KEY,
-  CHECK (jsonb_typeof(payload->'ID') = 'string' AND length(id) > 0),
-  CHECK (jsonb_typeof(payload->'StateHash') = 'string' AND length(payload->>'StateHash') > 0),
-  CHECK (jsonb_typeof(payload->'NonceHash') = 'string' AND length(payload->>'NonceHash') > 0),
-  CHECK (jsonb_typeof(payload->'BrowserHash') = 'string' AND length(payload->>'BrowserHash') > 0),
-  CHECK (jsonb_typeof(payload->'SecretRef') = 'string' AND length(payload->>'SecretRef') > 0),
-  CHECK (jsonb_typeof(payload->'Consumed') = 'boolean'),
-  CHECK (jsonb_typeof(payload->'ExpiresAt') = 'string'),
-  CHECK (isfinite((payload->>'ExpiresAt')::timestamptz) AND (payload->>'ExpiresAt')::timestamptz <> '0001-01-01T00:00:00Z'::timestamptz)
-);
-
 CREATE FUNCTION toolbox_protect_caller_profile() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF (NEW.payload->'ID', NEW.payload->'OwnerID', NEW.payload->'AgentID', NEW.payload->'Issuer', NEW.payload->'UserID', NEW.payload->'ClientID')
@@ -60,16 +43,3 @@ END;
 $$;
 CREATE TRIGGER caller_profile_binding_immutable BEFORE UPDATE ON caller_profiles
   FOR EACH ROW EXECUTE FUNCTION toolbox_protect_caller_profile();
-
-CREATE FUNCTION toolbox_protect_owner_login() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF (NEW.payload - ARRAY['Consumed','ExpiresAt']) IS DISTINCT FROM (OLD.payload - ARRAY['Consumed','ExpiresAt'])
-     OR (NEW.payload->>'ExpiresAt')::timestamptz IS DISTINCT FROM (OLD.payload->>'ExpiresAt')::timestamptz
-     OR (OLD.payload->'Consumed' = 'true'::jsonb AND NEW.payload->'Consumed' IS DISTINCT FROM 'true'::jsonb) THEN
-    RAISE EXCEPTION 'owner login binding is immutable and consumption cannot revert' USING ERRCODE = '23514';
-  END IF;
-  RETURN NEW;
-END;
-$$;
-CREATE TRIGGER owner_login_consumption_monotonic BEFORE UPDATE ON owner_logins
-  FOR EACH ROW EXECUTE FUNCTION toolbox_protect_owner_login();

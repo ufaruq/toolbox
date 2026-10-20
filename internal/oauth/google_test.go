@@ -88,6 +88,41 @@ func TestGoogleRequiresValidatedPKCE(t *testing.T) {
 		t.Fatal("explicit loopback rejected", err)
 	}
 }
+
+func TestGoogleEmailScopeAliasRetainsExactContract(t *testing.T) {
+	for _, scope := range []string{
+		"openid https://www.googleapis.com/auth/userinfo.email " + domain.DriveScope,
+		"openid email https://www.googleapis.com/auth/userinfo.email " + domain.DriveScope,
+		"openid email profile " + domain.DriveScope,
+		"openid email https://www.googleapis.com/auth/drive",
+	} {
+		t.Run(scope, func(t *testing.T) {
+			p := corporateGoogle(t)
+			nonce := security.Random()
+			claims := testClaims(p, nonce)
+			claims["email"], claims["email_verified"] = "owner@example.test", true
+			idToken := signTestToken(t, map[string]any{"alg": "RS256", "kid": "test-key"}, claims)
+			p.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() == googleJWKSEndpoint {
+					return jsonHTTP(200, testJWKS(t)), nil
+				}
+				if r.URL.String() != googleTokenEndpoint {
+					t.Fatal("unexpected endpoint")
+				}
+				return jsonHTTP(200, map[string]any{"access_token": "known-access", "refresh_token": "known-refresh", "token_type": "Bearer", "expires_in": 3600, "scope": scope, "id_token": idToken}), nil
+			})
+			result, err := p.Exchange(context.Background(), "code", security.Random(), security.Hash(nonce))
+			refreshed, refreshErr := p.Refresh(context.Background(), "refresh")
+			valid := scope == "openid https://www.googleapis.com/auth/userinfo.email "+domain.DriveScope
+			if valid && (err != nil || refreshErr != nil || !sameScopes(result.Scopes, p.ExpectedScopes()) || !sameScopes(refreshed.Scopes, p.ExpectedScopes())) {
+				t.Fatalf("equivalent email scope rejected: exchange=%v refresh=%v", err, refreshErr)
+			}
+			if !valid && (err == nil || refreshErr == nil) {
+				t.Fatal("expanded or duplicate scope accepted")
+			}
+		})
+	}
+}
 func TestGoogleAuthorizationParametersFixed(t *testing.T) {
 	p := testProvider(t)
 	verifier := security.Random()

@@ -1,4 +1,5 @@
-// Toolbox serves an explicit local fixture or a validated hosted deployment.
+// Toolbox supports the synthetic fixture and local owner OIDC sign-in.
+// Neither mode is a public production deployment.
 package main
 
 import (
@@ -7,7 +8,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +19,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/identity"
 	"github.com/ufaruq/toolbox/internal/oauth"
+	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
@@ -26,207 +27,213 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	if e := run(); e != nil {
 		log.Print("Toolbox startup or shutdown failed; check documented configuration and dependency availability.")
 		os.Exit(1)
 	}
 }
 func run() error {
+	if len(os.Args) > 1 {
+		if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
+			return runGooglePKCECheck()
+		}
+		return errors.New("unknown command")
+	}
+	cfg, e := loadConfig(os.Getenv)
+	if e != nil {
+		return e
+	}
+	if cfg.mode == "oidc-local" || cfg.mode == "workspace-local" {
+		return runOIDCLocal(cfg)
+	}
+	addr := cfg.addr
+	origin := "http://" + addr
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	return runCommand(ctx, os.Args[1:], os.Getenv)
-}
-func runCommand(ctx context.Context, args []string, getenv func(string) string) error {
-	if len(args) > 0 {
-		if len(args) != 1 {
-			return errRuntimeConfig
-		}
-		switch args[0] {
-		case "healthcheck":
-			return healthcheck(ctx, getenv("TOOLBOX_ADDR"))
-		case "migrate":
-			mode := getenv("TOOLBOX_MODE")
-			dsn := getenv("DATABASE_URL")
-			if (mode != "hosted" && mode != "fixture") || !validDatabaseURL(dsn, mode == "hosted") {
-				return errRuntimeConfig
-			}
-			bounded, cancel := context.WithTimeout(ctx, 2*time.Minute)
-			defer cancel()
-			p, err := store.OpenPostgres(bounded, dsn)
-			if err != nil {
-				return err
-			}
-			defer p.Close()
-			return p.Migrate(bounded)
-		default:
-			return errRuntimeConfig
-		}
-	}
-	cfg, err := loadConfig(getenv)
-	if err != nil {
-		return err
-	}
-	var repo domain.Repository
-	var secrets oauth.SecretStore
-	if cfg.Mode == "fixture" {
-		repo = store.NewMemory()
-		secrets = tokens.NewMemorySecretStore()
-	}
-	if cfg.DatabaseURL != "" {
-		p, err := store.OpenPostgres(ctx, cfg.DatabaseURL)
-		if err != nil {
-			return err
+	var repo domain.Repository = store.NewMemory()
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		p, e := store.OpenPostgres(ctx, dsn)
+		if e != nil {
+			return e
 		}
 		defer p.Close()
-		if cfg.Mode == "fixture" {
-			if err := p.Migrate(ctx); err != nil {
-				return err
-			}
+		if e = p.Migrate(ctx); e != nil {
+			return e
 		}
 		repo = p
 	}
-	if cfg.Bao.Address != "" {
-		var bao *tokens.OpenBao
-		if cfg.Mode == "fixture" {
-			bao, err = tokens.NewOpenBaoFixture(cfg.Bao)
-		} else {
-			bao, err = tokens.NewOpenBao(cfg.Bao)
-		}
-		if err != nil {
-			return err
+	var secrets oauth.SecretStore = tokens.NewMemorySecretStore()
+	if address := os.Getenv("OPENBAO_ADDR"); address != "" {
+		bao, e := tokens.NewOpenBaoFixture(tokens.OpenBaoConfig{Address: address, Mount: "secret", Token: os.Getenv("OPENBAO_TOKEN")})
+		if e != nil {
+			return e
 		}
 		secrets = bao
 	}
-	var id server.Identity
-	if cfg.Mode == "hosted" {
-		bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
-		if err = checkRuntimeDependencies(bounded, repo, secrets); err == nil {
-			id, err = identity.New(bounded, cfg.Identity)
-		}
-		cancel()
-		if err != nil {
-			return err
-		}
+	provider, e := oauth.NewFixtureProvider("fixture-client", origin+"/oauth/callback")
+	if e != nil {
+		return e
 	}
-	api, err := newAPI(cfg, repo, secrets, id)
-	if err != nil {
-		return err
+	flow, e := oauth.NewService(repo, secrets, provider)
+	if e != nil {
+		return e
 	}
-	return serve(ctx, cfg, api)
-}
-func newAPI(cfg runtimeConfig, repo domain.Repository, secrets oauth.SecretStore, id server.Identity) (*server.Server, error) {
-	var integration server.Integration = app.UnavailableIntegration{}
-	var private ed25519.PrivateKey
-	pepper := cfg.Pepper
-	if cfg.Mode == "fixture" {
-		provider, err := oauth.NewFixtureProvider("fixture-client", cfg.Origin+"/oauth/callback")
-		if err != nil {
-			return nil, err
-		}
-		flow, err := oauth.NewService(repo, secrets, provider)
-		if err != nil {
-			return nil, err
-		}
-		integration = &app.Integration{OAuth: flow, TokenManager: &tokens.Manager{Repository: repo, Secrets: secrets, Provider: provider}, Drive: gdrive.NewFixture(&app.FixtureDrive{}), Fixture: provider}
-		_, private, err = ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, err
-		}
-		pepper = make([]byte, 32)
-		if _, err = rand.Read(pepper); err != nil {
-			return nil, err
-		}
-		cfg.KeyID = "fixture-ephemeral"
-	} else {
-		if cfg.Mode != "hosted" || len(cfg.SigningSeed) != ed25519.SeedSize || len(pepper) != 32 || id == nil {
-			return nil, errRuntimeConfig
-		}
-		private = ed25519.NewKeyFromSeed(cfg.SigningSeed)
+	_, private, e := ed25519.GenerateKey(rand.Reader)
+	if e != nil {
+		return e
 	}
-	signer, err := security.NewSigner(cfg.Origin, cfg.KeyID, private)
-	if err != nil {
-		return nil, err
+	signer, e := security.NewSigner(origin, "fixture-ephemeral", private)
+	if e != nil {
+		return e
 	}
-	return server.New(server.Config{Repository: repo, Signer: signer, Pepper: pepper, Origin: cfg.Origin, Fixture: cfg.Mode == "fixture", Identity: id, LoginSecrets: secrets, Readiness: func(ctx context.Context) error {
-		return checkRuntimeDependencies(ctx, repo, secrets)
+	pepper := make([]byte, 32)
+	if _, e = rand.Read(pepper); e != nil {
+		return e
+	}
+	integration := &app.Integration{OAuth: flow, TokenManager: &tokens.Manager{Repository: repo, Secrets: secrets, Provider: provider}, Drive: gdrive.NewFixture(&app.FixtureDrive{}), Fixture: provider}
+	api, e := server.New(server.Config{Repository: repo, Signer: signer, Pepper: pepper, Origin: origin, Fixture: true, Readiness: func(ctx context.Context) error {
+		if e := repo.Ping(ctx); e != nil {
+			return e
+		}
+		return secrets.(interface{ Ping(context.Context) error }).Ping(ctx)
 	}}, integration)
-}
-
-// A successful connection alone does not prove that the runtime schema exists.
-// The reference adapter's bounded snapshot transaction checks every required table.
-func checkRuntimeDependencies(ctx context.Context, repo domain.Repository, secrets oauth.SecretStore) error {
-	if schema, ok := repo.(interface{ CheckSchema(context.Context) error }); ok {
-		if err := schema.CheckSchema(ctx); err != nil {
-			return err
-		}
+	if e != nil {
+		return e
 	}
-	if err := repo.Transact(ctx, func(*domain.State) error { return nil }); err != nil {
-		return err
-	}
-	if p, ok := secrets.(interface{ Ping(context.Context) error }); ok {
-		return p.Ping(ctx)
-	}
-	return errors.New("secret store readiness unavailable")
-}
-func serve(ctx context.Context, cfg runtimeConfig, api *server.Server) error {
-	srv := &http.Server{Addr: cfg.Addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, BaseContext: func(net.Listener) context.Context { return ctx }}
+	srv := &http.Server{Addr: addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	stopped := make(chan error, 1)
 	go func() { stopped <- srv.ListenAndServe() }()
-	jobs, cancelJobs := context.WithCancel(ctx)
-	defer cancelJobs()
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-jobs.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				jobCtx, cancel := context.WithTimeout(jobs, 20*time.Second)
+				jobCtx, c := context.WithTimeout(ctx, 20*time.Second)
 				_ = api.CleanupOnce(jobCtx)
-				cancel()
+				c()
 			}
 		}
 	}()
-	log.Printf("Toolbox %s UI: %s", cfg.Mode, cfg.Origin)
+	log.Printf("Toolbox fixture UI: %s (mock identity, mock Google; no live provider validation)", origin)
 	select {
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		shutdown, c := context.WithTimeout(context.Background(), 10*time.Second)
+		defer c()
 		return srv.Shutdown(shutdown)
-	case err := <-stopped:
-		if errors.Is(err, http.ErrServerClosed) {
+	case e := <-stopped:
+		if errors.Is(e, http.ErrServerClosed) {
 			return nil
 		}
-		return err
+		return e
 	}
 }
-func healthcheck(ctx context.Context, addr string) error {
-	if addr == "" {
-		addr = "127.0.0.1:8080"
-	}
-	if !validBind(addr, false) {
-		return errRuntimeConfig
-	}
-	host, port, _ := net.SplitHostPort(addr)
-	if host == "" || host == "0.0.0.0" {
-		host = "127.0.0.1"
-	} else if host == "::" {
-		host = "::1"
-	}
-	target := "http://" + net.JoinHostPort(host, port) + "/readyz"
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+
+func runOIDCLocal(cfg runtimeConfig) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	repo, err := store.OpenPostgres(ctx, cfg.databaseURL)
 	if err != nil {
-		return errRuntimeConfig
+		return err
 	}
-	client := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	response, err := client.Do(request)
+	defer repo.Close()
+	if err = repo.Migrate(ctx); err != nil {
+		return err
+	}
+	secrets, err := tokens.NewOpenBaoFixture(tokens.OpenBaoConfig{Address: cfg.baoAddr, Mount: "secret", Token: cfg.baoToken})
 	if err != nil {
-		return errors.New("healthcheck failed")
+		return err
 	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return errors.New("healthcheck failed")
+	if err = secrets.Ping(ctx); err != nil {
+		return err
 	}
-	return nil
+	callback := cfg.origin + "/auth/oidc/callback"
+	provider, err := ownerlogin.NewProvider(ctx, ownerlogin.ProviderConfig{Issuer: cfg.oidcIssuer, ClientID: cfg.oidcClientID, ClientSecret: cfg.oidcClientSecret, RedirectURI: callback}, nil)
+	if err != nil {
+		return err
+	}
+	login, err := ownerlogin.NewService(repo, secrets, provider, ownerlogin.ServiceConfig{Issuer: cfg.oidcIssuer, ClientID: cfg.oidcClientID, RedirectURI: callback, Pepper: cfg.pepper})
+	if err != nil {
+		return err
+	}
+	serverConfig := server.Config{Repository: repo, Pepper: cfg.pepper, Origin: cfg.origin, OwnerOnly: true, OwnerLogin: login, Readiness: func(ctx context.Context) error {
+		if err := repo.Ping(ctx); err != nil {
+			return err
+		}
+		return secrets.Ping(ctx)
+	}}
+	var integration *app.Integration
+	if cfg.mode == "workspace-local" {
+		integration, err = newWorkspaceIntegration(cfg, repo, secrets)
+		if err != nil {
+			return err
+		}
+		serverConfig.Signer, err = security.NewSigner(cfg.origin, cfg.workspace.signingKeyID, ed25519.NewKeyFromSeed(cfg.workspace.signingSeed))
+		if err != nil {
+			return err
+		}
+		serverConfig.OwnerOnly, serverConfig.WorkspaceLocal = false, true
+		serverConfig.SessionPepper, serverConfig.Pepper = cfg.pepper, cfg.workspace.credentialPepper
+		serverConfig.Picker = server.PickerConfig{APIKey: cfg.workspace.pickerAPIKey, ProjectNumber: cfg.workspace.projectNumber}
+		if cfg.mcp != nil {
+			discovery, cancel := context.WithTimeout(ctx, 15*time.Second)
+			serverConfig.Identity, err = identity.NewAccess(discovery, *cfg.mcp)
+			cancel()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	var providerBoundary server.Integration
+	if integration != nil {
+		providerBoundary = integration
+	}
+	api, err := server.New(serverConfig, providerBoundary)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Addr: cfg.addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	stopped := make(chan error, 1)
+	go func() { stopped <- srv.ListenAndServe() }()
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanupCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+				if login.Cleanup(cleanupCtx) != nil {
+					log.Print("Owner login cleanup deferred; check dependency availability.")
+				}
+				if integration != nil && api.CleanupOnce(cleanupCtx) != nil {
+					log.Print("Google connection cleanup deferred; check dependency availability.")
+				}
+				stop()
+			}
+		}
+	}()
+	if cfg.mode == "workspace-local" {
+		log.Printf("Toolbox local Workspace: %s (real providers; live acceptance must be recorded)", cfg.origin)
+	} else {
+		log.Printf("Toolbox local owner sign-in: %s (Google and agent operations are disabled)", cfg.origin)
+	}
+	select {
+	case <-ctx.Done():
+		shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		err = srv.Shutdown(shutdown)
+	case err = <-stopped:
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+	}
+	cancel()
+	<-cleanupDone
+	return err
 }

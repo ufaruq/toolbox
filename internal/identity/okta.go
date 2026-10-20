@@ -23,9 +23,9 @@ import (
 // confidential OIDC client for owner login. AllowLoopbackHTTP is for fixtures
 // only and must never be enabled by hosted configuration.
 type Config struct {
-	Issuer, Audience, OwnerClientID, OwnerClientSecret, OwnerCallbackURL string
-	Clients                                                              map[string]string
-	AllowLoopbackHTTP                                                    bool
+	Issuer, Audience, OwnerClientID, OwnerClientSecret, OwnerCallbackURL, OwnerIssuer string
+	Clients                                                                           map[string]string
+	AllowLoopbackHTTP                                                                 bool
 }
 type Claims struct {
 	Issuer, UserID, ClientID string
@@ -44,6 +44,7 @@ var (
 
 type Service struct {
 	issuer                        string
+	ownerIssuer                   string
 	clients                       map[string]string
 	ownerClientID                 string
 	client                        *http.Client
@@ -51,8 +52,17 @@ type Service struct {
 	accessVerifier, ownerVerifier *oidc.IDTokenVerifier
 }
 
-func New(ctx context.Context, cfg Config) (*Service, error) {
-	if !safeURL(cfg.Issuer, cfg.AllowLoopbackHTTP) || !safeURL(cfg.OwnerCallbackURL, cfg.AllowLoopbackHTTP) || !nonblank(cfg.Audience) || !nonblank(cfg.OwnerClientID) || cfg.OwnerClientSecret == "" || cfg.Audience == cfg.OwnerClientID || len(cfg.Clients) == 0 {
+func New(ctx context.Context, cfg Config) (*Service, error) { return newIdentity(ctx, cfg, false) }
+
+func newIdentity(ctx context.Context, cfg Config, accessOnly bool) (*Service, error) {
+	ownerIssuer := cfg.Issuer
+	if accessOnly {
+		if !ValidOwnerBinding(cfg.OwnerIssuer, cfg.Issuer, cfg.AllowLoopbackHTTP) {
+			return nil, errConfig
+		}
+		ownerIssuer = cfg.OwnerIssuer
+	}
+	if !safeURL(cfg.Issuer, cfg.AllowLoopbackHTTP) || (!accessOnly && (!safeURL(cfg.OwnerCallbackURL, cfg.AllowLoopbackHTTP) || cfg.OwnerClientSecret == "")) || !nonblank(cfg.Audience) || !nonblank(cfg.OwnerClientID) || cfg.Audience == cfg.OwnerClientID || len(cfg.Clients) == 0 {
 		return nil, errConfig
 	}
 	issuerURL, _ := url.Parse(cfg.Issuer)
@@ -87,15 +97,19 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	// The confidential owner client uses client_secret_basic; do not probe token
 	// endpoints with alternative authentication styles or put secrets in URLs.
 	endpoint.AuthStyle = oauth2.AuthStyleInHeader
-	return &Service{
-		issuer: cfg.Issuer, clients: clients, ownerClientID: cfg.OwnerClientID, client: client,
+	service := &Service{
+		ownerIssuer: ownerIssuer, issuer: cfg.Issuer, clients: clients, ownerClientID: cfg.OwnerClientID, client: client,
 		oauth: oauth2.Config{
 			ClientID: cfg.OwnerClientID, ClientSecret: cfg.OwnerClientSecret,
 			RedirectURL: cfg.OwnerCallbackURL, Endpoint: endpoint, Scopes: []string{oidc.ScopeOpenID},
 		},
 		accessVerifier: provider.Verifier(&oidc.Config{ClientID: cfg.Audience, SupportedSigningAlgs: []string{oidc.RS256}}),
 		ownerVerifier:  provider.Verifier(&oidc.Config{ClientID: cfg.OwnerClientID, SupportedSigningAlgs: []string{oidc.RS256}}),
-	}, nil
+	}
+	if accessOnly {
+		service.ownerVerifier = nil
+	}
+	return service, nil
 }
 
 // VerifyAccess verifies the API JWT's signature, issuer and audience using the
@@ -138,7 +152,7 @@ func (s *Service) VerifyAccess(ctx context.Context, raw string) (Claims, error) 
 	return Claims{Issuer: s.issuer, UserID: c.UserID, ClientID: c.ClientID, ExpiresAt: time.Unix(c.ExpiresAt, 0)}, nil
 }
 func (s *Service) AuthorizationURL(state, nonce, verifier string) (string, error) {
-	if !boundedInput(state, 1024) || !boundedInput(nonce, 1024) || !validVerifier(verifier) {
+	if s.ownerVerifier == nil || !boundedInput(state, 1024) || !boundedInput(nonce, 1024) || !validVerifier(verifier) {
 		return "", errAuthorization
 	}
 	return s.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), nil
@@ -147,7 +161,7 @@ func (s *Service) AuthorizationURL(state, nonce, verifier string) (string, error
 // Complete exchanges the one-time code using the fixed callback and PKCE, and
 // returns only the immutable owner identity. OAuth tokens remain private here.
 func (s *Service) Complete(ctx context.Context, code, verifier, nonceHash string) (Owner, error) {
-	if !boundedInput(code, 4096) || !validVerifier(verifier) || !validHash(nonceHash) {
+	if s.ownerVerifier == nil || !boundedInput(code, 4096) || !validVerifier(verifier) || !validHash(nonceHash) {
 		return Owner{}, errComplete
 	}
 	ctx = oidc.ClientContext(ctx, s.client)
@@ -176,7 +190,8 @@ func (s *Service) Clients() map[string]string {
 	}
 	return clients
 }
-func (s *Service) Issuer() string { return s.issuer }
+func (s *Service) Issuer() string      { return s.issuer }
+func (s *Service) OwnerIssuer() string { return s.ownerIssuer }
 
 type userClaims struct {
 	AuthorizedParty string          `json:"azp"`
