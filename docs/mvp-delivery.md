@@ -63,11 +63,13 @@ The older standalone hosted runtime and duplicate owner login are superseded;
 production deployment remains in #4. See [MCP setup](mcp-setup.md).
 
 Automated SDK, identity, schema-upgrade and browser checks exercise this
-integration. Actual Okta custom-server issuance and Codex/Claude Code registration,
-OAuth callbacks and tool use still require live acceptance. A real client must
-complete discovery → request → owner approval → actual Google document read,
-then other-document/other-client denial, revocation and disabled-client denial.
-Do not report synthetic tests as a live client demo.
+integration. Actual Okta custom-server issuance and Codex CLI 0.163.0 have now
+completed discovery → request → owner approval → actual Google document read,
+including no-grant and other-document denial and persistence across a server
+restart. The native checks used Codex app-server's tool-call API without a model
+invocation. Live revocation, disabled-client denial, second-client isolation and
+disconnect/provider cleanup remain to be recorded; Claude Code is also unverified.
+See the revision-bound [acceptance record](mcp-setup.md#actual-local-acceptance-19-october-2026).
 
 ## Policy expansion: impact and boundaries
 

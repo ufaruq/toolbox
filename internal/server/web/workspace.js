@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 let csrf = '', reviewed = null, reviewGeneration = 0, uiEpoch = 0, resultGeneration = 0, approvedFile = '';
 let pickerReady = null;
+let callerProfiles = [];
 const tool = 'google_drive.read_document.v1';
 const approvalReturnKey = 'toolbox.approvalReturn';
 const validApprovalPath = path => /^\/approve\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(path);
@@ -21,11 +22,11 @@ async function request(path, data, agent = false, delegation = '') {
  if (!response.ok) { const error = new Error(value.error || 'Request failed'); error.status = response.status; throw error; }
  return value;
 }
-function action(id, work) {
+function action(id, work, statusId = 'status') {
  $(id).addEventListener('click', async () => {
-  $(id).disabled = true; $('status').textContent = '';
-  try { await work(); } catch (error) { $('status').textContent = error.message; if (id === 'connect' || id === 'pick') $('connection-status').textContent = error.message; }
-  finally { $(id).disabled = id === 'approve' ? !reviewed : id === 'request' ? !$('file-id').value : false; }
+  $(id).disabled = true; $(statusId).textContent = '';
+  try { await work(); } catch (error) { $(statusId).textContent = error.message; if (id === 'connect' || id === 'pick') $('connection-status').textContent = error.message; }
+  finally { if (id === 'create-caller') syncCallerButton(); else $(id).disabled = id === 'approve' ? !reviewed : id === 'request' ? !$('file-id').value : false; }
  });
 }
 function invalidateReview() { reviewGeneration++; reviewed = null; $('approve').disabled = true; $('review-details').hidden = true; }
@@ -34,6 +35,7 @@ function clearResult() { resultGeneration++; approvedFile = ''; $('grant-id').va
 function showSignedOut() {
  uiEpoch++; resultGeneration++; csrf = ''; approvedFile = ''; invalidateReview();
  $('callers-panel').hidden = true; $('caller-list').replaceChildren();
+ callerProfiles = []; $('caller-status').textContent = '';
  $('workspace').hidden = true; $('login-panel').hidden = false; $('logout').hidden = true;
  $('agent-credential').value = ''; $('agent-id').textContent = ''; $('document').textContent = ''; $('audit-output').textContent = '';
  $('request-id').value = ''; $('grant-id').value = ''; $('result-panel').hidden = true; $('approval-panel').hidden = true;
@@ -196,31 +198,69 @@ async function loadCallers() {
  $('caller-client').replaceChildren();
  for (const [id, label] of Object.entries(value.clients)) $('caller-client').add(new Option(label + ' · ' + id, id));
  if ([...$('caller-client').options].some(x => x.value === previous)) $('caller-client').value = previous;
+ callerProfiles = value.callers;
+ syncCallerButton();
  $('callers-panel').hidden = false;
  $('caller-list').replaceChildren();
  for (const profile of value.callers) {
-  const row = document.createElement('div'), identity = document.createElement('p'), detail = document.createElement('p');
+  const row = document.createElement('div'), identity = document.createElement('p'), detail = document.createElement('p'), badge = document.createElement('span');
+  const active = profile.status === 'active' && Date.parse(profile.expires_at) > Date.now();
+  badge.className = 'badge' + (active ? ' connected' : '');
+  badge.textContent = active ? 'Approved' : profile.status === 'disabled' ? 'Disabled' : 'Expired';
   identity.textContent = profile.label + ' · ' + (value.clients[profile.client_id] || profile.client_id);
-  detail.textContent = 'Verified client: ' + profile.client_id + ' · Agent: ' + profile.agent_id + ' · ' + profile.status + ' · Expires: ' + profile.expires_at + ' · Tools: ' + (profile.tools.join(', ') || 'None');
-  row.append(identity, detail);
+  detail.textContent = 'Status: ' + profile.status + ' · Expires: ' + new Date(profile.expires_at).toLocaleString() + ' · Tools: ' + (profile.tools.length ? 'Request approved Google Drive document reads' : 'None');
+  const identifiers = document.createElement('details'), identifiersTitle = document.createElement('summary'), identifiersText = document.createElement('p');
+  identifiersTitle.textContent = 'Client identity'; identifiersText.className = 'mono';
+  identifiersText.textContent = 'Verified client: ' + profile.client_id + '\nAgent: ' + profile.agent_id;
+  identifiers.append(identifiersTitle, identifiersText);
+  row.append(badge, identity, detail, identifiers);
+  const nameLabel = document.createElement('label'), nameInput = document.createElement('input'), saveName = document.createElement('button');
+  nameInput.id = 'caller-name-' + profile.id; nameInput.value = profile.label; nameInput.maxLength = 80;
+  nameLabel.htmlFor = nameInput.id; nameLabel.textContent = 'Agent name';
+  saveName.textContent = 'Save name'; saveName.disabled = true;
+  nameInput.addEventListener('input', () => { saveName.disabled = !nameInput.value.trim() || nameInput.value.trim() === profile.label; });
+  saveName.addEventListener('click', async () => {
+   saveName.disabled = true; $('caller-status').textContent = 'Saving caller name…';
+   try {
+    await request('/v1/callers/' + profile.id + '/name', {label: nameInput.value.trim()});
+    if (epoch !== uiEpoch) return;
+    invalidateReview(); await loadCallers();
+    $('caller-status').textContent = 'Agent name saved. Review any open document request again to see the new name.';
+   } catch (error) { if (epoch === uiEpoch) { $('caller-status').textContent = error.message; saveName.disabled = false; } }
+  });
+  row.append(nameLabel, nameInput, saveName);
   const disable = document.createElement('button'); disable.textContent = 'Disable'; disable.disabled = profile.status === 'disabled';
-  const enable = document.createElement('button'); enable.textContent = 'Apply selected tools and duration';
+  const enable = document.createElement('button'); enable.textContent = active ? 'Update permissions' : 'Enable caller';
+  const updateNotice = document.createElement('p'); updateNotice.className = 'hint';
+  updateNotice.textContent = 'Update permissions or Enable caller uses the tools and duration above. It revokes existing document approvals and cancels pending requests. Saving a name keeps permissions unchanged.';
   for (const [button, operation] of [[disable, 'disable'], [enable, 'enable']]) {
    button.addEventListener('click', async () => {
-    button.disabled = true; $('status').textContent = '';
+    button.disabled = true; $('caller-status').textContent = operation === 'disable' ? 'Disabling caller…' : 'Updating caller permissions…';
     try {
      await request('/v1/callers/' + profile.id + '/' + operation, operation === 'disable' ? {} : callerPermissions());
      if (epoch !== uiEpoch) return;
      invalidateReview(); clearResult(); await loadCallers();
-     $('status').textContent = operation === 'disable' ? 'Caller disabled. Grants revoked and pending requests cancelled.' : 'Caller approval updated for all valid tokens of this app. New document approval is required.';
-    } catch (error) { $('status').textContent = error.message; button.disabled = false; }
+     $('caller-status').textContent = operation === 'disable' ? 'Caller disabled. Grants revoked and pending requests cancelled.' : 'Caller permissions updated. Previous document approvals were revoked and pending requests cancelled. New document approval is required.';
+    } catch (error) { if (epoch === uiEpoch) { $('caller-status').textContent = error.message; button.disabled = false; } }
    });
    row.append(button);
   }
+  row.append(updateNotice);
   $('caller-list').append(row);
  }
 }
+function syncCallerButton() {
+ const profile = callerProfiles.find(p => p.client_id === $('caller-client').value);
+ $('create-caller').disabled = !!profile || !$('caller-client').value;
+ $('create-caller').textContent = profile ? 'Caller already registered' : 'Approve caller';
+ const wasDisabled = $('caller-label').disabled;
+ $('caller-label').disabled = !!profile;
+ $('new-caller-name').hidden = !!profile;
+ if (profile) $('caller-label').value = profile.label;
+ else if (wasDisabled) $('caller-label').value = 'My assistant';
+}
+$('caller-client').addEventListener('change', () => { $('caller-status').textContent = ''; syncCallerButton(); });
 function callerPermissions() { return {tools: $('caller-tool').checked ? ['google_drive.read_document.v1'] : [], duration_seconds: Number($('caller-duration').value)}; }
-action('create-caller', async () => { const epoch = uiEpoch; await request('/v1/callers', {client_id: $('caller-client').value, label: $('caller-label').value, ...callerPermissions()}); if (epoch !== uiEpoch) return; await loadCallers(); $('status').textContent = 'Caller approved. Each document still needs its own approval.'; });
+action('create-caller', async () => { const epoch = uiEpoch; $('caller-status').textContent = 'Saving caller approval…'; await request('/v1/callers', {client_id: $('caller-client').value, label: $('caller-label').value, ...callerPermissions()}); if (epoch !== uiEpoch) return; await loadCallers(); $('caller-status').textContent = 'Caller approved. Its saved status and expiry are shown below. Each document still needs its own approval.'; }, 'caller-status');
 
 signedIn().catch(error => { if (error.status === 403) showSignedOut(); else $('status').textContent = 'Could not load your session: ' + error.message; });

@@ -56,12 +56,34 @@ rechecked with no remaining actionable findings.
 These automated browser checks simulate Google consent, Picker and Drive. They
 are separate from the actual-client protocol check above.
 
+## Real document acceptance, evening follow-up
+
+The combined #10/#7 candidate based on
+`839e11c6e254f9dc534eb265840905589d922b20` completed actual Okta owner login,
+Google account connection, Google Picker selection of a harmless native Google
+Doc, metadata review and exact-document approval. The HTTP test client exported
+six bytes successfully, confirmed by the server audit. Document content and
+personal identifiers are omitted from this record.
+
+The first metadata attempt returned Google's `403 SERVICE_DISABLED` because
+Drive API was disabled in the OAuth client's project. Enabling Drive API fixed
+that failure without reconnecting the account. Picker working alone did not
+establish that Drive API was enabled.
+
+An actual Codex OAuth/MCP client subsequently requested and read the same
+document after a separate owner approval; a different-resource read was denied.
+Restarting the same combined runtime preserved the existing owner/connection,
+client approval and grant, and another MCP read succeeded. See
+[MCP acceptance](mcp-setup.md#actual-local-acceptance-19-october-2026) for the
+native-client method and remaining gates. The caller feedback/name follow-up
+also passed the real-server Chromium regression and full real-store race suite.
+
 ## Remaining live acceptance
 
-- [ ] Connect the Google account through the combined Workspace app.
-- [ ] Open the actual Google Picker under the configured key/origin/CSP and select
+- [x] Connect the Google account through the combined Workspace app.
+- [x] Open the actual Google Picker under the configured key/origin/CSP and select
       a real native Google Doc with harmless test text.
-- [ ] Verify real metadata and plain-text export after exact-document approval.
+- [x] Verify real metadata and plain-text export after exact-document approval.
 - [ ] Verify another document is denied and revoked grants cannot be used again.
 - [ ] Verify app disconnect and provider cleanup behavior.
 - [ ] Restart with the same keys/stores; verify stable owner/connection state and
@@ -69,6 +91,7 @@ are separate from the actual-client protocol check above.
 - [ ] Complete remaining cross-account, re-consent, restricted-download/shared
       drive and multi-tab checks or explicitly bound the supported contract.
 
-PR #10 remains draft. The actual-client PKCE gate passing does not establish a
-working real document demo, corporate owner matching, hosted MCP, or production
-readiness. Follow [the Workspace setup guide](workspace-demo.md) for the next steps.
+PR #10 is open and unmerged. Actual local document and Codex MCP reads are now
+verified; the pending checks above still bound that evidence. Corporate owner
+matching, hosted MCP and production readiness are separate acceptance work.
+Follow [the Workspace setup guide](workspace-demo.md) for setup.

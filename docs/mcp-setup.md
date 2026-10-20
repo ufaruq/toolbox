@@ -25,8 +25,43 @@ TOOLBOX_MCP_CLIENTS='{"<native-oauth-client-id>":"Local agent"}'
 Both settings are required to enable MCP. Omitting both retains the existing Google-only Workspace app. Duplicate, empty, unknown-owner-tenant and role-confused client configuration is rejected. Do not use the owner Web client's ID as an MCP client ID.
 
 5. Restart with `make workspace`. Sign in with Okta, connect Google and choose a harmless native Google Doc as described in the Workspace guide.
-6. Expand **Agent clients · MCP permissions**. Select the configured registration, review the read-tool ceiling and expiry, and approve it. Each registration has its own persisted Agent and document grants. Multiple sessions of one registration share this approval; this is not device attestation.
-7. Configure the local client's standard Streamable HTTP MCP connection to `http://127.0.0.1:8080/mcp`, using its registered client ID and Okta authorization-code/PKCE flow with the `mcp` scope. Use the client's supported OAuth configuration; a real Codex/Claude Code configuration has not yet been validated for this integration. A later hosted connector needs reachable HTTPS and its own exact registration.
+6. Expand **Agent clients · MCP permissions**. Select the configured registration, review the read-tool ceiling and expiry, and approve it. Confirmation appears in that panel, and the saved entry shows its status and expiry. Approve each registration once. **Save name** renames the existing Agent without changing its identity, permissions, pending requests or document grants; review an open request again to refresh the displayed name. **Update permissions** and **Enable caller** use the tools and duration above, revoke existing document grants and cancel pending requests. Multiple sessions of one registration share its approval; this is not device attestation.
+7. Configure the local client's standard Streamable HTTP MCP connection to `http://127.0.0.1:8080/mcp`, using its registered client ID and Okta authorization-code/PKCE flow with the `mcp` scope. Codex CLI 0.163.0 has completed actual OAuth, discovery, request, approval and Google read acceptance; see the verification record below. Claude Code has not completed that live acceptance. A later hosted connector needs reachable HTTPS and its own exact registration.
+
+### Validated Codex configuration
+
+Use the exact callback printed by the installed Codex client. Codex may append a
+server-specific identifier to `/callback` when the issuer does not advertise
+issuer-bound authorization responses. Register that complete URL in the native
+app's **Sign-in redirect URIs**; a URI ending at `/callback` does not cover its
+longer path. The callback's explicit port must match `callback_port`.
+
+```toml
+[mcp_servers.toolbox-local]
+url = "http://127.0.0.1:8080/mcp"
+scopes = ["openid", "mcp"]
+
+[mcp_servers.toolbox-local.oauth]
+client_id = "<native-client-id>"
+callback_port = 8765
+callback_url = "<exact-Codex-callback-URL>"
+```
+
+Then authenticate with `codex mcp login toolbox-local --scopes openid,mcp`.
+The tested flow used S256 PKCE and requested no `offline_access`. Keep the native
+app's Refresh Token grant disabled for this access-only configuration. The
+tested access-policy rule allowed Authorization Code, assigned users, `openid`
+and `mcp`, with an eight-hour access-token lifetime. Refresh-token lifetime
+fields in the rule do not themselves enable the app's Refresh Token grant.
+Requiring fresh authentication after eight hours also needs the app's sign-in
+policy configured; expiring an access token does not expire the browser's Okta
+session. That reauthentication policy has not yet been verified.
+
+See [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp) and
+[Okta access policies](https://developer.okta.com/docs/guides/customize-authz-server/main/#create-access-policies).
+Use the configured Toolbox browser origin exactly: `localhost:8080` and
+`127.0.0.1:8080` are different origins, and owner sign-in rejects an unexpected
+origin. The native OAuth callback can separately use `localhost:8765`.
 
 Toolbox publishes protected-resource metadata at `/.well-known/oauth-protected-resource/mcp` and the root fallback, pointing directly to the pinned custom authorization server. Native clients may omit `Origin`; browser origins must match Toolbox. Bearer credentials belong in the authorization header.
 
@@ -52,4 +87,33 @@ The reference PostgreSQL adapter still uses a bounded whole-state snapshot. Call
 
 Automated coverage uses signed local issuers and simulated Google data: canonical owner binding, exact tenant/client/scope checks, SDK discovery/request/approval/read, cross-client/document denial, expiry, disabled callers, in-flight final release, legacy HTTP cancellation, main-schema upgrade, UI client controls and the #10 browser regressions.
 
-Real Google Picker/document acceptance remains pending in #10. Actual Okta custom-server issuance and a local Codex/Claude Code OAuth/MCP session have not been verified here. SDK/synthetic tests must not be reported as a live agent demo. Keep both remaining gates visible before merge.
+### Actual local acceptance, 19 October 2026
+
+The combined candidate based on `839e11c6e254f9dc534eb265840905589d922b20`
+completed these checks with the actual Okta tenant and Google account:
+
+- Owner sign-in, Google connection, real Picker selection, metadata review and
+  approved HTTP test-client export succeeded. Drive initially returned
+  `403 SERVICE_DISABLED`; enabling Drive API in the OAuth project resolved it.
+- Codex CLI 0.163.0 completed authorization-code/S256 login with `openid mcp`
+  and no refresh-token scope. Tokens remained in the client's credential store.
+- Codex app-server discovered all three tools and invoked the request tool.
+  A read without a grant returned `NOT_AUTHORIZED`.
+- After the owner approved that request, Codex's MCP read returned six bytes
+  from the actual Google document. Content was not included in this record.
+- Reading a different resource with that grant returned `RESOURCE_NOT_ALLOWED`.
+- After restarting Toolbox with the same keys and PostgreSQL/OpenBao stores,
+  the existing Codex credentials, caller approval, Google connection and grant
+  still produced a successful six-byte MCP read.
+
+These native-client checks used Codex app-server's tool-call API, without a model
+invocation. This record does not claim that this chat's tool catalog or Claude
+Code has been connected. The caller feedback/name follow-up passed the real-server
+Chromium flow and `make check`, including race tests with PostgreSQL/OpenBao.
+The rename regression also verifies that review uses the saved Agent name and
+that renaming preserves existing grants, pending requests and expiry.
+
+Live per-document revocation, disabled-client denial, disconnect/provider cleanup
+and second-client isolation still need their results recorded before claiming
+the entire acceptance matrix passed. Automated coverage of those cases is not
+a substitute for an unperformed live check. Neither PR has been merged.

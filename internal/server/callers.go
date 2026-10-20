@@ -23,6 +23,7 @@ func (s *Server) ownerRoutes() {
 	})
 	s.mux.HandleFunc("GET /v1/callers", s.callers)
 	s.mux.HandleFunc("POST /v1/callers", s.createCaller)
+	s.mux.HandleFunc("POST /v1/callers/{id}/name", s.renameCaller)
 	s.mux.HandleFunc("POST /v1/callers/{id}/disable", s.disableCaller)
 	s.mux.HandleFunc("POST /v1/callers/{id}/enable", s.enableCaller)
 }
@@ -61,6 +62,44 @@ type callerInput struct {
 type callerEnableInput struct {
 	Tools           []string `json:"tools"`
 	DurationSeconds int64    `json:"duration_seconds"`
+}
+
+func (s *Server) renameCaller(w http.ResponseWriter, r *http.Request) {
+	owner, ok := s.requireOwner(w, r, true)
+	if !ok {
+		return
+	}
+	var in struct {
+		Label string `json:"label"`
+	}
+	if !body(w, r, &in) {
+		return
+	}
+	if len(in.Label) < 1 || len(in.Label) > 80 || strings.TrimSpace(in.Label) == "" || strings.ContainsAny(in.Label, "\r\n\x00") {
+		fail(w, 400, "INVALID_SCHEMA")
+		return
+	}
+	var profile domain.CallerProfile
+	err := s.Repository.Transact(r.Context(), func(st *domain.State) error {
+		p, ok := st.CallerProfiles[r.PathValue("id")]
+		if !ok || p.OwnerID != owner.UserID {
+			return domain.ErrDenied
+		}
+		a, ok := st.Agents[p.AgentID]
+		if !ok || a.OwnerID != owner.UserID {
+			return domain.ErrDenied
+		}
+		p.Label, a.Name = in.Label, in.Label
+		st.CallerProfiles[p.ID], st.Agents[a.ID] = p, a
+		profile = p
+		addCallerAudit(st, p, "caller.renamed")
+		return nil
+	})
+	if err != nil {
+		fail(w, 403, "NOT_AUTHORIZED")
+		return
+	}
+	jsonOut(w, 200, callerView(profile))
 }
 
 func validCallerTools(tools []string, duration int64) bool {

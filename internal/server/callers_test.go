@@ -219,6 +219,96 @@ func TestCallerMutationCSRFAndOwnerIsolationAndEnable(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestCallerRenameUpdatesReviewWithoutChangingAccess(t *testing.T) {
+	s, repo, _, idp := callerFixture(t)
+	cookie, csrf := ownerCookie(t, s, "owner")
+	access, err := s.resolveCaller(context.Background(), identity.Claims{Issuer: idp.Issuer(), UserID: "uid-owner", ClientID: "web", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.createDelegation(context.Background(), access, domain.Tool, "doc-A", 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expiry time.Time
+	if err := repo.Transact(context.Background(), func(st *domain.State) error {
+		expiry = st.CallerProfiles["web-profile"].ExpiresAt
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if w := ownerPost(s, "/v1/callers/web-profile/name", `{"label":"Codex local"}`, cookie, csrf); w.Code != 200 {
+		t.Fatalf("rename: %d %s", w.Code, w.Body)
+	}
+	if err := repo.Transact(context.Background(), func(st *domain.State) error {
+		p := st.CallerProfiles["web-profile"]
+		if p.Label != "Codex local" || st.Agents[p.AgentID].Name != "Codex local" || p.AgentID != "agent" || p.ClientID != "web" || !p.ExpiresAt.Equal(expiry) || p.Status != "active" || len(p.Tools) != 1 || p.Tools[0] != domain.Tool {
+			t.Fatal("rename lost the saved name or changed caller permissions")
+		}
+		if st.Grants["grant"].RevokedAt != nil || st.Requests[request["request_id"].(string)].Status != "pending" {
+			t.Fatal("renaming invalidated document access")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.mintDelegation(context.Background(), access, "grant"); err != nil {
+		t.Fatalf("existing access failed after rename: %v", err)
+	}
+	s.integration = approvalIntegration{inspect: func(ctx context.Context, authorize func(context.Context) error) (Document, error) {
+		return Document{Name: "Test document"}, authorize(ctx)
+	}}
+	w := ownerPost(s, "/v1/delegation-requests/"+request["request_id"].(string)+"/review", `{"connection_id":"connection"}`, cookie, csrf)
+	var review struct {
+		AgentName string `json:"agent_name"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &review) != nil || review.AgentName != "Codex local" {
+		t.Fatalf("review lost the saved name: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestCallerRenameRequiresOwnerAndValidLabel(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, owner string
+		csrf              bool
+		status            int
+	}{
+		{"missing csrf", `{"label":"New name"}`, "owner", false, 403},
+		{"different owner", `{"label":"New name"}`, "other", true, 403},
+		{"empty", `{"label":""}`, "owner", true, 400},
+		{"blank", `{"label":"   "}`, "owner", true, 400},
+		{"oversized", `{"label":"` + strings.Repeat("x", 81) + `"}`, "owner", true, 400},
+		{"control character", `{"label":"Bad\nname"}`, "owner", true, 400},
+		{"identity override", `{"label":"New name","client_id":"code"}`, "owner", true, 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, repo, _, _ := callerFixture(t)
+			if err := repo.Transact(context.Background(), func(st *domain.State) error {
+				st.Users["other"] = domain.User{ID: "other", Issuer: "other", Subject: "other", Status: "active"}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			cookie, csrf := ownerCookie(t, s, tc.owner)
+			if !tc.csrf {
+				csrf = ""
+			}
+			w := ownerPost(s, "/v1/callers/web-profile/name", tc.body, cookie, csrf)
+			if w.Code != tc.status {
+				t.Fatalf("rename rejection: %d %s", w.Code, w.Body)
+			}
+			if err := repo.Transact(context.Background(), func(st *domain.State) error {
+				if st.CallerProfiles["web-profile"].Label != "Web" {
+					t.Fatal("rejected rename changed the caller")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 func TestCallerCreateAcceptsOnlyConfiguredClientAndIgnoresOwnerInputs(t *testing.T) {
 	s, _, _, _ := callerFixture(t)
 	cookie, csrf := ownerCookie(t, s, "owner")
@@ -391,7 +481,7 @@ func TestEnableRestoresAllValidMatchingTokensWithoutRights(t *testing.T) {
 func TestCallerMutationsRejectCrossSiteOrigin(t *testing.T) {
 	s, _, _, _ := callerFixture(t)
 	cookie, csrf := ownerCookie(t, s, "owner")
-	for _, path := range []string{"/v1/callers", "/v1/callers/web-profile/disable", "/v1/callers/web-profile/enable"} {
+	for _, path := range []string{"/v1/callers", "/v1/callers/web-profile/disable", "/v1/callers/web-profile/enable", "/v1/callers/web-profile/name"} {
 		r := httptest.NewRequest("POST", path, strings.NewReader("{}"))
 		r.AddCookie(cookie)
 		r.Header.Set("Content-Type", "application/json")
