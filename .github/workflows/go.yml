@@ -91,3 +91,25 @@ jobs:
         run: |
           if [ -f /tmp/toolbox-ci.pid ]; then kill "$(cat /tmp/toolbox-ci.pid)" || true; fi
           docker compose -p toolbox-ci down
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Operator workflow regression checks
+        run: make deploy-workflow-check
+      - name: Build and initialize persistent local containers
+        run: make deploy-init && make deploy-up
+      - name: Container verification and restart
+        run: make deploy-test
+      - name: Backup, isolated restore and operational reports
+        run: |
+          make deploy-cleanup deploy-retention deploy-backup deploy-restore-drill deploy-monitor
+      - name: Upload redacted deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-evidence
+          path: .evidence
+      - name: Stop persistent local stack
+        if: always()
+        run: make deploy-stop

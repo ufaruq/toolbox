@@ -32,13 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 }
-func run() error {
-	if len(os.Args) > 1 {
-		if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
-			return runGooglePKCECheck()
-		}
-		return errors.New("unknown command")
-	}
+func runLegacy() error {
 	cfg, e := loadConfig(os.Getenv)
 	if e != nil {
 		return e

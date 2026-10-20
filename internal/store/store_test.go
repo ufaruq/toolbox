@@ -75,8 +75,10 @@ func exerciseRepository(t *testing.T, r domain.Repository) {
 	})
 	t.Run("ownership and immutability", func(t *testing.T) {
 		cases := map[string]func(*domain.State){
-			"cross-owner grant": func(s *domain.State) { g := s.Grants["g1"]; g.ID = "g2"; g.AgentID = "a2"; s.Grants[g.ID] = g },
-			"missing resource":  func(s *domain.State) { g := s.Grants["g1"]; g.ID = "g2"; g.FileID = "f2"; s.Grants[g.ID] = g },
+			"invalid credential pepper version": func(s *domain.State) { c := s.Credentials["k1"]; c.PepperID = "invalid/path"; s.Credentials[c.ID] = c },
+			"invalid session pepper version":    func(s *domain.State) { v := s.Sessions["s1"]; v.PepperID = "invalid/path"; s.Sessions[v.ID] = v },
+			"cross-owner grant":                 func(s *domain.State) { g := s.Grants["g1"]; g.ID = "g2"; g.AgentID = "a2"; s.Grants[g.ID] = g },
+			"missing resource":                  func(s *domain.State) { g := s.Grants["g1"]; g.ID = "g2"; g.FileID = "f2"; s.Grants[g.ID] = g },
 			"widen grant": func(s *domain.State) {
 				g := s.Grants["g1"]
 				g.ExpiresAt = g.ExpiresAt.Add(time.Hour)

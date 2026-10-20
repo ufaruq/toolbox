@@ -55,6 +55,7 @@ class FixtureBrowser:
         self.artifact_dir = artifact_dir
         self.screenshots = []
         self.stage = "initial fixture safety checks"
+        self.connection_id = None
         self.javascript_errors = []
         self.external_requests = []
         self.page.on("pageerror", lambda _: self.javascript_errors.append(True))
@@ -153,10 +154,18 @@ class FixtureBrowser:
         expect(page.locator("#fixture-notice")).to_be_visible()
 
         self.stage = "fixture OAuth redirect and connection"
+        previous = {item["id"] for item in page.evaluate(
+            "async () => (await fetch('/v1/connections')).json()") }
         with page.expect_navigation(wait_until="domcontentloaded"):
             page.locator("#connect").click()
         expect(page).to_have_url(self.origin + "/")
         expect(page.locator("#workspace")).to_be_visible()
+        expect(page.locator("#connection-info")).to_contain_text("active: fixture-google-account")
+        options = page.evaluate("async () => (await fetch('/v1/connections')).json()")
+        fresh = {item["id"] for item in options if item["status"] == "active"} - previous
+        assert len(fresh) == 1, "Expected one newly connected fixture account"
+        self.connection_id = fresh.pop()
+        page.locator("#connection").select_option(self.connection_id)
         expect(page.locator("#connection")).not_to_have_value("")
         expect(page.locator("#connection-info")).to_contain_text("active: fixture-google-account")
         connection_id = page.locator("#connection").input_value()
@@ -206,6 +215,7 @@ class FixtureBrowser:
         expect(page.locator("#review-details")).to_contain_text("Read only")
         expect(page.locator("#review-details")).to_contain_text("Expires:")
         page.reload(wait_until="domcontentloaded")
+        page.locator("#connection").select_option(self.connection_id)
         expect(page.locator("#request-id")).to_have_value(request_id)
         expect(page.locator("#approve")).to_be_disabled()
         expect(page.locator("#review-details")).to_be_hidden()

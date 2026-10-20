@@ -1,0 +1,188 @@
+name: toolbox-portable
+x-runtime: &runtime
+  image: ${TOOLBOX_IMAGE:-toolbox:local}
+  build:
+    context: ..
+    target: runtime
+  user: "${TOOLBOX_UID:-1000}:${TOOLBOX_GID:-1000}"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: "3"}
+  mem_limit: 256m
+  cpus: 1.0
+x-env: &env
+  TOOLBOX_MODE: production
+  TOOLBOX_ADDR: 0.0.0.0:18080
+  TOOLBOX_ORIGIN: ${TOOLBOX_ORIGIN:-https://toolbox.invalid}
+  TOOLBOX_KEY_PROVIDER: gcp
+  TOOLBOX_KMS_KEY: ${TOOLBOX_KMS_KEY:-}
+  TOOLBOX_DATABASE_FILE: /run/toolbox/database.dsn
+  TOOLBOX_DEPLOYMENT_FILE: /run/toolbox/deployment-id
+services:
+  init:
+    <<: *runtime
+    profiles: [ops]
+    command: [init]
+    environment: {TOOLBOX_INIT_DIR: /bootstrap/secrets}
+    volumes: [../.deploy:/bootstrap]
+  postgres:
+    restart: unless-stopped
+    image: postgres:17.11
+    entrypoint: [/bin/sh, /etc/toolbox/entrypoint.sh]
+    command: [postgres, -c, ssl=on, -c, ssl_cert_file=/var/lib/postgresql/tls/server.crt, -c, ssl_key_file=/var/lib/postgresql/tls/server.key, -c, hba_file=/etc/toolbox/pg_hba.conf, -c, password_encryption=scram-sha-256]
+    environment:
+      POSTGRES_DB: toolbox
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/toolbox/postgres-password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../.deploy/secrets/postgres-password:/run/toolbox/postgres-password:ro
+      - ../.deploy/secrets/postgres.key:/run/toolbox/postgres.key:ro
+      - ../.deploy/secrets/postgres.crt:/run/toolbox/postgres.crt:ro
+      - ./postgres/entrypoint.sh:/etc/toolbox/entrypoint.sh:ro
+      - ./postgres/pg_hba.conf:/etc/toolbox/pg_hba.conf:ro
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, toolbox]
+      interval: 3s
+      timeout: 2s
+      retries: 30
+    mem_limit: 512m
+    cpus: 1.0
+    shm_size: 128m
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+  provision:
+    <<: *runtime
+    profiles: [ops]
+    command: [provision]
+    environment: {TOOLBOX_INIT_DIR: /run/toolbox}
+    volumes:
+      - ../.deploy/secrets/admin.dsn:/run/toolbox/admin.dsn:ro
+      - ../.deploy/secrets/roles.json:/run/toolbox/roles.json:ro
+      - ../.deploy/secrets/monitor-password:/run/toolbox/monitor-password:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+  migrate:
+    <<: *runtime
+    profiles: [ops]
+    command: [migrate]
+    environment: {TOOLBOX_DATABASE_FILE: /run/toolbox/database.dsn}
+    volumes:
+      - ../.deploy/secrets/migration.dsn:/run/toolbox/database.dsn:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+  app:
+    <<: *runtime
+    restart: unless-stopped
+    command: [serve]
+    environment:
+      <<: *env
+      TOOLBOX_SIGNING_FILE: /run/toolbox/signing.json
+      TOOLBOX_PEPPER_FILE: /run/toolbox/peppers.json
+    volumes:
+      - ../.deploy/secrets/api.dsn:/run/toolbox/database.dsn:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+      - ../.deploy/secrets/deployment-id:/run/toolbox/deployment-id:ro
+      - ../.deploy/secrets/signing.json:/run/toolbox/signing.json:ro
+      - ../.deploy/secrets/peppers.json:/run/toolbox/peppers.json:ro
+    ports: [127.0.0.1:18080:18080]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /toolbox, healthcheck]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  preflight:
+    <<: *runtime
+    profiles: [ops]
+    command: [preflight]
+    environment: *env
+    volumes:
+      - ../.deploy/secrets/api.dsn:/run/toolbox/database.dsn:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+      - ../.deploy/secrets/deployment-id:/run/toolbox/deployment-id:ro
+  cleanup:
+    <<: *runtime
+    profiles: [ops]
+    command: [cleanup]
+    environment: *env
+    volumes:
+      - ../.deploy/secrets/cleanup.dsn:/run/toolbox/database.dsn:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+      - ../.deploy/secrets/deployment-id:/run/toolbox/deployment-id:ro
+  retention:
+    <<: *runtime
+    profiles: [ops]
+    command: [retention]
+    environment: *env
+    volumes:
+      - ../.deploy/secrets/retention.dsn:/run/toolbox/database.dsn:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+      - ../.deploy/secrets/deployment-id:/run/toolbox/deployment-id:ro
+  backup-encrypt:
+    <<: *runtime
+    profiles: [ops]
+    command: [backup-encrypt]
+    environment:
+      TOOLBOX_BACKUP_DIR: /backups
+      TOOLBOX_BACKUP_RECIPIENT_FILE: /run/toolbox/backup-recipient
+      TOOLBOX_IMAGE_REF: ${TOOLBOX_IMAGE_REF:-local-verification}
+      TOOLBOX_KEY_PROVIDER: ${TOOLBOX_BACKUP_KEY_PROVIDER:-gcp}
+      TOOLBOX_KMS_KEY: ${TOOLBOX_KMS_KEY:-}
+    volumes:
+      - ../.deploy/backups:/backups
+      - ../.deploy/secrets/backup-recipient:/run/toolbox/backup-recipient:ro
+  backup-static:
+    <<: *runtime
+    profiles: [ops]
+    command: [backup-static]
+    environment:
+      TOOLBOX_BACKUP_DIR: /backups
+      TOOLBOX_BACKUP_RECIPIENT_FILE: /keys/backup-recipient
+      TOOLBOX_STATIC_DIR: /keys
+      TOOLBOX_IMAGE_REF: ${TOOLBOX_IMAGE_REF:-local-verification}
+    volumes:
+      - ../.deploy/backups:/backups
+      - ../.deploy/secrets:/keys:ro
+  backup-decrypt:
+    <<: *runtime
+    profiles: [ops]
+    command: [backup-decrypt]
+    environment:
+      TOOLBOX_RESTORE_ISOLATED: "1"
+      TOOLBOX_BACKUP_IDENTITY_FILE: /run/toolbox/backup-identity
+      TOOLBOX_BACKUP_FILE: /backups/${TOOLBOX_BACKUP_FILE:-missing.age}
+      TOOLBOX_BACKUP_DIR: /backups
+    volumes:
+      - ../.deploy/backups:/backups:ro
+      - ../.deploy/secrets/backup-identity:/run/toolbox/backup-identity:ro
+  recover:
+    <<: *runtime
+    profiles: [ops]
+    command: [recover-invalidate]
+    environment:
+      TOOLBOX_RESTORE_ISOLATED: "1"
+      TOOLBOX_DATABASE_FILE: /run/toolbox/database.dsn
+    volumes:
+      - ../.deploy/secrets/migration.dsn:/run/toolbox/database.dsn:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+  monitor:
+    <<: *runtime
+    profiles: [ops]
+    command: [monitor]
+    environment:
+      TOOLBOX_DATABASE_FILE: /run/toolbox/database.dsn
+      TOOLBOX_BACKUP_DIR: /backups
+      TOOLBOX_JOB_STATUS_DIR: /reports
+    volumes:
+      - ../.deploy/secrets/monitor.dsn:/run/toolbox/database.dsn:ro
+      - ../.deploy/secrets/ca.crt:/run/toolbox/ca.crt:ro
+      - ../.deploy/backups:/backups:ro
+      - ../.deploy/reports:/reports:ro
+volumes:
+  postgres-data:

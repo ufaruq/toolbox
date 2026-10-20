@@ -4,7 +4,7 @@ This page records evidence, not the task backlog. See the [roadmap](ROADMAP.md) 
 
 ## Local Okta owner sign-in
 
-PR #5 adds a loopback-only real Okta owner mode. Its [verification record](okta-verification.md) covers automated identity/session/browser checks and one-user live sign-in, application restart, logout and repeat login. A second live Okta user, Google runtime wiring and public production acceptance remain open. The checkpoint below is historical PR #2 evidence, not the current local Okta coverage.
+PR #5 adds a loopback-only real Okta owner mode. Its [verification record](okta-verification.md) covers automated identity/session/browser checks and one-user live sign-in, application restart, logout and repeat login. A second live Okta user and public production acceptance remain open; Google/MCP runtime evidence is recorded in the current status section below. The checkpoint below is historical PR #2 evidence, not the current local Okta coverage.
 
 ## Recorded application checkpoint
 
@@ -38,15 +38,27 @@ There were no remaining failures in these final recorded checks. Earlier deliber
 
 Regression tests accompanied each fix. This records code changes, not GitHub thread resolution.
 
-## Blocked and unrun
+## Current local runtime and deployment preparation
 
-- **Blocked in the working environment:** GitHub API access. Inline replies and thread resolution were not performed; no account-wide quota conclusion is inferred from that network restriction.
-- **Not implemented:** production owner OIDC, real Picker UI and non-fixture runtime wiring. Real Google library adapters exist; the current executable still uses fixture providers.
-- **Unrun:** live Google consent, PKCE enforcement, exact-scope/ID-token issuance, Picker, Drive acceptance and real owner sign-in. Local mocks and fixtures do not close these gates.
-- **Unrun or incomplete:** hosted deployment, durable key/pepper lifecycle, production workload/store policies, secret-history/orphan cleanup, operational audit reconciliation, backup/restore and recovery validation.
-- **Future scope:** external agent client/MCP integration and additional tools/providers. Current agent access is a custom HTTP API; supported tool behavior is one approved native document read as plain text.
+PRs #10 and #7 are merged. The executable supports real loopback Okta owner login,
+Google OAuth/Picker and exact-document reads, plus an Okta-authenticated MCP client.
+One real account completed the PKCE/scope checks, owner-approved Google read and
+Codex MCP read; a different document was denied. Live revocation, disabled-client,
+disconnect and second-client checks remain open. Synthetic automated tests cover
+those paths. Eight-hour access tokens do not by themselves force fresh interactive
+Okta authentication; that sign-in policy still needs verification.
 
-The roadmap maps these gaps to M1–M4 and F1–F2. PR #2 is merged. No production readiness, deployment or live credential provisioning is claimed by this evidence.
+PR #4 preserves those local modes while adding persistent container signing/pepper
+keys, encrypted SQL credentials, restricted roles, bounded cleanup, conservative
+retention, encrypted backups, recovery fencing, monitoring and an optional GCP VM
+Terraform adapter. See [deployment verification](deployment-verification.md) for
+revision-specific evidence. The container profile uses synthetic providers; hosted
+production serving remains blocked pending real identity/provider wiring and public
+HTTPS acceptance. Actual GCP provisioning, KMS/IAM, off-host backup delivery and
+external alerts are unrun.
+
+Earlier PR #2 limitations above are historical, not the current application feature
+list. The full-state SQL adapter and additional tools/policies remain future work.
 
 ## Browser artifacts
 

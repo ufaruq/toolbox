@@ -3,11 +3,14 @@ package store
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 
 	"github.com/ufaruq/toolbox/internal/domain"
 )
 
 func invalid(kind string) error { return fmt.Errorf("%w: %s", ErrInvariant, kind) }
+
+var pepperIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{0,64}$`)
 
 // validate is shared by both adapters. SQL constraints are a second boundary;
 // application policy must still authorize every mutation before this layer.
@@ -64,7 +67,7 @@ func validate(old, s *domain.State) error {
 		}
 	}
 	for k, v := range s.Credentials {
-		if k == "" || k != v.ID || v.Hash == "" || v.Status == "" || v.ExpiresAt.IsZero() {
+		if k == "" || k != v.ID || v.Hash == "" || v.Status == "" || v.ExpiresAt.IsZero() || !pepperIDPattern.MatchString(v.PepperID) {
 			return invalid("credential")
 		}
 		if _, ok := s.Agents[v.AgentID]; !ok {
@@ -72,7 +75,7 @@ func validate(old, s *domain.State) error {
 		}
 	}
 	for k, v := range s.Sessions {
-		if k == "" || k != v.ID || v.CSRFHash == "" || v.ExpiresAt.IsZero() {
+		if k == "" || k != v.ID || v.CSRFHash == "" || v.ExpiresAt.IsZero() || !pepperIDPattern.MatchString(v.PepperID) {
 			return invalid("session")
 		}
 		if _, ok := s.Users[v.UserID]; !ok {
@@ -171,7 +174,7 @@ func validate(old, s *domain.State) error {
 		}
 	}
 	for k, v := range s.Cleanup {
-		if k == "" || k != v.ID || v.Status == "" || v.Epoch < 1 {
+		if k == "" || k != v.ID || v.Status == "" || v.Epoch < 1 || v.Attempts < 0 || v.Attempts > 1000000 || (v.LastError != "" && v.LastError != "provider_unavailable") {
 			return invalid("cleanup")
 		}
 		c, ok := s.Connections[v.ConnectionID]

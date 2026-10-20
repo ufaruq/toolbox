@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+cd "$(dirname "$0")/.."
+if command -v terraform >/dev/null; then exec terraform -chdir=infra/gcp/vm "$@"; fi
+args=(run --rm --user "$(id -u):$(id -g)" -w /infra -v "$PWD/infra/gcp/vm:/infra")
+adc="${CLOUDSDK_CONFIG:-$HOME/.config/gcloud}/application_default_credentials.json"
+if [[ -f "$adc" ]]; then args+=(-v "$adc:/run/google/adc.json:ro" -e GOOGLE_APPLICATION_CREDENTIALS=/run/google/adc.json); fi
+[[ ! -t 0 || ! -t 1 ]] || args+=(-it)
+exec docker "${args[@]}" hashicorp/terraform:1.13.3 "$@"

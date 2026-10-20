@@ -2,7 +2,7 @@
 
 Controlled, user-delegated access to external tools and data. The current implementation supports one operation: reading an explicitly approved Google document as plain text.
 
-The local fixture simulates owner sign-in and Google. Separate loopback-only modes support real Okta owner sign-in and the combined Google Workspace tool flow. See [Okta setup](docs/okta-setup.md) and [real Workspace setup](docs/workspace-demo.md). `workspace-local` wires actual Google adapters and Picker with PostgreSQL and OpenBao. The [actual-client PKCE/scope check passed](docs/workspace-verification.md); real document acceptance is still required before calling it demo-ready. Public deployment remains pending in the [roadmap](docs/ROADMAP.md).
+The local fixture simulates owner sign-in and Google. Separate loopback-only modes support real Okta owner sign-in and the combined Google Workspace tool flow. See [Okta setup](docs/okta-setup.md) and [real Workspace setup](docs/workspace-demo.md). `workspace-local` wires actual Google adapters and Picker with PostgreSQL and OpenBao. The actual-client PKCE/scope check, one-account real document read, and Codex MCP approved-read/other-document-denial checks passed locally; see [Workspace verification](docs/workspace-verification.md) and [deployment verification](docs/deployment-verification.md). Public deployment remains pending in the [roadmap](docs/ROADMAP.md).
 
 ## Start here
 
@@ -12,7 +12,7 @@ The local fixture simulates owner sign-in and Google. Separate loopback-only mod
 - [Design PR #1](https://github.com/ufaruq/toolbox/pull/1): merged architecture and design artifacts.
 - [Implementation PR #2](https://github.com/ufaruq/toolbox/pull/2): merged application baseline.
 
-The document approval/read/revocation demo is available in `fixture` mode with simulated identity and Google. The `oidc-local` mode demonstrates real owner sign-in only and intentionally hides tool operations. The new `workspace-local` mode combines verified owner sign-in, real Google consent, document selection, and exact-document approval/read/revocation. Follow [Workspace setup](docs/workspace-demo.md), run `make google-pkce-check`, then `make workspace`. It has no fixture fallback; live [M2 acceptance](docs/ROADMAP.md#m2-live-google-document-flow) remains unperformed.
+The document approval/read/revocation demo is available in `fixture` mode with simulated identity and Google. The `oidc-local` mode demonstrates real owner sign-in only and intentionally hides tool operations. The new `workspace-local` mode combines verified owner sign-in, real Google consent, document selection, and exact-document approval/read/revocation. Follow [Workspace setup](docs/workspace-demo.md), run `make google-pkce-check`, then `make workspace`. It has no fixture fallback. Local verification does not close the hosted production acceptance gates.
 
 ## Run the local fixture
 
@@ -34,7 +34,28 @@ Open http://127.0.0.1:8080. For another port, set `TOOLBOX_ADDR=127.0.0.1:18080`
 
 Connecting an account alone does not grant an agent access. The fixture provider has both documents, but a grant to A never authorizes B. The UI has no real Google Picker. Fixture signing keys, credential pepper and provider state are ephemeral; restarting does not preserve valid fixture credentials/connections even when database records survive. Use synthetic data only.
 
-Agents can use the HTTP API or optionally standard Streamable HTTP MCP in `workspace-local`. Follow [MCP setup](docs/mcp-setup.md) to configure the same-tenant custom Okta API server and approve each client. Actual local-agent acceptance remains required under [F1](docs/ROADMAP.md#f1-agent-client-integrations). Reusable all/allowlist/blocklist policies and write tools follow separately. See [PR scope and delivery order](docs/mvp-delivery.md).
+Agents can use the HTTP API or optionally standard Streamable HTTP MCP in `workspace-local`. Follow [MCP setup](docs/mcp-setup.md) to configure the same-tenant custom Okta API server and approve each client. Codex has completed the local approved-read and other-document-denial checks; live revocation, disabled-client, disconnect and second-client isolation checks remain open. Reusable all/allowlist/blocklist policies and write tools follow separately. See [PR scope and delivery order](docs/mvp-delivery.md).
+
+## Persistent containers and GCP preparation
+
+The [portable deployment workflow](docs/deployment-docker.md) uses PostgreSQL,
+persistent signing keys and peppers, and encrypted credential generations. Local
+verification uses persistent AES-GCM key wrapping; production configuration
+requires GCP KMS. To exercise the synthetic container stack:
+
+```sh
+make deploy-init deploy-up deploy-test
+make deploy-cleanup deploy-retention deploy-backup deploy-restore-drill deploy-monitor
+```
+
+These commands use port 18080 and keep generated secrets under ignored `.deploy/`.
+They are separate from `make workspace`, which uses the real local account flow.
+The [Terraform VM adapter](infra/gcp/vm/README.md) prepares GCP infrastructure with
+`make gcp-init gcp-fmt gcp-validate gcp-plan`. Review the plan before applying.
+**Production serving remains blocked** until the live owner/Google/MCP runtime is
+integrated and validated for hosted HTTPS. This PR does not provision cloud
+resources. See [verification and limits](docs/deployment-verification.md) and
+[backup recovery](docs/recovery-docker.md).
 
 ## Optional real local stores
 
@@ -87,7 +108,7 @@ The database adapter serializes application transactions and needs scoped querie
 
 Follow [Okta setup](docs/okta-setup.md) for the placeholder-only [.env.example](.env.example), disposable dependency setup, exact app settings and startup command. The code and [synthetic OIDC browser test](tests/browser/README.md#synthetic-oidc-browser-flow) can be verified before creating an Okta tenant; no account or client secret is needed for automated verification. Toolbox logout ends its own session, while an existing Okta browser session can sign in again.
 
-[Live Okta checks passed for one assigned user](docs/okta-verification.md): sign-in, reload after application restart, logout and repeat sign-in with stable owner identity. A second live user and the remaining M1 gates are still pending. Live Google, agent integration and production deployment remain open.
+[Live Okta checks passed for one assigned user](docs/okta-verification.md): sign-in, reload after application restart, logout and repeat sign-in with stable owner identity. A second live user and the remaining M1 gates are still pending. Real Google and Codex MCP local checks are recorded separately; hosted production deployment remains open.
 
 ## Corporate Google account linking
 

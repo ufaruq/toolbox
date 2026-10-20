@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,7 +16,18 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, _ := r.Cookie(s.sessionCookieName())
-	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": security.KeyedHash(s.sessionPepper(), c.Value), "fixture": s.Fixture, "owner_only": s.OwnerOnly, "mcp": s.Identity != nil})
+	var csrf string
+	if s.OwnerLogin != nil {
+		csrf = security.KeyedHash(s.sessionPepper(), c.Value)
+	} else {
+		var err error
+		csrf, err = s.PepperKeys.Hash(v.PepperID, c.Value)
+		if err != nil {
+			fail(w, 403, "NOT_AUTHORIZED")
+			return
+		}
+	}
+	jsonOut(w, 200, map[string]any{"user_id": v.UserID, "csrf_token": csrf, "fixture": s.Fixture, "owner_only": s.OwnerOnly, "mcp": s.Identity != nil})
 }
 func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != s.Origin {
@@ -26,11 +36,11 @@ func (s *Server) fixtureLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	raw := security.Random()
 	id := security.Hash(raw)
-	csrf := security.KeyedHash(s.Pepper, raw)
+	csrf, _ := s.PepperKeys.Hash(s.PepperKeys.ActiveID(), raw)
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		const uid = "11111111-1111-4111-8111-111111111111"
 		st.Users[uid] = domain.User{ID: uid, Issuer: "fixture://local", Subject: "local-owner", Status: "active"}
-		st.Sessions[id] = domain.Session{ID: id, UserID: uid, CSRFHash: security.Hash(csrf), ExpiresAt: st.Now.Add(8 * time.Hour)}
+		st.Sessions[id] = domain.Session{ID: id, UserID: uid, CSRFHash: security.Hash(csrf), PepperID: s.PepperKeys.ActiveID(), ExpiresAt: st.Now.Add(8 * time.Hour)}
 		return nil
 	})
 	if e != nil {
@@ -55,11 +65,11 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "INVALID_SCHEMA")
 		return
 	}
-	id, raw, hash := security.NewCredential(s.Pepper)
+	id, raw, hash := s.PepperKeys.NewCredential()
 	a := domain.Agent{ID: security.ID(), OwnerID: owner.UserID, Name: in.Name, Status: "active"}
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		st.Agents[a.ID] = a
-		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
+		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", PepperID: s.PepperKeys.ActiveID(), ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
 		addAudit(st, "user", owner.UserID, owner.UserID, "agent.created", "", "", "", "allowed", "", 0)
 		return nil
 	})
@@ -78,7 +88,7 @@ func (s *Server) rotateCredential(w http.ResponseWriter, r *http.Request) {
 	if !body(w, r, &in) {
 		return
 	}
-	id, raw, hash := security.NewCredential(s.Pepper)
+	id, raw, hash := s.PepperKeys.NewCredential()
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		a := st.Agents[r.PathValue("id")]
 		if a.OwnerID != owner.UserID || a.Status != "active" {
@@ -93,7 +103,7 @@ func (s *Server) rotateCredential(w http.ResponseWriter, r *http.Request) {
 		if n >= 2 {
 			return domain.ErrDenied
 		}
-		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
+		st.Credentials[id] = domain.Credential{ID: id, AgentID: a.ID, Hash: hash, Status: "active", PepperID: s.PepperKeys.ActiveID(), ExpiresAt: st.Now.Add(30 * 24 * time.Hour)}
 		addAudit(st, "user", owner.UserID, owner.UserID, "credential.created", "", "", "", "allowed", "", 0)
 		return nil
 	})
@@ -236,7 +246,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 				st.Grants[id] = g
 			}
 		}
-		job := domain.Cleanup{ID: security.ID(), ConnectionID: c.ID, OwnerID: owner.UserID, Epoch: c.Epoch, Status: "pending"}
+		job := domain.Cleanup{ID: security.ID(), ConnectionID: c.ID, OwnerID: owner.UserID, Epoch: c.Epoch, Status: "pending", CreatedAt: st.Now}
 		st.Cleanup[job.ID] = job
 		addAudit(st, "user", owner.UserID, owner.UserID, "connection.disconnected", "", c.ID, "", "blocked_pending_cleanup", "", 0)
 		return nil
@@ -248,40 +258,6 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 202, map[string]string{"status": "disconnecting", "notice": "Google revocation can remove this app's broader authorization to the connected account."})
 }
 
-// CleanupOnce processes durable pending jobs. A cleanup failure keeps access blocked.
-func (s *Server) CleanupOnce(ctx context.Context) error {
-	jobs := []domain.Cleanup{}
-	if e := s.Repository.Transact(ctx, func(st *domain.State) error {
-		for _, j := range st.Cleanup {
-			if j.Status == "pending" {
-				jobs = append(jobs, j)
-			}
-		}
-		return nil
-	}); e != nil {
-		return e
-	}
-	for _, j := range jobs {
-		if e := s.integration.Cleanup(ctx, j.ConnectionID, j.Epoch); e != nil {
-			continue
-		}
-		if e := s.Repository.Transact(ctx, func(st *domain.State) error {
-			c := st.Connections[j.ConnectionID]
-			if c.Epoch != j.Epoch || c.Status != "disconnecting" {
-				return domain.ErrDenied
-			}
-			c.Status = "disconnected"
-			st.Connections[c.ID] = c
-			j.Status = "complete"
-			st.Cleanup[j.ID] = j
-			addAudit(st, "service", "cleanup", j.OwnerID, "connection.cleanup", "", c.ID, "", "complete", "", 0)
-			return nil
-		}); e != nil {
-			return e
-		}
-	}
-	return nil
-}
 func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request) {
 	owner, ok := s.requireOwner(w, r, true)
 	if !ok {

@@ -101,13 +101,19 @@ type Signer struct {
 	issuer, keyID string
 	private       ed25519.PrivateKey
 	public        ed25519.PublicKey
+	verification  map[string]ed25519.PublicKey
 }
 
 func NewSigner(issuer, keyID string, key ed25519.PrivateKey) (*Signer, error) {
-	if issuer == "" || keyID == "" || len(key) != ed25519.PrivateKeySize {
+	if issuer == "" || !keyIDPattern.MatchString(keyID) || len(key) != ed25519.PrivateKeySize {
 		return nil, ErrToken
 	}
-	return &Signer{issuer: issuer, keyID: keyID, private: key, public: key.Public().(ed25519.PublicKey)}, nil
+	key = append(ed25519.PrivateKey(nil), key...)
+	if !Equal(string(key), string(ed25519.NewKeyFromSeed(key.Seed()))) {
+		return nil, ErrToken
+	}
+	public := key.Public().(ed25519.PublicKey)
+	return &Signer{issuer: issuer, keyID: keyID, private: key, public: public, verification: map[string]ed25519.PublicKey{keyID: public}}, nil
 }
 func (s *Signer) Mint(g domain.Grant, now time.Time) (string, error) {
 	exp := now.Add(5 * time.Minute)
@@ -135,11 +141,15 @@ func (s *Signer) Verify(raw string, now time.Time) (Claims, error) {
 	}
 	var h header
 	hb, e := base64.RawURLEncoding.DecodeString(p[0])
-	if e != nil || strict.Decode(hb, &h) != nil || h.Algorithm != "EdDSA" || h.Type != "toolbox-delegation+jwt" || h.KeyID != s.keyID {
+	if e != nil || strict.Decode(hb, &h) != nil || h.Algorithm != "EdDSA" || h.Type != "toolbox-delegation+jwt" {
+		return c, ErrToken
+	}
+	public, ok := s.verification[h.KeyID]
+	if !ok {
 		return c, ErrToken
 	}
 	sig, e := base64.RawURLEncoding.DecodeString(p[2])
-	if e != nil || !ed25519.Verify(s.public, []byte(p[0]+"."+p[1]), sig) {
+	if e != nil || !ed25519.Verify(public, []byte(p[0]+"."+p[1]), sig) {
 		return c, ErrToken
 	}
 	b, e := base64.RawURLEncoding.DecodeString(p[1])
