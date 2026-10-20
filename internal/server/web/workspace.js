@@ -3,6 +3,13 @@ const $ = id => document.getElementById(id);
 let csrf = '', reviewed = null, reviewGeneration = 0, uiEpoch = 0, resultGeneration = 0, approvedFile = '';
 let pickerReady = null;
 const tool = 'google_drive.read_document.v1';
+const approvalReturnKey = 'toolbox.approvalReturn';
+const validApprovalPath = path => /^\/approve\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(path);
+function restoreApprovalPath() {
+ let path = '';
+ try { path = sessionStorage.getItem(approvalReturnKey) || ''; sessionStorage.removeItem(approvalReturnKey); } catch (_) { return; }
+ if (location.pathname === '/' && validApprovalPath(path)) history.replaceState(null, '', path);
+}
 async function request(path, data, agent = false, delegation = '') {
  const headers = {};
  if (data !== undefined) headers['Content-Type'] = 'application/json';
@@ -51,6 +58,7 @@ async function signedIn() {
  const session = await request('/v1/session');
  if (session.fixture || session.owner_only) throw new Error('Live Workspace mode is unavailable.');
  csrf = session.csrf_token;
+ restoreApprovalPath();
  $('login-panel').hidden = true; $('workspace').hidden = false; $('logout').hidden = false;
  const result = new URLSearchParams(location.hash.slice(1));
  await loadConnections(result.get('connection_id') || '');
@@ -61,7 +69,14 @@ async function signedIn() {
  }
  if (location.pathname.startsWith('/approve/')) { $('request-id').value = location.pathname.split('/')[2]; $('approval-panel').hidden = false; }
 }
-action('login', async () => { const value = await request('/auth/oidc/start', {}); location.assign(value.authorization_url); });
+action('login', async () => {
+ const path = validApprovalPath(location.pathname) ? location.pathname : '';
+ // Only a local request path survives the redirect. Credentials stay in memory,
+ // and the server still authorizes the restored request independently.
+ try { sessionStorage.removeItem(approvalReturnKey); if (path) sessionStorage.setItem(approvalReturnKey, path); }
+ catch (_) { if (path) throw new Error('Enable tab storage to return to this approval request after sign-in.'); }
+ const value = await request('/auth/oidc/start', {}); location.assign(value.authorization_url);
+});
 action('logout', async () => {
  try { await request('/v1/session/logout', {}); }
  catch (error) {
@@ -152,7 +167,12 @@ action('read', async () => {
  if (epoch !== uiEpoch || generation !== resultGeneration || grant !== $('grant-id').value) return;
  $('document').textContent = value.content; $('status').textContent = 'Read ' + value.bytes + ' bytes from the approved Google Doc.';
 });
-action('revoke', async () => { await request('/v1/grants/' + encodeURIComponent($('grant-id').value) + '/revoke', {}); resultGeneration++; $('grant-badge').textContent = 'Revoked'; $('document').textContent = 'Access revoked. Previously returned text cannot be recalled.'; $('status').textContent = 'Further reads through this grant are blocked.'; });
+action('revoke', async () => {
+ const grant = $('grant-id').value, epoch = uiEpoch, generation = resultGeneration;
+ await request('/v1/grants/' + encodeURIComponent(grant) + '/revoke', {});
+ if (epoch !== uiEpoch || generation !== resultGeneration || grant !== $('grant-id').value) return;
+ resultGeneration++; $('grant-badge').textContent = 'Revoked'; $('document').textContent = 'Access revoked. Previously returned text cannot be recalled.'; $('status').textContent = 'Further reads through this grant are blocked.';
+});
 action('audit', async () => { $('audit-output').textContent = JSON.stringify(await request('/v1/audit'), null, 2); });
 $('connection').addEventListener('change', () => { clearDocument(); clearResult(); $('connection-info').textContent = 'Connection: ' + $('connection').value; });
 $('request-id').addEventListener('input', () => { invalidateReview(); $('approval-panel').hidden = !$('request-id').value; });

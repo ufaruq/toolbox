@@ -14,7 +14,10 @@ make workspace-browser-check
 with a signed synthetic TLS OIDC provider, simulated Google consent/Drive and a
 controlled Picker loader. It covers account connection, document picking,
 approval/read, a different document's denial, revocation, disconnect, logout,
-late reads after revoke, late approvals after account changes and mobile overflow.
+late reads after revoke, late revoke responses after a new grant, late approvals
+after account changes, approval links through owner login and mobile overflow.
+Approval return paths are restricted to local request URLs, and their temporary
+tab storage is cleared after sign-in; unsafe destinations are rejected.
 All external network calls are intercepted or rejected. Screenshots mask the
 tab-only agent credential. `TestProbeBrowserFlow` verifies that the local Google
 client-check form can navigate to a controlled Google consent destination under

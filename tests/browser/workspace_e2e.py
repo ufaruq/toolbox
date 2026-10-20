@@ -77,6 +77,68 @@ def main():
             grant=page.locator('#grant-id').input_value()
             agent=p.request.new_context()
             headers={'Authorization':'Bearer '+credential,'Content-Type':'application/json'}
+            stage='approval link survives owner login'
+            pending=agent.post(origin+'/v1/delegation-requests',headers=headers,data={'tool':'google_drive.read_document.v1','file_id':'doc-A','duration_seconds':3600})
+            assert pending.status==201
+            pending=pending.json()
+            other=browser.new_context(viewport={'width':1200,'height':900})
+            other.route('**/*',allow)
+            approval=other.new_page()
+            approval.on('pageerror',lambda _:errors.append(True))
+            approval.goto(pending['approval_url'])
+            expect(approval.locator('#login')).to_be_visible()
+            approval.locator('#login').click()
+            expect(approval.locator('#subject')).to_be_visible()
+            approval.locator('#subject').fill('workspace-owner')
+            approval.locator('#authorize').click()
+            expect(approval.locator('#workspace')).to_be_visible()
+            expect(approval.locator('#approval-panel')).to_be_visible()
+            expect(approval.locator('#request-id')).to_have_value(pending['request_id'])
+            assert urlsplit(approval.url).path=='/approve/'+pending['request_id']
+            approval.locator('#review').click()
+            expect(approval.locator('#review-details')).to_contain_text('Fixture doc-A')
+            expect(approval.locator('#approve')).to_be_enabled()
+            approval.locator('#approve').click()
+            expect(approval.locator('#result-panel')).to_be_visible()
+            accepted=agent.get(origin+'/v1/delegation-requests/'+pending['request_id'],headers=headers)
+            assert accepted.status==200 and accepted.json()['status']=='approved'
+            assert approval.evaluate('Object.keys(localStorage).length+Object.keys(sessionStorage).length')==0
+            stage='approval return rejects unsafe destinations'
+            approval.goto(origin+'/')
+            for destination in ['https://example.invalid/', '//example.invalid/', '/approve/not-a-request', '/approve/'+pending['request_id']+'?next=elsewhere']:
+                approval.evaluate("path => sessionStorage.setItem('toolbox.approvalReturn',path)",destination)
+                approval.reload()
+                expect(approval.locator('#workspace')).to_be_visible()
+                assert approval.url==origin+'/'
+                expect(approval.locator('#request-id')).to_have_value('')
+                assert approval.evaluate('sessionStorage.length')==0
+            other.close()
+            stage='delayed revoke cannot mark a newer grant revoked'
+            held_revokes=[]
+            def hold_revoke(route):
+                response=route.fetch()
+                assert response.status==200
+                held_revokes.append((route,response))
+                page.locator('#revoke').evaluate("button => button.dataset.held = 'true'")
+            page.route(origin+'/v1/grants/'+grant+'/revoke',hold_revoke)
+            page.locator('#revoke').click()
+            expect(page.locator('#revoke')).to_have_attribute('data-held','true')
+            page.locator('#request').click()
+            expect(page.locator('#approval-status')).to_contain_text('Request pending')
+            page.locator('#review').click()
+            expect(page.locator('#approve')).to_be_enabled()
+            page.locator('#approve').click()
+            expect(page.locator('#grant-id')).not_to_have_value(grant)
+            expect(page.locator('#grant-badge')).to_have_text('Approved')
+            assert agent.post(origin+'/v1/delegation-tokens',headers=headers,data={'grant_id':grant}).status==403
+            grant=page.locator('#grant-id').input_value()
+            assert grant
+            route,response=held_revokes.pop()
+            route.fulfill(response=response)
+            expect(page.locator('#revoke')).to_be_enabled()
+            expect(page.locator('#grant-badge')).to_have_text('Approved')
+            expect(page.locator('#document')).not_to_contain_text('Access revoked.')
+            assert agent.post(origin+'/v1/delegation-tokens',headers=headers,data={'grant_id':grant}).status==200
             stage='deny different document'
             token=agent.post(origin+'/v1/delegation-tokens',headers=headers,data={'grant_id':grant}).json()['delegation_token']
             denied=agent.post(origin+'/v1/tool-invocations',headers={**headers,'Toolbox-Delegation':token},data={'tool':'google_drive.read_document.v1','grant_id':grant,'arguments':{'file_id':'doc-B'}})
