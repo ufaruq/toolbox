@@ -111,10 +111,11 @@ func New(config Config) (*Client, error) {
 		if !validBinding(g.Binding) || g.ServerName == "" || g.ServerVersion == "" || !validToken(g.BearerToken) || len(g.Tools) == 0 || len(g.Tools) > 64 {
 			return nil, ErrConfiguration
 		}
-		u, err := url.Parse(g.Endpoint)
-		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/mcp" || u.RawPath != "" || u.Hostname() == "" || (u.Scheme != "https" && (u.Scheme != "http" || net.ParseIP(u.Hostname()) == nil || !net.ParseIP(u.Hostname()).IsLoopback())) {
+		endpoint, err := canonicalEndpoint(g.Endpoint)
+		if err != nil {
 			return nil, ErrConfiguration
 		}
+		g.Endpoint = endpoint
 		if _, ok := c.bindings[g.Binding.ID]; ok || endpoints[g.Endpoint] || tokens[g.BearerToken] {
 			return nil, ErrConfiguration
 		}
@@ -160,6 +161,55 @@ func New(config Config) (*Client, error) {
 	c.http = &http.Client{Transport: boundedTransport{base: c.transport}, Timeout: config.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c, nil
+}
+
+// Compare and use the same canonical endpoint. Syntactic URL aliases must not
+// allow two bindings to share a gateway credential context. Operators must also
+// keep different DNS names/proxies from routing bindings to the same context.
+func canonicalEndpoint(endpoint string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "/mcp" || u.RawPath != "" || u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
+		return "", ErrConfiguration
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	ip := net.ParseIP(host)
+	if u.Scheme != "https" && (u.Scheme != "http" || ip == nil || !ip.IsLoopback()) {
+		return "", ErrConfiguration
+	}
+	if ip != nil {
+		host = ip.String()
+	} else {
+		// Non-ASCII hostnames and scoped IP literals require additional alias
+		// handling. Keep this private-gateway configuration in ASCII DNS form.
+		if host == "" || strings.ContainsAny(host, ":%") {
+			return "", ErrConfiguration
+		}
+		for _, r := range host {
+			if r > 127 {
+				return "", ErrConfiguration
+			}
+		}
+	}
+	port := u.Port()
+	if port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return "", ErrConfiguration
+		}
+		port = strconv.Itoa(n)
+	}
+	if u.Scheme == "https" && port == "443" || u.Scheme == "http" && port == "80" {
+		port = ""
+	}
+	if port != "" {
+		u.Host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		u.Host = "[" + host + "]"
+	} else {
+		u.Host = host
+	}
+	return u.String(), nil
 }
 
 func validBinding(b Binding) bool {

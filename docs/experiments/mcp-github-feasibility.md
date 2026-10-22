@@ -116,6 +116,14 @@ multi-tenant capacity; do not derive savings or an operating cost estimate from
 this run. The implementation PR records the final race-enabled rerun after
 client review fixes.
 
+The review follow-up on 22 October fixes canonical endpoint separation and
+applies raw JSON/SSE validation to every successful HTTP status accepted by the
+SDK. Eight equivalent-URL regressions and the four HTTP `201` schema regressions
+were reproduced before the fixes and pass afterward. `make check` passed on the
+fixed source. The final Docker race run completed in **39.51 seconds** (40.532
+seconds including the package race shutdown), with the same A/B audit counts
+and verified cleanup. Its [sanitized output](mcp-gateway-e2e.txt) is committed.
+
 | Original feasibility requirement | Disposition |
 | --- | --- |
 | Existing server can read a synthetic issue through Docker Gateway | Covered by the controlled Docker acceptance test. |

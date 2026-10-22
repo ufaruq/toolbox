@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -250,5 +251,49 @@ func TestClientConfiguration(t *testing.T) {
 			_ = c.Close()
 			t.Fatal("unsafe configuration accepted")
 		}
+	}
+}
+
+func TestClientRejectsEquivalentEndpoints(t *testing.T) {
+	for _, tc := range []struct{ name, a, b string }{
+		{"default-https-port", "https://gateway.example/mcp", "https://gateway.example:443/mcp"},
+		{"hostname-case", "https://gateway.example/mcp", "https://GATEWAY.EXAMPLE/mcp"},
+		{"scheme-case", "https://gateway.example/mcp", "HTTPS://gateway.example/mcp"},
+		{"trailing-dns-dot", "https://gateway.example/mcp", "https://gateway.example./mcp"},
+		{"port-leading-zero", "https://gateway.example:8443/mcp", "https://gateway.example:08443/mcp"},
+		{"default-http-port", "http://127.0.0.1/mcp", "http://127.0.0.1:80/mcp"},
+		{"ipv6-spelling", "https://[::1]/mcp", "https://[0:0:0:0:0:0:0:1]:443/mcp"},
+		{"ipv4-mapped-ipv6", "http://127.0.0.1:8811/mcp", "http://[::ffff:127.0.0.1]:8811/mcp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := Gateway{Binding: Binding{ID: "a", OwnerID: "a", ConnectionID: "a", Epoch: 1}, Endpoint: tc.a, BearerToken: "gateway-a-private-token", ServerName: "fixture-gateway", ServerVersion: "1", Tools: []Tool{{Name: "read", InputSchema: testSchema}}}
+			b := a
+			b.Binding = Binding{ID: "b", OwnerID: "b", ConnectionID: "b", Epoch: 1}
+			b.Endpoint, b.BearerToken = tc.b, "gateway-b-private-token"
+			c, err := New(Config{Gateways: []Gateway{a, b}})
+			if c != nil {
+				_ = c.Close()
+			}
+			if !errors.Is(err, ErrConfiguration) {
+				t.Fatalf("equivalent endpoints accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestClientCanonicalEndpointDispatch(t *testing.T) {
+	f := newFixture(t, "gateway-a-private-token", "owner-a", testSchema, nil)
+	g := gateway(f, "a")
+	u, err := url.Parse(g.Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A noncanonical spelling must still attach its bearer only to the
+	// configured destination after normalization.
+	g.Endpoint = "http://127.0.0.1:0" + u.Port() + "/mcp"
+	c := newTestClient(t, g)
+	result, err := c.CallTool(context.Background(), g.Binding, "read", json.RawMessage(`{"value":"ok"}`))
+	if err != nil || result.Text != "owner-a:ok" || f.calls.Load() != 1 {
+		t.Fatalf("canonical endpoint dispatch: output=%q error=%v calls=%d", result.Text, err, f.calls.Load())
 	}
 }

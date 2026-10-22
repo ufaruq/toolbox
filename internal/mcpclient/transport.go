@@ -24,7 +24,7 @@ func (t boundedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	response.Body = &boundedBody{ReadCloser: response.Body, remaining: MaxBytes}
 	media, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if response.StatusCode == http.StatusOK && (media == "application/json" || media == "text/event-stream") {
+	if response.StatusCode >= 200 && response.StatusCode < 300 && (media == "application/json" || media == "text/event-stream") {
 		response.Body = &checkedBody{ReadCloser: response.Body, reader: bufio.NewReader(response.Body), sse: media == "text/event-stream"}
 	}
 	return response, nil

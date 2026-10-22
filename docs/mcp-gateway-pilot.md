@@ -137,6 +137,11 @@ bearer for each immutable `Binding`. A binding contains its ID, owner ID,
 connection ID and epoch. All four must match the configured entry. Callers do
 not select an endpoint, raw secret, image, Docker profile or downstream server.
 The client rejects sharing an endpoint or gateway bearer across its bindings.
+Endpoint comparison and dispatch use a canonical URL: scheme/hostname case,
+default ports, DNS trailing dots and IP spellings cannot create separate
+bindings to the same URL. Configure ASCII DNS names or IP literals; scoped IPv6
+and non-ASCII hostnames are rejected. Operators must still ensure that distinct
+DNS names or proxies do not lead to the same credential context.
 
 Each test gateway has its own state directory mounted at `/root/.docker/mcp`
 and one explicit mode-`0600` `secrets.env`. Its catalog maps
@@ -178,6 +183,8 @@ server-side action requests, follows no result links, and retries no dispatched
 call. Its maximum operation deadline is 20 seconds; arguments are limited to
 16 KiB. HTTP response bodies, including cumulative SSE framing, and the encoded
 tool result are bounded to 1 MiB. A shorter caller deadline applies first.
+Raw JSON/SSE validation covers every successful HTTP status accepted by the
+SDK, including `201`, before schema constraints can be decoded or dispatched.
 
 ## Before a live GitHub rollout
 
