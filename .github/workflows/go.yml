@@ -7,6 +7,28 @@ on:
 permissions:
   contents: read
 jobs:
+  mcp-gateway-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Pull pinned MCP pilot images
+        run: |
+          docker pull docker/mcp-gateway@sha256:b0a3876ffbb352813d658cf25c137b8eae29bbe23db5944560a1c9059533bb16
+          docker pull ghcr.io/github/github-mcp-server@sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132
+      - name: Real gateway and official server with isolated synthetic credentials
+        shell: bash
+        run: make mcp-gateway-check 2>&1 | tee /tmp/toolbox-mcp-gateway-e2e.log
+      - name: Upload MCP pilot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-gateway-pilot
+          path: /tmp/toolbox-mcp-gateway-e2e.log
   test:
     runs-on: ubuntu-latest
     steps:

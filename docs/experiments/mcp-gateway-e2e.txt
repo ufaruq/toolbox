@@ -1,0 +1,31 @@
+TOOLBOX_TEST_DOCKER_MCP=1 go test -race -count=1 ./internal/mcpclient -run '^TestDockerGatewayOwnerIsolation$' -v -timeout=9m
+=== RUN   TestDockerGatewayOwnerIsolation
+    docker_e2e_test.go:55: gateway uses a distinct owner state directory and an explicit 0600 secret file; Docker Desktop default secrets are disabled
+    docker_e2e_test.go:56: gateway uses a distinct owner state directory and an explicit 0600 secret file; Docker Desktop default secrets are disabled
+    docker_e2e_test.go:57: pinned gateway initialize: name="Docker AI MCP Gateway" version="2.0.1" protocol="2025-11-25" image=docker/mcp-gateway@sha256:b0a3876ffbb352813d658cf25c137b8eae29bbe23db5944560a1c9059533bb16 GitHub=ghcr.io/github/github-mcp-server@sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132
+    docker_e2e_test.go:57: approved tool get_me schema sha256=efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49
+    docker_e2e_test.go:57: approved tool issue_read schema sha256=4129cf817f37afefbc65885a75ba37817ae95f46ab9658b0b9de8c37d6b26c2e
+    docker_e2e_test.go:58: pinned gateway initialize: name="Docker AI MCP Gateway" version="2.0.1" protocol="2025-11-25" image=docker/mcp-gateway@sha256:b0a3876ffbb352813d658cf25c137b8eae29bbe23db5944560a1c9059533bb16 GitHub=ghcr.io/github/github-mcp-server@sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132
+    docker_e2e_test.go:58: approved tool get_me schema sha256=efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49
+    docker_e2e_test.go:58: approved tool issue_read schema sha256=4129cf817f37afefbc65885a75ba37817ae95f46ab9658b0b9de8c37d6b26c2e
+    docker_e2e_test.go:76: real read call: owner=owner-a tool=get_me elapsed=1.005s result=<nil> text_bytes=330 structured_bytes=0
+    docker_e2e_test.go:76: real read call: owner=owner-b tool=get_me elapsed=4.999s result=<nil> text_bytes=330 structured_bytes=0
+    docker_e2e_test.go:98: real read call: owner=owner-a tool=issue_read elapsed=1.278s result=<nil> text_bytes=453 structured_bytes=0
+    docker_e2e_test.go:104: real read call: owner=owner-a tool=issue_read elapsed=5.485s result=MCP_TOOL_FAILED text_bytes=0 structured_bytes=0
+    docker_e2e_test.go:98: real read call: owner=owner-b tool=issue_read elapsed=1.194s result=<nil> text_bytes=453 structured_bytes=0
+    docker_e2e_test.go:104: real read call: owner=owner-b tool=issue_read elapsed=5.182s result=MCP_TOOL_FAILED text_bytes=0 structured_bytes=0
+    docker_e2e_test.go:121: real read call: owner=owner-b tool=get_me elapsed=0s result=MCP_BINDING_NOT_ALLOWED text_bytes=0 structured_bytes=0
+    docker_e2e_test.go:121: real read call: owner=owner-a tool=get_me elapsed=0s result=MCP_BINDING_NOT_ALLOWED text_bytes=0 structured_bytes=0
+    docker_e2e_test.go:121: real read call: owner=owner-a tool=get_me elapsed=0s result=MCP_BINDING_NOT_ALLOWED text_bytes=0 structured_bytes=0
+    docker_e2e_test.go:137: real read call: owner=owner-a tool=get_me elapsed=3ms result=MCP_GATEWAY_UNAVAILABLE text_bytes=0 structured_bytes=0
+    docker_e2e_test.go:140: real read call: owner=owner-b tool=get_me elapsed=1.66s result=<nil> text_bytes=330 structured_bytes=0
+    docker_e2e_test.go:154: real read call: owner=owner-a tool=get_me elapsed=1.287s result=<nil> text_bytes=330 structured_bytes=0
+    docker_e2e_test.go:164: real read call: owner=owner-a tool=get_me elapsed=0s result=MCP_CLIENT_CLOSED text_bytes=0 structured_bytes=0
+    docker_e2e_test.go:173: real read call: owner=owner-b tool=get_me elapsed=5.243s result=<nil> text_bytes=330 structured_bytes=0
+    docker_e2e_test.go:194: sanitized provider audit: owner A requests=4, owner B requests=5; successful repository requests stayed with their credential principal
+    docker_e2e_test.go:195: sanitized provider audit by principal/status: map[fixture-owner-a/status-200:3 fixture-owner-a/status-404:1 fixture-owner-b/status-200:4 fixture-owner-b/status-404:1]
+    docker_e2e_test.go:196: real Docker Gateway E2E passed: two owners, HTTPS provider credentials, private repositories, binding and gateway authentication denials, stop/restart/close isolation
+    docker_e2e_test.go:602: cleanup verified: no task-labelled containers, task network, or generated fixture image remain; pinned upstream images were preserved
+--- PASS: TestDockerGatewayOwnerIsolation (45.07s)
+PASS
+ok  	github.com/ufaruq/toolbox/internal/mcpclient	46.107s
