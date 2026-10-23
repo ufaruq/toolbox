@@ -80,6 +80,8 @@ See [implementation status](docs/implementation-status.md) for the actual checke
 - `internal/app`: wiring and API acceptance tests.
 - [Google setup](docs/google-setup.md): live configuration, protocol decisions and required acceptance checks.
 - [Storage](docs/storage.md): permissions, transactional guarantees and the current low-throughput snapshot adapter.
+- [Selected Docker MCP Gateway connector design](docs/superpowers/specs/2026-10-18-mcp-service-connectors-design.md): outbound service connectors and permission boundaries; implementation pending.
+- [Docker MCP Gateway implementation plan](docs/superpowers/plans/2026-10-18-mcp-service-connectors.md): isolated GitHub pilot and staged rollout.
 
 The database adapter serializes application transactions and needs scoped queries before larger workloads. Production startup, durable keys, operational recovery and live validation are tracked in [M1–M4](docs/ROADMAP.md#milestones-and-dependencies). No production deployment is claimed.
 
