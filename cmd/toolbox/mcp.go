@@ -9,12 +9,20 @@ import (
 )
 
 func loadMCPConfig(getenv func(string) string, ownerIssuer, ownerClientID, origin string) (*identity.AccessConfig, error) {
+	provider, err := loadIdentityProvider(getenv)
+	if err != nil {
+		return nil, err
+	}
 	issuer, raw := getenv("TOOLBOX_MCP_ISSUER"), getenv("TOOLBOX_MCP_CLIENTS")
 	if issuer == "" && raw == "" {
 		return nil, nil
 	}
 	invalid := errors.New("invalid MCP tenant/client configuration")
-	if !identity.ValidOwnerBinding(ownerIssuer, issuer, false) || len(raw) > 65536 {
+	bound := identity.ValidOwnerBinding(ownerIssuer, issuer, false)
+	if provider == "keycloak" {
+		bound = identity.ValidKeycloakOwnerBinding(ownerIssuer, issuer, false)
+	}
+	if !bound || len(raw) > 65536 {
 		return nil, invalid
 	}
 	var clients map[string]string
@@ -26,5 +34,5 @@ func loadMCPConfig(getenv func(string) string, ownerIssuer, ownerClientID, origi
 			return nil, invalid
 		}
 	}
-	return &identity.AccessConfig{Issuer: issuer, OwnerIssuer: ownerIssuer, Audience: origin + "/mcp", OwnerClientID: ownerClientID, Clients: clients}, nil
+	return &identity.AccessConfig{Provider: provider, Issuer: issuer, OwnerIssuer: ownerIssuer, Audience: origin + "/mcp", OwnerClientID: ownerClientID, Clients: clients}, nil
 }

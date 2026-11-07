@@ -39,10 +39,10 @@ Interface: add `Provider string` to `identity.AccessConfig`; empty/`okta` preser
 current behavior; `keycloak` requires exact equal owner/API realm issuers.
 `identity.NewAccess` still returns `*identity.Service`; public methods unchanged.
 
-- [ ] Write and run failing tests for Keycloak access and configuration.
-- [ ] Implement strict `sub`/`azp`/`scope`/`typ` policy and bounded discovery.
-- [ ] Test wrong realm/audience/client, ID tokens, service accounts and times.
-- [ ] Run identity/config race tests and review.
+- [x] Write and run failing tests for Keycloak access and configuration.
+- [x] Implement strict `sub`/`azp`/`scope`/`typ` policy and bounded discovery.
+- [x] Test wrong realm/audience/client, ID tokens, service accounts and times.
+- [x] Run identity/config race tests and review.
 
 ### Task 2: Verified identity aliases and migration
 
@@ -58,12 +58,12 @@ Interface: `domain.IdentityAlias{Issuer,Subject,OwnerID string}`;
 Primary identity plus aliases must be globally unique; aliases append-only.
 Migration linker API will be finalized in the task brief before implementation.
 
-- [ ] Reproduce alias continuity, conflicts, foreign owner and immutability cases.
-- [ ] Implement domain/storage constraints and additive SQL migration.
-- [ ] Resolve owner sessions and caller approvals through explicit aliases.
-- [ ] Implement pinned Admin API proof, dry-run and atomic audited apply.
-- [ ] Test Google/email impostors, malformed/foreign proof and repeat migration.
-- [ ] Run memory and actual PostgreSQL/OpenBao checks and review.
+- [x] Reproduce alias continuity, conflicts, foreign owner and immutability cases.
+- [x] Implement domain/storage constraints and additive SQL migration.
+- [x] Resolve owner sessions and caller approvals through explicit aliases.
+- [x] Implement pinned Admin API proof, dry-run and atomic audited apply.
+- [x] Test Google/email impostors, malformed/foreign proof and repeat migration.
+- [x] Run memory and actual PostgreSQL/OpenBao checks and review.
 
 ### Task 3: Realm provisioning and actual Keycloak acceptance
 
@@ -71,10 +71,10 @@ Files: new `internal/keycloakrealm`, CLI commands,
 `internal/app/keycloak_e2e_test.go`, test assets under `internal/testutil`,
 Makefile/CI, placeholder configuration, `docs/keycloak-setup.md` and evidence.
 
-- [ ] Test generation of private realm configuration and explicit provider policy.
-- [ ] Implement confidential owner and public PKCE MCP clients and IdP setup.
-- [ ] Run real Keycloak with controlled Okta/Google-shaped upstream providers.
-- [ ] Prove linking preserves an old owner's data and new Google users are isolated.
-- [ ] Prove MCP caller approval/read/revocation with Keycloak-issued tokens.
-- [ ] Run `make check`, integration/browser checks, final independent review.
+- [x] Test generation of private realm configuration and explicit provider policy.
+- [x] Implement confidential owner and public PKCE MCP clients and IdP setup.
+- [x] Run real Keycloak with controlled Okta/Google-shaped upstream providers.
+- [x] Prove linking preserves an old owner's data and new Google users are isolated.
+- [x] Prove MCP caller approval/read/revocation with Keycloak-issued tokens.
+- [x] Run `make check`, integration/browser checks, final independent review.
 - [ ] Push feature branch and create PR; post sanitized proof in comments.

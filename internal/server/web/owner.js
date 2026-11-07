@@ -86,7 +86,7 @@ action('logout', async () => {
     throw error;
   }
   showSignedOut();
-  element('status').textContent = 'Signed out of Toolbox. Your Okta session may still be active.';
+  element('status').textContent = 'Signed out of Toolbox. Your identity provider session may still be active.';
 });
 
 (async () => {

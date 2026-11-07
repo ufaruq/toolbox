@@ -7,6 +7,26 @@ on:
 permissions:
   contents: read
 jobs:
+  keycloak-broker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Pull pinned Keycloak image
+        run: docker pull quay.io/keycloak/keycloak@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+      - name: Keycloak broker, verified migration and MCP acceptance
+        shell: bash
+        run: make keycloak-check 2>&1 | tee /tmp/toolbox-keycloak-e2e.log
+      - name: Upload Keycloak evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keycloak-broker-e2e
+          path: /tmp/toolbox-keycloak-e2e.log
   mcp-gateway-pilot:
     runs-on: ubuntu-latest
     timeout-minutes: 10
