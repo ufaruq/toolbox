@@ -3,14 +3,15 @@
 All scanner workflows use pull_request (never pull_request_target), main pushes,
 weekly schedules and manual dispatch. No scanner service account or paid API key
 is required. Action revisions and scanner containers are pinned. GitHub Actions
-updates are managed by Dependabot; container pins require reviewed updates.
+updates are managed by Dependabot; container pins require reviewed updates. Dependabot has an explicit three-day
+version-update cooldown; security updates are not delayed.
 
 | Tool | Scope and gate | Location |
 | --- | --- | --- |
 | CodeQL | Go, JS/TS, Python, Actions; security-extended | PR #17; disable GitHub default setup when switching to advanced |
 | Semgrep CE | p/ci rules, scan errors and findings fail; reviewed inline exceptions only | PR #16 |
 | Trivy | source dependencies, secrets, Dockerfile/IaC, actual runtime images; high/critical fail even without a patch | trivy.yml |
-| Dependabot | daily Go; weekly Actions and both Python requirement directories | PR #15 and aligned #13 |
+| Dependabot | daily Go; weekly Actions and both Python requirement directories | PR #15 and aligned scanner PRs |
 | Gitleaks | complete fetched Git history; redacted output, findings fail | gitleaks.yml |
 | ZAP | disposable in-memory fixture; passive baseline; medium/high fail | zap.yml |
 | govulncheck | reachable Go vulnerabilities | existing Go workflow |
@@ -42,7 +43,7 @@ missing/wrong target reports and medium/high alerts; scanner failures also fail.
   store/token/migration integration tests are validated locally.
 - Full make check passes with the updated Go dependency and actual upgraded
   PostgreSQL/OpenBao services; formatting, vet, race tests and build included.
-- Semgrep passes after pinning Actions and reviewing six exact redirect warnings.
+- Semgrep passes after pinning Actions and reviewing seven exact redirect warnings.
   Its documented exceptions explain the already-validated target or synthetic
   test intent; no broad security-rule exclusions.
 - Gitleaks scans the fetched history. One exact historical documentation-prose
