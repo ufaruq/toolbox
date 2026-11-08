@@ -57,40 +57,37 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: test -z "$(gofmt -l .)"
-      - run: go vet ./...
+      - run: make fmt-check
+      - run: make vet
       - name: Check reachable Go vulnerabilities
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+        run: make vuln-check
       - name: Start disposable integration stores
         run: |
-          docker compose -p toolbox-ci up -d --wait
-          docker compose -p toolbox-ci exec -T postgres createdb -U toolbox toolbox_test
-          docker compose -p toolbox-ci exec -T openbao bao write secret/config cas_required=true max_versions=3
+          make deps-test COMPOSE='docker compose -p toolbox-ci'
       - name: Race and integration tests
         env:
           TOOLBOX_TEST_DATABASE_URL: postgres://toolbox:fixture-only@127.0.0.1:5432/toolbox_test?sslmode=disable&application_name=toolbox-lock-test
           TOOLBOX_TEST_OPENBAO_ADDR: http://127.0.0.1:8200
           TOOLBOX_TEST_OPENBAO_TOKEN: fixture-only
-        run: go test -race -count=1 ./...
-      - run: go build ./...
+        run: make test-integration
+      - run: make build
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Install browser test tools
         run: |
-          python -m pip install -r tests/browser/requirements.txt
-          python -m playwright install --with-deps chromium
+          make browser-install
       - name: Synthetic OIDC owner browser flow
         env:
           TOOLBOX_TEST_OIDC_BROWSER: '1'
           TOOLBOX_BROWSER_ARTIFACT_DIR: /tmp/toolbox-browser-artifacts
           TOOLBOX_E2E_REVISION: ${{ github.sha }}
-        run: go test -race -count=1 ./internal/server -run '^TestOIDCBrowserFlow$'
+        run: make oidc-browser-check
       - name: Synthetic Workspace and Google probe browser flows
         env:
           TOOLBOX_TEST_WORKSPACE_BROWSER: '1'
           TOOLBOX_BROWSER_ARTIFACT_DIR: /tmp/toolbox-browser-artifacts
-        run: go test -race -count=1 ./internal/app ./cmd/toolbox -run 'Test(Workspace|Probe)BrowserFlow'
+        run: make workspace-browser-check
       - name: Start fixture service for browser tests
         env:
           TOOLBOX_MODE: fixture
@@ -99,7 +96,7 @@ jobs:
           OPENBAO_ADDR: http://127.0.0.1:8200
           OPENBAO_TOKEN: fixture-only
         run: |
-          go build -o /tmp/toolbox-ci ./cmd/toolbox
+          make build-binary BUILD_OUTPUT=/tmp/toolbox-ci
           nohup /tmp/toolbox-ci > /tmp/toolbox-ci.log 2>&1 &
           echo $! > /tmp/toolbox-ci.pid
           python - <<'PY'
@@ -120,8 +117,8 @@ jobs:
           TOOLBOX_BROWSER_ARTIFACT_DIR: /tmp/toolbox-browser-artifacts
           TOOLBOX_E2E_REVISION: ${{ github.sha }}
         run: |
-          python tests/browser/fixture_e2e.py
-          python tests/browser/review_race.py
+          make browser-fixture-check
+          make browser-review-check
       - name: Upload browser screenshots and logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -134,4 +131,4 @@ jobs:
         if: always()
         run: |
           if [ -f /tmp/toolbox-ci.pid ]; then kill "$(cat /tmp/toolbox-ci.pid)" || true; fi
-          docker compose -p toolbox-ci down
+          make dev-down COMPOSE='docker compose -p toolbox-ci'

@@ -1,3 +1,5 @@
+> Historical checkpoint: statements below apply to the recorded revision. For current behavior, start with the [project overview](../README.md) and [architecture](architecture/README.md). Retest the current revision before claiming readiness.
+
 # Toolbox handoff
 
 Read [implementation status](implementation-status.md) for verification evidence and [ROADMAP.md](ROADMAP.md) for the current backlog. The roadmap is the single pending-work list; the [historical ledger](history/implementation-checkpoints.md) preserves earlier failures and limitations without making them current tasks.

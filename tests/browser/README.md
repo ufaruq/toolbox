@@ -38,17 +38,15 @@ This is **synthetic fixture coverage**, not production OIDC, real Google consent
 Start the service in another terminal:
 
 ```sh
-TOOLBOX_MODE=fixture TOOLBOX_ADDR=127.0.0.1:18080 go run ./cmd/toolbox
+TOOLBOX_ADDR=127.0.0.1:18080 make run
 ```
 
 Install the pinned runner and its matching Chromium, then run:
 
 ```sh
-python3 -m venv /tmp/toolbox-browser-venv
-/tmp/toolbox-browser-venv/bin/pip install -r tests/browser/requirements.txt
-/tmp/toolbox-browser-venv/bin/playwright install --with-deps chromium
-/tmp/toolbox-browser-venv/bin/python tests/browser/fixture_e2e.py
-/tmp/toolbox-browser-venv/bin/python tests/browser/review_race.py
+make browser-install
+make browser-fixture-check
+make browser-review-check
 ```
 
 CI can use the same commands after launching the fixture service and waiting for `/readyz` to return 200. The runner returns a nonzero status on failure. PostgreSQL/OpenBao-backed runs use the service's documented storage variables; the browser runner requires no storage credentials.
@@ -71,9 +69,7 @@ The separate `TestOIDCBrowserFlow` harness starts loopback Toolbox and a local T
 Install the pinned Python requirements and Playwright Chromium using the commands above, then run from the repository root:
 
 ```sh
-TOOLBOX_TEST_OIDC_BROWSER=1 \
-TOOLBOX_TEST_PYTHON=/tmp/toolbox-browser-venv/bin/python \
-go test -race ./internal/server -run '^TestOIDCBrowserFlow$' -count=1
+make oidc-browser-check
 ```
 
 `TOOLBOX_TEST_OIDC_BROWSER=1` explicitly enables this optional browser check. `TOOLBOX_TEST_PYTHON` selects the exact Python binary containing the pinned requirements; it is optional when the harness can find an appropriate `python3`. `TOOLBOX_BROWSER_EXECUTABLE` optionally selects an installed Chromium. Leave it unset to use Playwright's matching browser. Without the browser opt-in the harness skips; ordinary Go protocol tests continue to run without Python. Record skips as skips.

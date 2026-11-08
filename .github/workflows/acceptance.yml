@@ -1,0 +1,26 @@
+name: Full acceptance
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-all:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the same complete gate as local pushes
+        run: make test-all
+        env:
+          TOOLBOX_E2E_REVISION: ${{ github.sha }}
+      - name: Preserve acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: full-acceptance
+          path: /tmp/toolbox-test-evidence.*/
+          if-no-files-found: warn
