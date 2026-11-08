@@ -148,6 +148,7 @@ func (f *fixture) authorize(w http.ResponseWriter, r *http.Request, alias string
 	callback.Set("code", code)
 	callback.Set("state", q.Get("state"))
 	redirect.RawQuery = callback.Encode()
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Synthetic IdP accepts HTTPS broker callbacks for its configured test provider.
 	http.Redirect(w, r, redirect.String(), http.StatusFound)
 }
 
