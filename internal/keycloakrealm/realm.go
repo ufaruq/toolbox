@@ -134,9 +134,12 @@ func validate(cfg Config) error {
 	if google && (!value(cfg.GoogleClientID, 2048) || !value(cfg.GoogleClientSecret, 4096) || !hostedDomain(cfg.GoogleHostedDomain)) {
 		return errors.New("Google requires a client ID, client secret and exact Workspace hosted domain")
 	}
+	if len(cfg.MCPClients) > 128 {
+		return errors.New("too many MCP client registrations")
+	}
 	for id, name := range cfg.MCPClients {
 		redirects := cfg.MCPRedirectURIs[id]
-		if !clientID(id) || id == cfg.OwnerClientID || id == cfg.Origin+"/mcp" || !value(name, 2048) || len(redirects) == 0 {
+		if !clientID(id) || id == cfg.OwnerClientID || id == cfg.Origin+"/mcp" || !value(name, 256) || len(redirects) == 0 {
 			return errors.New("invalid MCP client registration")
 		}
 		for _, raw := range redirects {
@@ -159,7 +162,7 @@ func value(v string, limit int) bool {
 }
 
 func clientID(id string) bool {
-	if !value(id, 2048) || strings.ContainsFunc(id, unicode.IsSpace) {
+	if !value(id, 256) || strings.ContainsFunc(id, unicode.IsSpace) {
 		return false
 	}
 	switch id {

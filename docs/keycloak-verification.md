@@ -65,3 +65,22 @@ repeat login, preserved owner data, same-email isolation, fresh caller approval,
 document reads, revocation, disconnect and logout with those real accounts.
 Existing grants are retained but are not silently transferred to a newly
 approved MCP agent. mTLS/IAP and production deployment remain separate work.
+
+## Review fixes validated locally, 8 November 2026
+
+Realm generation now rejects owner/MCP IDs and MCP display names above 256
+bytes and MCP maps above 128 clients. Boundary regressions first failed on
+257-byte values and 129 clients, then passed with the fix; 256-byte and
+128-client controls remain accepted by the runtime validators.
+
+Caller-profile validation now checks the named owner and exact alias map after
+identity uniqueness validation, avoiding a full user scan per profile. Existing
+primary/alias ownership and SQL constraint tests passed. On an Apple M3 Max,
+validation of 5,000 users/profiles fell from approximately 270 ms to 1.8 ms for
+primary identities and from 158 ms to 2.8 ms for aliases. These measurements
+exclude SQL, cloning and race instrumentation; the benchmark is retained.
+
+`make check` passed with local PostgreSQL/OpenBao enabled, including the full
+race suite. Real pinned Keycloak acceptance passed under the race detector in
+18.93 seconds in Linux/Docker with controlled upstreams. Live provider and
+production acceptance limitations above still apply.

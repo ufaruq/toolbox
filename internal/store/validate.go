@@ -66,9 +66,16 @@ func validate(old, s *domain.State) error {
 		if k == "" || k != v.ID || v.Issuer == "" || v.UserID == "" || v.ClientID == "" || (v.Status != "active" && v.Status != "disabled") || v.ApprovedAt.IsZero() || v.ExpiresAt.IsZero() || !v.ExpiresAt.After(v.ApprovedAt) {
 			return invalid("caller profile")
 		}
-		owner, ok := domain.ResolveIdentity(s, v.Issuer, v.UserID)
+		// Primary/alias uniqueness and alias ownership were checked above.
+		// Resolve only this profile's owner instead of scanning every user.
+		owner, ok := s.Users[v.OwnerID]
+		matches := ok && owner.Issuer == v.Issuer && owner.Subject == v.UserID
+		if !matches {
+			alias, exists := s.IdentityAliases[domain.IdentityKey(v.Issuer, v.UserID)]
+			matches = ok && exists && alias.OwnerID == v.OwnerID
+		}
 		agent, aok := s.Agents[v.AgentID]
-		if !ok || !aok || agent.OwnerID != v.OwnerID || owner.ID != v.OwnerID {
+		if !matches || !aok || agent.OwnerID != v.OwnerID || owner.ID != v.OwnerID {
 			return invalid("caller profile owner identity")
 		}
 		identity := [3]string{v.Issuer, v.UserID, v.ClientID}
