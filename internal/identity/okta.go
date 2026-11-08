@@ -1,6 +1,6 @@
-// Package identity verifies user identities against one configured Okta custom
-// authorization server. Configure its immutable uid claim on BOTH the owner's
-// ID tokens and the MCP API access tokens; sub is deliberately not an owner key.
+// Package identity verifies user identities with explicit Okta or Keycloak
+// policies. The direct Okta policy uses immutable uid claims; the Keycloak MCP
+// policy uses the configured realm's sub and requires a user-session token.
 package identity
 
 import (
@@ -47,6 +47,7 @@ type Service struct {
 	ownerIssuer                   string
 	clients                       map[string]string
 	ownerClientID                 string
+	keycloakAudience              string
 	client                        *http.Client
 	oauth                         oauth2.Config
 	accessVerifier, ownerVerifier *oidc.IDTokenVerifier
@@ -113,9 +114,12 @@ func newIdentity(ctx context.Context, cfg Config, accessOnly bool) (*Service, er
 }
 
 // VerifyAccess verifies the API JWT's signature, issuer and audience using the
-// maintained OIDC verifier, then applies Okta user-access-token policy. This is
+// maintained OIDC verifier, then applies the selected user-access-token policy. This is
 // unrelated to IDToken.VerifyAccessToken, which only checks an at_hash binding.
 func (s *Service) VerifyAccess(ctx context.Context, raw string) (Claims, error) {
+	if s.keycloakAudience != "" {
+		return s.verifyKeycloakAccess(ctx, raw)
+	}
 	if len(raw) == 0 || len(raw) > 16384 {
 		return Claims{}, errAccess
 	}

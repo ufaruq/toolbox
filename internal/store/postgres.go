@@ -158,7 +158,7 @@ func (p *Postgres) Transact(ctx context.Context, fn func(*domain.State) error) e
 	return dbError(tx.Commit(ctx))
 }
 
-var tableNames = []string{"users", "agents", "caller_profiles", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "owner_login_transactions", "cleanup_outbox", "audit_events"}
+var tableNames = []string{"users", "identity_aliases", "agents", "caller_profiles", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "owner_login_transactions", "cleanup_outbox", "audit_events"}
 
 func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 	s := domain.NewState()
@@ -187,6 +187,8 @@ func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 		switch table {
 		case "users":
 			err = decode(raw, s.Users, func(v domain.User) string { return v.ID })
+		case "identity_aliases":
+			err = decode(raw, s.IdentityAliases, func(v domain.IdentityAlias) string { return domain.IdentityKey(v.Issuer, v.Subject) })
 		case "agents":
 			err = decode(raw, s.Agents, func(v domain.Agent) string { return v.ID })
 		case "caller_profiles":
@@ -301,6 +303,7 @@ func syncState(ctx context.Context, tx pgx.Tx, old, s *domain.State) error {
 		func() error { return remove(ctx, tx, "agents", old.Agents, s.Agents) },
 		func() error { return remove(ctx, tx, "users", old.Users, s.Users) },
 		func() error { return upsert(ctx, tx, "users", old.Users, s.Users, nil) },
+		func() error { return insertIdentityAliases(ctx, tx, old.IdentityAliases, s.IdentityAliases) },
 		func() error { return upsert(ctx, tx, "agents", old.Agents, s.Agents, nil) },
 		func() error { return upsert(ctx, tx, "caller_profiles", old.CallerProfiles, s.CallerProfiles, nil) },
 		func() error { return upsert(ctx, tx, "credentials", old.Credentials, s.Credentials, nil) },
@@ -327,6 +330,27 @@ func syncState(ctx context.Context, tx pgx.Tx, old, s *domain.State) error {
 			return err
 		}
 		if _, err = tx.Exec(ctx, "INSERT INTO audit_events(payload) VALUES($1)", body); err != nil {
+			return dbError(err)
+		}
+	}
+	return nil
+}
+
+func insertIdentityAliases(ctx context.Context, tx pgx.Tx, old, next map[string]domain.IdentityAlias) error {
+	keys := make([]string, 0, len(next))
+	for k := range next {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if _, exists := old[k]; exists {
+			continue
+		}
+		body, err := json.Marshal(next[k])
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, "INSERT INTO identity_aliases(payload) VALUES($1)", body); err != nil {
 			return dbError(err)
 		}
 	}

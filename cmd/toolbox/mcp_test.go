@@ -33,3 +33,30 @@ func TestOptionalMCPConfigPinsOwnerTenantAndClients(t *testing.T) {
 		t.Fatal("existing Workspace configuration must keep MCP optional")
 	}
 }
+
+func TestKeycloakMCPConfiguration(t *testing.T) {
+	values := map[string]string{"TOOLBOX_IDENTITY_PROVIDER": "keycloak", "TOOLBOX_MCP_ISSUER": "https://login.example/realms/toolbox", "TOOLBOX_MCP_CLIENTS": `{"code-client":"Local agent"}`}
+	get := func(k string) string { return values[k] }
+	cfg, err := loadMCPConfig(get, "https://login.example/realms/toolbox", "owner-client", "http://127.0.0.1:8080")
+	if err != nil || cfg == nil {
+		t.Fatalf("Keycloak realm rejected: %v", err)
+	}
+	for _, issuer := range []string{"https://login.example/realms/other", "https://login.example", "https://other.example/realms/toolbox", "http://login.example/realms/toolbox"} {
+		values["TOOLBOX_MCP_ISSUER"] = issuer
+		if _, err = loadMCPConfig(get, "https://login.example/realms/toolbox", "owner-client", "http://127.0.0.1:8080"); err == nil {
+			t.Fatalf("unbound Keycloak issuer accepted: %s", issuer)
+		}
+	}
+}
+
+func TestUnknownIdentityBackendRejected(t *testing.T) {
+	_, err := loadMCPConfig(func(k string) string {
+		if k == "TOOLBOX_IDENTITY_PROVIDER" {
+			return "oidc-anything"
+		}
+		return ""
+	}, "https://tenant.okta.example", "owner-client", "http://127.0.0.1:8080")
+	if err == nil {
+		t.Fatal("unknown backend silently disabled MCP")
+	}
+}

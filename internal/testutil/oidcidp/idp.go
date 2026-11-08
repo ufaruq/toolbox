@@ -232,6 +232,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	redirect := s.redirects[r.URL.Path]
 	s.mu.Unlock()
 	if redirect != "" {
+		// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Test-only redirect injection is intentional to test rejection by clients.
 		http.Redirect(w, r, redirect, http.StatusFound)
 		return
 	}
@@ -324,6 +325,7 @@ func (s *Server) serveAuthorize(w http.ResponseWriter, r *http.Request) {
 	callback.Set("code", code)
 	callback.Set("state", q.Get("state"))
 	redirectURI.RawQuery = callback.Encode()
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Test-only identity provider intentionally accepts synthetic client callback URLs.
 	http.Redirect(w, r, redirectURI.String(), http.StatusFound)
 }
 
@@ -364,6 +366,7 @@ func (s *Server) serveToken(w http.ResponseWriter, r *http.Request) {
 	response := s.tokenResponse
 	s.mu.Unlock()
 	if redirect != "" {
+		// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Test-only redirect injection is intentional to test rejection by clients.
 		http.Redirect(w, r, redirect, http.StatusFound)
 		return
 	}

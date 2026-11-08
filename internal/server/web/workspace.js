@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 let csrf = '', reviewed = null, reviewGeneration = 0, uiEpoch = 0, resultGeneration = 0, approvedFile = '';
 let pickerReady = null;
-let callerProfiles = [];
+let callerProfiles = [], callerIssuer = '';
 const tool = 'google_drive.read_document.v1';
 const approvalReturnKey = 'toolbox.approvalReturn';
 const validApprovalPath = path => /^\/approve\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(path);
@@ -35,7 +35,7 @@ function clearResult() { resultGeneration++; approvedFile = ''; $('grant-id').va
 function showSignedOut() {
  uiEpoch++; resultGeneration++; csrf = ''; approvedFile = ''; invalidateReview();
  $('callers-panel').hidden = true; $('caller-list').replaceChildren();
- callerProfiles = []; $('caller-status').textContent = '';
+ callerProfiles = []; callerIssuer = ''; $('caller-status').textContent = '';
  $('workspace').hidden = true; $('login-panel').hidden = false; $('logout').hidden = true;
  $('agent-credential').value = ''; $('agent-id').textContent = ''; $('document').textContent = ''; $('audit-output').textContent = '';
  $('request-id').value = ''; $('grant-id').value = ''; $('result-panel').hidden = true; $('approval-panel').hidden = true;
@@ -88,7 +88,7 @@ action('logout', async () => {
   try { await request('/v1/session'); } catch (current) { if (current.status === 403) { showSignedOut(); $('status').textContent = 'Your Toolbox session has ended.'; return; } throw current; }
   throw error;
  }
- showSignedOut(); $('status').textContent = 'Signed out of Toolbox. Your Okta session may still be active.';
+ showSignedOut(); $('status').textContent = 'Signed out of Toolbox. Your identity provider session may still be active.';
 });
 action('connect', async () => { $('connection-status').textContent = 'Opening Google consent…'; const value = await request('/v1/connections/google/start', {}); location.assign(value.authorization_url); });
 action('disconnect', async () => {
@@ -199,6 +199,7 @@ async function loadCallers() {
  for (const [id, label] of Object.entries(value.clients)) $('caller-client').add(new Option(label + ' · ' + id, id));
  if ([...$('caller-client').options].some(x => x.value === previous)) $('caller-client').value = previous;
  callerProfiles = value.callers;
+ callerIssuer = value.owner_issuer;
  syncCallerButton();
  $('callers-panel').hidden = false;
  $('caller-list').replaceChildren();
@@ -250,7 +251,7 @@ async function loadCallers() {
  }
 }
 function syncCallerButton() {
- const profile = callerProfiles.find(p => p.client_id === $('caller-client').value);
+ const profile = callerProfiles.find(p => p.issuer === callerIssuer && p.client_id === $('caller-client').value);
  $('create-caller').disabled = !!profile || !$('caller-client').value;
  $('create-caller').textContent = profile ? 'Caller already registered' : 'Approve caller';
  const wasDisabled = $('caller-label').disabled;

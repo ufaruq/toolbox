@@ -44,8 +44,8 @@ func profileForAgent(st *domain.State, agentID string) (domain.CallerProfile, bo
 }
 func profileActive(st *domain.State, p domain.CallerProfile, tool string) bool {
 	a := st.Agents[p.AgentID]
-	u := st.Users[p.OwnerID]
-	return p.Status == "active" && st.Now.Before(p.ExpiresAt) && a.Status == "active" && a.OwnerID == p.OwnerID && u.Status == "active" && u.Issuer == p.Issuer && u.Subject == p.UserID && (tool == "" || domain.HasScope(p.Tools, tool))
+	u, ok := domain.ResolveIdentity(st, p.Issuer, p.UserID)
+	return ok && u.ID == p.OwnerID && p.Status == "active" && st.Now.Before(p.ExpiresAt) && a.Status == "active" && a.OwnerID == p.OwnerID && u.Status == "active" && (tool == "" || domain.HasScope(p.Tools, tool))
 }
 func authorizeAgent(st *domain.State, access agentAccess, tool string) error {
 	a := st.Agents[access.AgentID]
