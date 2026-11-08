@@ -15,7 +15,7 @@ func validate(old, s *domain.State) error {
 	if s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.OwnerLogins == nil || s.Cleanup == nil {
 		return invalid("nil collection")
 	}
-	if s.CallerProfiles == nil {
+	if s.CallerProfiles == nil || s.IdentityAliases == nil {
 		return invalid("nil caller profiles")
 	}
 	identities := map[string]bool{}
@@ -23,13 +23,30 @@ func validate(old, s *domain.State) error {
 		if k == "" || k != v.ID || v.Issuer == "" || v.Subject == "" || v.Status == "" {
 			return invalid("user")
 		}
-		key := v.Issuer + "\x00" + v.Subject
+		key := domain.IdentityKey(v.Issuer, v.Subject)
 		if identities[key] {
 			return invalid("duplicate user identity")
 		}
 		identities[key] = true
 		if previous, ok := old.Users[k]; ok && (previous.Issuer != v.Issuer || previous.Subject != v.Subject) {
 			return invalid("user identity changed")
+		}
+	}
+	for k, v := range s.IdentityAliases {
+		if v.Issuer == "" || v.Subject == "" || v.OwnerID == "" || k != domain.IdentityKey(v.Issuer, v.Subject) {
+			return invalid("identity alias")
+		}
+		if _, ok := s.Users[v.OwnerID]; !ok {
+			return invalid("identity alias owner")
+		}
+		if identities[k] {
+			return invalid("duplicate primary or alias identity")
+		}
+		identities[k] = true
+	}
+	for k, previous := range old.IdentityAliases {
+		if v, ok := s.IdentityAliases[k]; !ok || previous != v {
+			return invalid("identity alias mutation")
 		}
 	}
 	for k, v := range s.Agents {
@@ -49,9 +66,16 @@ func validate(old, s *domain.State) error {
 		if k == "" || k != v.ID || v.Issuer == "" || v.UserID == "" || v.ClientID == "" || (v.Status != "active" && v.Status != "disabled") || v.ApprovedAt.IsZero() || v.ExpiresAt.IsZero() || !v.ExpiresAt.After(v.ApprovedAt) {
 			return invalid("caller profile")
 		}
+		// Primary/alias uniqueness and alias ownership were checked above.
+		// Resolve only this profile's owner instead of scanning every user.
 		owner, ok := s.Users[v.OwnerID]
+		matches := ok && owner.Issuer == v.Issuer && owner.Subject == v.UserID
+		if !matches {
+			alias, exists := s.IdentityAliases[domain.IdentityKey(v.Issuer, v.UserID)]
+			matches = ok && exists && alias.OwnerID == v.OwnerID
+		}
 		agent, aok := s.Agents[v.AgentID]
-		if !ok || !aok || agent.OwnerID != v.OwnerID || owner.Issuer != v.Issuer || owner.Subject != v.UserID {
+		if !matches || !aok || agent.OwnerID != v.OwnerID || owner.ID != v.OwnerID {
 			return invalid("caller profile owner identity")
 		}
 		identity := [3]string{v.Issuer, v.UserID, v.ClientID}

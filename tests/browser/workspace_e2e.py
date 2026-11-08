@@ -24,7 +24,7 @@ def main():
     stage='initialization'
     errors=[]
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=True,args=['--no-sandbox','--ignore-certificate-errors-spki-list='+os.environ['TOOLBOX_WORKSPACE_TEST_SPKI']])
+        browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TOOLBOX_BROWSER_EXECUTABLE'),args=['--no-sandbox','--ignore-certificate-errors-spki-list='+os.environ['TOOLBOX_WORKSPACE_TEST_SPKI']])
         context=browser.new_context(viewport={'width':1200,'height':900})
         page=context.new_page()
         page.on('pageerror',lambda _:errors.append(True))
