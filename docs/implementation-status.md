@@ -1,3 +1,5 @@
+> Historical checkpoint: statements below apply to the recorded revision. For current behavior, start with the [project overview](../README.md) and [architecture](architecture/README.md). Retest the current revision before claiming readiness.
+
 # Implementation and verification status
 
 This page records evidence, not the task backlog. See the [roadmap](ROADMAP.md) for remaining work and the [handoff](HANDOFF.md) for continuation. Earlier results are preserved in the [historical ledger](history/implementation-checkpoints.md).

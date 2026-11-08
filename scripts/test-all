@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Full, isolated local/CI suite. Does not read .env or contact real providers.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+command -v docker >/dev/null || { echo 'Docker is required; no tests were run.' >&2; exit 1; }
+docker info >/dev/null
+docker compose version >/dev/null
+
+temp_root=/tmp
+if [[ -d /private/tmp ]]; then temp_root=/private/tmp; fi
+scratch=$(mktemp -d "$temp_root/toolbox-test-all.XXXXXX")
+evidence=$(mktemp -d "$temp_root/toolbox-test-evidence.XXXXXX")
+project="toolbox-check-$(basename "$scratch" | tr '[:upper:].' '[:lower:]-')"
+compose=(docker compose -p "$project" -f "$root/compose.yaml" -f "$scratch/ports.yaml")
+cleanup() {
+  status=$?
+  trap - EXIT
+  docker rm -f "$project-runner" >/dev/null 2>&1 || true
+  "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$scratch"
+  printf 'Test evidence: %s\n' "$evidence"
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+cat > "$scratch/ports.yaml" <<'YAML'
+services:
+  postgres:
+    ports: !override []
+  openbao:
+    ports: !override []
+YAML
+# !override requires Docker Compose >= 2.24.4; old versions fail here.
+"${compose[@]}" config --quiet
+# Send only the runner recipe and pinned Python requirements to the builder.
+mkdir -p "$scratch/build/tests/browser"
+cp "$root/tests/runner/Dockerfile" "$scratch/build/Dockerfile"
+cp "$root/tests/browser/requirements.txt" "$scratch/build/tests/browser/requirements.txt"
+runner=$(docker build --quiet "$scratch/build")
+"${compose[@]}" up -d --wait
+"${compose[@]}" exec -T postgres createdb -U toolbox toolbox_test
+"${compose[@]}" exec -T openbao bao write secret/config cas_required=true max_versions=3
+pg_host=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$("${compose[@]}" ps -q postgres)")
+bao_host=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$("${compose[@]}" ps -q openbao)")
+[[ -n "$pg_host" && -n "$bao_host" ]]
+# The real gateway test requires the same pinned images as hosted CI.
+docker pull quay.io/keycloak/keycloak@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+docker pull docker/mcp-gateway@sha256:b0a3876ffbb352813d658cf25c137b8eae29bbe23db5944560a1c9059533bb16
+docker pull ghcr.io/github/github-mcp-server@sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132
+# Host networking here is the Docker Engine's Linux network namespace. Test
+# fixtures must reach their dedicated bridge addresses. Identical host/container
+# temp paths let sibling test containers mount only their generated fixtures.
+docker run --rm --name "$project-runner" --network host --add-host "openbao:$bao_host" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$root:$root:ro" -v "$scratch:$scratch" -v "$evidence:$evidence" \
+  -v toolbox-test-go:/go -v toolbox-test-build:/root/.cache/go-build \
+  -w "$root" -e TMPDIR="$scratch" -e TOOLBOX_BROWSER_ARTIFACT_DIR="$evidence" \
+  -e TOOLBOX_E2E_REVISION="${TOOLBOX_E2E_REVISION:-working-tree}" \
+  -e TOOLBOX_TEST_DATABASE_URL="postgres://toolbox:fixture-only@$pg_host:5432/toolbox_test?sslmode=disable&application_name=toolbox-lock-test" \
+  -e TOOLBOX_TEST_OPENBAO_ADDR="http://openbao:8200" \
+  -e TOOLBOX_TEST_OPENBAO_TOKEN=fixture-only \
+  -e DATABASE_URL="postgres://toolbox:fixture-only@$pg_host:5432/toolbox?sslmode=disable" \
+  -e OPENBAO_ADDR="http://openbao:8200" -e OPENBAO_TOKEN=fixture-only \
+  "$runner" bash tests/runner/run.sh

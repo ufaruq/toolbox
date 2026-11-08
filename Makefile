@@ -39,3 +39,21 @@ mcp-gateway-check:
 # Real Keycloak broker, controlled upstream identities; no personal credentials.
 keycloak-check:
 	TOOLBOX_TEST_KEYCLOAK=1 go test -race -count=1 ./internal/app -run '^TestKeycloakBrokerFlow$$' -v -timeout=9m
+
+# Complete acceptance, including browser, store, Keycloak and MCP opt-ins.
+.PHONY: test-all install-hooks
+test-all:
+	./scripts/test-all
+
+install-hooks:
+	@set -eu; \
+	gate_dir="$$(git rev-parse --path-format=absolute --git-common-dir)/toolbox-hooks"; \
+	current="$$(git config --local --get core.hooksPath || true)"; \
+	if [ -n "$$current" ] && [ "$$current" != "$$gate_dir" ]; then \
+	  echo "Existing hooksPath $$current: integrate the Toolbox pre-push gate before replacing it." >&2; exit 1; \
+	fi; \
+	mkdir -p "$$gate_dir"; \
+	cp .githooks/pre-push "$$gate_dir/pre-push"; \
+	chmod +x "$$gate_dir/pre-push"; \
+	git config --local core.hooksPath "$$gate_dir"
+	@echo 'Installed the mandatory pre-push gate for this clone/worktree group.'

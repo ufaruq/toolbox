@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+head=$(git rev-parse HEAD)
+needs_tests=false
+while read -r local_ref local_oid remote_ref remote_oid; do
+  # Deleting a remote ref does not introduce code.
+  if [[ "$local_oid" =~ ^0+$ ]]; then continue; fi
+  commit=$(git rev-parse --verify "${local_oid}^{commit}")
+  if [[ "$commit" != "$head" ]]; then
+    echo 'Push blocked: check out the commit being pushed and push it separately.' >&2
+    exit 1
+  fi
+  needs_tests=true
+done
+if [[ "$needs_tests" == false ]]; then exit 0; fi
+
+# Validate exactly the committed tree, excluding untracked/private files and
+# uncommitted fixes that could make a broken commit appear to pass.
+temp_root=/tmp
+if [[ -d /private/tmp ]]; then temp_root=/private/tmp; fi
+snapshot=$(mktemp -d "$temp_root/toolbox-push-source.XXXXXX")
+trap 'rm -rf "$snapshot"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+git -C "$root" archive "$head" | tar -x -C "$snapshot"
+if [[ ! -x "$snapshot/scripts/test-all" ]]; then
+  echo 'Push blocked: the pushed commit must include executable scripts/test-all.' >&2
+  exit 1
+fi
+printf 'Validating pushed commit %s\n' "$head"
+TOOLBOX_E2E_REVISION="$head" "$snapshot/scripts/test-all"
+echo 'Pre-push checks passed for the pushed commit.'
