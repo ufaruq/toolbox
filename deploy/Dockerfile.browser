@@ -1,0 +1,8 @@
+FROM mcr.microsoft.com/playwright/python:v1.62.0-noble
+WORKDIR /tests
+COPY tests/browser/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY tests/browser ./browser
+COPY tests/deployment ./deployment
+ENV HOME=/tmp PLAYWRIGHT_BROWSERS_PATH=/ms-playwright TOOLBOX_BROWSER_ARTIFACT_DIR=/evidence
+CMD ["sh", "-c", "python browser/fixture_e2e.py && python browser/review_race.py"]

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+cd "$(dirname "$0")/.."
+[[ $# == 1 ]] || exit 2
+command -v gcloud >/dev/null || { echo 'Install the Google Cloud CLI first.' >&2; exit 1; }
+# Terraform outputs contain only resource references, never secret values.
+project=$(scripts/gcp-terraform output -raw project_id)
+zone=$(scripts/gcp-terraform output -raw zone)
+instance=$(scripts/gcp-terraform output -raw instance)
+repository=$(scripts/gcp-terraform output -raw image_repository)
+registry=${repository%%/*}
+mkdir -p .deploy
+case "$1" in
+ publish)
+  gcloud auth configure-docker "$registry" --quiet
+  revision=$(git rev-parse HEAD)
+  docker buildx build --platform linux/amd64 --target runtime -t "$repository:$revision" --push .
+  digest=$(gcloud artifacts docker images describe "$repository:$revision" --project "$project" --format='value(image_summary.digest)')
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'No immutable registry digest returned.' >&2; exit 1; }
+  printf '%s@%s\n' "$repository" "$digest" > .deploy/release-image
+  ;;
+ prepare|deploy)
+  [[ -f .deploy/release-image ]] || { echo 'Run make gcp-publish first.' >&2; exit 1; }
+  image=$(cat .deploy/release-image)
+  [[ "$image" =~ ^[a-zA-Z0-9./_:-]+@sha256:[0-9a-f]{64}$ ]] || exit 2
+  [[ "${TOOLBOX_ORIGIN:-}" =~ ^https://[a-zA-Z0-9.-]+(:[0-9]+)?$ ]] || { echo 'Set TOOLBOX_ORIGIN to the intended HTTPS origin.' >&2; exit 2; }
+  kms=$(scripts/gcp-terraform output -raw kms_key)
+  tar -cf .deploy/gcp-release.tar deploy scripts Makefile Dockerfile .dockerignore
+  gcloud compute ssh "$instance" --project "$project" --zone "$zone" --tunnel-through-iap --command='sudo install -d -m 0700 -o "$(id -u)" -g "$(id -g)" /var/lib/toolbox/release; sudo usermod -aG docker "$USER"'
+  gcloud compute scp .deploy/gcp-release.tar "$instance:~/toolbox-release.tar" --project "$project" --zone "$zone" --tunnel-through-iap
+  printf -v environment '%q ' env TOOLBOX_ENV=production "TOOLBOX_IMAGE=$image" "TOOLBOX_KMS_KEY=$kms" "TOOLBOX_ORIGIN=$TOOLBOX_ORIGIN"
+  printf -v registry_arg '%q' "$registry"
+  remote='set -euo pipefail; cd /var/lib/toolbox/release; tar -xf ~/toolbox-release.tar; mkdir -p ~/.docker; chmod 700 ~/.docker; '
+  remote+='curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | python3 -c '\''import json,sys; print(json.load(sys.stdin)["access_token"])'\'' | docker login --username oauth2accesstoken --password-stdin '
+  remote+="$registry_arg; $environment scripts/deploy init; $environment scripts/deploy prepare"
+  if [[ "$1" == deploy ]]; then remote+="; $environment scripts/deploy up"; fi
+  gcloud compute ssh "$instance" --project "$project" --zone "$zone" --tunnel-through-iap --command="$remote"
+  echo 'VM storage preparation complete. Production serving remains gated on owner OIDC and live Google validation.'
+  ;;
+ *) exit 2 ;;
+esac

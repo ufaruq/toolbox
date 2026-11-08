@@ -22,6 +22,7 @@ type Config struct {
 	Repository     domain.Repository
 	Signer         *security.Signer
 	Pepper         []byte
+	PepperKeys     *security.PepperRing
 	SessionPepper  []byte
 	Origin         string
 	Fixture        bool
@@ -64,11 +65,18 @@ type Document struct {
 }
 
 func New(cfg Config, integration Integration) (*Server, error) {
-	if cfg.Repository == nil || len(cfg.Pepper) < 32 || cfg.Origin == "" ||
+	if cfg.Repository == nil || cfg.PepperKeys == nil && len(cfg.Pepper) < 32 || cfg.Origin == "" ||
 		(cfg.OwnerOnly && (cfg.Fixture || cfg.OwnerLogin == nil || !validOwnerOrigin(cfg.Origin))) ||
 		(!cfg.OwnerOnly && (cfg.Signer == nil || integration == nil || cfg.OwnerLogin != nil && !cfg.WorkspaceLocal)) ||
 		(cfg.WorkspaceLocal && (cfg.Fixture || cfg.OwnerOnly || cfg.OwnerLogin == nil || len(cfg.SessionPepper) != 32 || !validOwnerOrigin(cfg.Origin))) {
 		return nil, errors.New("invalid server configuration")
+	}
+	if cfg.PepperKeys == nil {
+		var err error
+		cfg.PepperKeys, err = security.LegacyPepperRing(cfg.Pepper)
+		if err != nil {
+			return nil, errors.New("invalid server configuration")
+		}
 	}
 	if cfg.Identity != nil && cfg.OwnerLogin != nil {
 		binding, ok := cfg.Identity.(interface{ OwnerIssuer() string })
@@ -249,6 +257,11 @@ func (s *Server) owner(r *http.Request, mutate bool) (domain.Session, error) {
 		if s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, v.ID) {
 			return domain.ErrDenied
 		}
+		if s.OwnerLogin == nil {
+			if _, err := s.PepperKeys.Hash(v.PepperID, c.Value); err != nil {
+				return domain.ErrDenied
+			}
+		}
 		if mutate && !security.Equal(v.CSRFHash, security.Hash(r.Header.Get("X-CSRF-Token"))) {
 			return domain.ErrDenied
 		}
@@ -278,8 +291,13 @@ func (s *Server) agent(r *http.Request) (domain.Agent, string, error) {
 	e = s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		c, ok := st.Credentials[id]
 		v := st.Agents[c.AgentID]
-		if !ok || authorizeAgent(st, agentAccess{AgentID: v.ID, CredentialID: id}, "") != nil || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
+		if !ok || authorizeAgent(st, agentAccess{AgentID: v.ID, CredentialID: id}, "") != nil || !s.PepperKeys.Verify(c.PepperID, secret, c.Hash) {
 			return domain.ErrDenied
+		}
+		if c.PepperID != s.PepperKeys.ActiveID() {
+			c.Hash, _ = s.PepperKeys.Hash(s.PepperKeys.ActiveID(), secret)
+			c.PepperID = s.PepperKeys.ActiveID()
+			st.Credentials[id] = c
 		}
 		a = v
 		return nil

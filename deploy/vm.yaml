@@ -1,0 +1,8 @@
+# Keep PostgreSQL on the attached data disk rather than the boot disk.
+volumes:
+  postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/toolbox/postgres

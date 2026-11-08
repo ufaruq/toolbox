@@ -1,0 +1,20 @@
+x-local-env: &local
+  TOOLBOX_MODE: fixture
+  TOOLBOX_CONTAINER_FIXTURE: "1"
+  TOOLBOX_ORIGIN: http://127.0.0.1:18080
+  TOOLBOX_KEY_PROVIDER: local
+  TOOLBOX_LOCAL_KEY_FILE: /run/toolbox/local-root
+services:
+  app:
+    command: [fixture]
+    environment: *local
+    volumes: [../.deploy/secrets/local-root:/run/toolbox/local-root:ro]
+  preflight:
+    environment: *local
+    volumes: [../.deploy/secrets/local-root:/run/toolbox/local-root:ro]
+  cleanup:
+    environment: *local
+    volumes: [../.deploy/secrets/local-root:/run/toolbox/local-root:ro]
+  retention:
+    environment: *local
+    volumes: [../.deploy/secrets/local-root:/run/toolbox/local-root:ro]

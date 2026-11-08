@@ -1,0 +1,54 @@
+services:
+  postgres-test:
+    profiles: [verify]
+    image: postgres:17.11
+    environment: {POSTGRES_USER: toolbox, POSTGRES_PASSWORD: fixture-only, POSTGRES_DB: toolbox_test}
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, toolbox, -d, toolbox_test]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [verification]
+  openbao:
+    profiles: [verify]
+    image: openbao/openbao:2.4.1
+    command: server -dev -dev-root-token-id=fixture-only -dev-listen-address=0.0.0.0:8200
+    environment: {BAO_ADDR: "http://127.0.0.1:8200", BAO_TOKEN: fixture-only}
+    healthcheck:
+      test: [CMD, bao, status]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [verification]
+  tests:
+    profiles: [verify]
+    image: toolbox-tests:local
+    build: {context: .., target: test}
+    environment:
+      TOOLBOX_TEST_DATABASE_URL: postgres://toolbox:fixture-only@postgres-test:5432/toolbox_test?sslmode=disable&application_name=toolbox-lock-test
+      TOOLBOX_TEST_OPENBAO_ADDR: http://openbao:8200
+      TOOLBOX_TEST_OPENBAO_TOKEN: fixture-only
+    networks: [verification]
+  browser:
+    profiles: [verify]
+    image: toolbox-browser:local
+    build: {context: .., dockerfile: deploy/Dockerfile.browser}
+    user: "${TOOLBOX_UID:-1000}:${TOOLBOX_GID:-1000}"
+    network_mode: service:app
+    volumes: [../.evidence:/evidence, ../.deploy/verification:/state]
+    shm_size: 512m
+  terraform:
+    profiles: [verify]
+    image: hashicorp/terraform:1.13.3
+    working_dir: /infra
+    user: "${TOOLBOX_UID:-1000}:${TOOLBOX_GID:-1000}"
+    volumes: [../infra/gcp/vm:/infra]
+
+  host-checks:
+    profiles: [verify]
+    image: toolbox-host-checks:local
+    build: {context: .., dockerfile: deploy/Dockerfile.host-checks}
+
+networks:
+  verification: {internal: true}

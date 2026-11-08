@@ -22,10 +22,12 @@ type IdentityAlias struct{ Issuer, Subject, OwnerID string }
 type Agent struct{ ID, OwnerID, Name, Status string }
 type Credential struct {
 	ID, AgentID, Hash, Status string
+	PepperID                  string
 	ExpiresAt                 time.Time
 }
 type Session struct {
 	ID, UserID, CSRFHash string
+	PepperID             string
 	ExpiresAt            time.Time
 }
 
@@ -82,8 +84,11 @@ type Audit struct {
 	Bytes                                                                                           int
 }
 type Cleanup struct {
-	ID, ConnectionID, OwnerID, Status string
-	Epoch                             int64
+	CreatedAt, LastAttemptAt, NextAttemptAt time.Time
+	Attempts                                int
+	LastError                               string
+	ID, ConnectionID, OwnerID, Status       string
+	Epoch                                   int64
 }
 
 // State is a transaction snapshot. Never retain its maps or pointers after Transact.

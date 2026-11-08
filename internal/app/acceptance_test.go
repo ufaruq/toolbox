@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ufaruq/toolbox/internal/secretstore"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -24,6 +26,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/oauth"
 	"github.com/ufaruq/toolbox/internal/ownerlogin"
+	"github.com/ufaruq/toolbox/internal/recovery"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
@@ -99,13 +102,13 @@ func TestWorkspaceRoutesRequireVerifiedOwnerAndSeparateSessionPepper(t *testing.
 }
 
 type countSecrets struct {
-	*tokens.MemorySecretStore
+	oauth.SecretStore
 	Reads atomic.Int64
 }
 
 func (s *countSecrets) Get(ctx context.Context, path string) (tokens.Bundle, int64, error) {
 	s.Reads.Add(1)
-	return s.MemorySecretStore.Get(ctx, path)
+	return s.SecretStore.Get(ctx, path)
 }
 
 type harness struct {
@@ -120,11 +123,14 @@ type harness struct {
 }
 
 func newHarness(t *testing.T, repo domain.Repository) *harness {
+	return newHarnessWithSecrets(t, repo, tokens.NewMemorySecretStore())
+}
+func newHarnessWithSecrets(t *testing.T, repo domain.Repository, secrets oauth.SecretStore) *harness {
 	t.Helper()
 	if repo == nil {
 		repo = store.NewMemory()
 	}
-	h := &harness{t: t, repo: repo, drive: &app.FixtureDrive{}, secrets: &countSecrets{MemorySecretStore: tokens.NewMemorySecretStore()}}
+	h := &harness{t: t, repo: repo, drive: &app.FixtureDrive{}, secrets: &countSecrets{SecretStore: secrets}}
 	h.ts = httptest.NewUnstartedServer(nil)
 	origin := "http://" + h.ts.Listener.Addr().String()
 	provider, e := oauth.NewFixtureProvider("fixture-client", origin+"/oauth/callback")
@@ -497,7 +503,9 @@ func TestDisconnectBlocksAndCleansUp(t *testing.T) {
 		return nil
 	})
 }
-func TestPostgresFullAPIFlow(t *testing.T) {
+func TestPostgresFullAPIFlow(t *testing.T)          { postgresFullAPIFlow(t, false) }
+func TestEncryptedPostgresFullAPIFlow(t *testing.T) { postgresFullAPIFlow(t, true) }
+func postgresFullAPIFlow(t *testing.T, encrypted bool) {
 	dsn := os.Getenv("TOOLBOX_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("set TOOLBOX_TEST_DATABASE_URL for actual PostgreSQL API test")
@@ -540,9 +548,43 @@ func TestPostgresFullAPIFlow(t *testing.T) {
 	if e = repo.Migrate(context.Background()); e != nil {
 		t.Fatal(e)
 	}
-	h := newHarness(t, repo)
+	var secrets oauth.SecretStore = tokens.NewMemorySecretStore()
+	if encrypted {
+		pool, err := pgxpool.New(ctx, isolatedDSN)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pool.Close()
+		wrapper, err := secretstore.NewLocalWrapper(bytes.Repeat([]byte{7}, 32))
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err := secretstore.NewEnvelope(wrapper, "integration", schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = secretstore.Migrate(ctx, pool, schema); err != nil {
+			t.Fatal(err)
+		}
+		secrets, err = secretstore.NewPostgres(ctx, secretstore.PostgresConfig{Pool: pool, Schema: schema, Envelope: envelope})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newHarnessWithSecrets(t, repo, secrets)
 	h.approve()
 	h.invoke("doc-A", 200)
 	h.call("POST", "/v1/grants/"+h.grant+"/revoke", map[string]any{}, "", "", 200)
 	h.invoke("doc-A", 403)
+}
+
+func TestRecoveryBlocksPreRestoreAuthority(t *testing.T) {
+	h := newHarness(t, nil)
+	h.approve()
+	h.invoke("doc-A", 200)
+	if _, err := recovery.Invalidate(context.Background(), h.repo); err != nil {
+		t.Fatal(err)
+	}
+	h.invoke("doc-A", 401)
+	h.call("GET", "/v1/session", nil, "", "", 403)
 }

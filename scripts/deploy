@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+cd "$(dirname "$0")/.."
+export TOOLBOX_UID="$(id -u)" TOOLBOX_GID="$(id -g)"
+[[ "$TOOLBOX_UID" != 0 ]] || { echo "Run as an ordinary user with Docker access." >&2; exit 2; }
+command -v docker >/dev/null || { echo 'Docker with Compose is required.' >&2; exit 1; }
+files=(-f deploy/compose.yaml)
+case "${TOOLBOX_ENV:-local}" in
+ local) files+=(-f deploy/local.yaml) ;;
+ production) files+=(-f deploy/vm.yaml) ;;
+ *) echo 'TOOLBOX_ENV must be local or production.' >&2; exit 2 ;;
+esac
+compose() { docker compose "${files[@]}" "$@"; }
+[[ $# == 1 ]] || { echo 'Usage: scripts/deploy init|up|preflight|test|status|cleanup|retention|backup|restore-drill|monitor|stop' >&2; exit 2; }
+case "$1" in
+ init)
+  mkdir -p .deploy
+  if [[ "${TOOLBOX_ENV:-local}" == production ]]; then
+    [[ "${TOOLBOX_IMAGE:-}" =~ @sha256:[0-9a-f]{64}$ ]] || { echo 'Production requires an immutable image digest.' >&2; exit 2; }
+    compose pull init
+    compose run --rm init
+  else compose run --rm --build init; fi
+  compose run --rm init init-backups
+  compose run --rm init init-monitor
+  ;;
+ up|prepare)
+  [[ -f .deploy/secrets/complete ]] || { echo 'Run scripts/deploy init first.' >&2; exit 1; }
+  compose up -d --wait postgres
+  compose run --rm provision
+  compose run --rm migrate
+  if [[ "$1" == prepare ]]; then compose run --rm preflight preflight-storage
+  else compose run --rm preflight; compose up -d --wait app; fi
+  ;;
+ preflight) compose run --rm preflight ;;
+ cleanup|retention)
+  mkdir -p .deploy/reports
+  if compose run --rm "$1" > ".deploy/reports/$1.json.partial"; then
+    mv ".deploy/reports/$1.json.partial" ".deploy/reports/$1.json"
+    [[ ! -f ".deploy/reports/$1.failed" ]] || unlink ".deploy/reports/$1.failed"
+    cat ".deploy/reports/$1.json"
+  else touch ".deploy/reports/$1.failed"; exit 1; fi
+  ;;
+ monitor) compose run --rm monitor ;;
+ backup)
+  mkdir -p .deploy/backups
+  export TOOLBOX_IMAGE_REF
+  if [[ "${TOOLBOX_IMAGE:-}" =~ @sha256:[0-9a-f]{64}$ ]]; then TOOLBOX_IMAGE_REF="$TOOLBOX_IMAGE"
+  else TOOLBOX_IMAGE_REF=$(docker image inspect "${TOOLBOX_IMAGE:-toolbox:local}" --format '{{.Id}}'); fi
+  if [[ "${TOOLBOX_ENV:-local}" == local ]]; then export TOOLBOX_BACKUP_KEY_PROVIDER=local; else export TOOLBOX_BACKUP_KEY_PROVIDER=gcp; fi
+  compose exec -T postgres pg_dump -U postgres -d toolbox -Fc --no-owner | compose run --rm -T backup-encrypt > .deploy/backups/latest-database.json.partial
+  mv .deploy/backups/latest-database.json.partial .deploy/backups/latest-database.json
+  compose run --rm -T backup-static > .deploy/backups/latest-static.json.partial
+  mv .deploy/backups/latest-static.json.partial .deploy/backups/latest-static.json
+  echo 'Encrypted database and static-key backups created. Copy off-host and verify restore.'
+  ;;
+ restore-drill) exec scripts/restore-drill ;;
+ update|rollback)
+  [[ "${TOOLBOX_IMAGE:-}" =~ @sha256:[0-9a-f]{64}$ ]] || { echo 'Set TOOLBOX_IMAGE to a reviewed immutable image digest.' >&2; exit 2; }
+  echo 'Image changes preserve migrations and credential generations; no schema downgrade is performed.'
+  compose run --rm preflight
+  compose up -d --no-deps --wait app
+  ;;
+ test)
+  [[ "${TOOLBOX_ENV:-local}" == local ]] || { echo 'Verification requires the local fixture profile.' >&2; exit 2; }
+  # Create bind sources as the operator before Docker can create them as root.
+  [[ ! -L .deploy && ! -L .deploy/verification ]] || { echo 'Verification state must not be a symlink.' >&2; exit 2; }
+  mkdir -p .deploy/verification
+  [[ -O .deploy/verification ]] || { echo 'Verification state must belong to the operator.' >&2; exit 2; }
+  chmod 700 .deploy/verification
+  mkdir -p .evidence
+  files+=(-f deploy/verify.yaml)
+  compose up -d --wait postgres-test openbao
+  compose exec -T openbao bao write secret/config cas_required=true max_versions=3
+  compose run --rm --build tests
+  compose run --rm --build host-checks traversal
+  compose run --rm host-checks ordering
+  compose run --rm --build browser
+  [[ ! -f .deploy/verification/restart.json ]] || unlink .deploy/verification/restart.json
+  compose run --rm -T --no-deps browser python deployment/persistence.py before
+  compose restart postgres
+  compose up -d --wait postgres
+  compose restart app
+  compose up -d --wait app
+  # A newly created probe joins the app's new network namespace after restart.
+  compose run --rm -T --no-deps browser python deployment/persistence.py after
+  ;;
+ status) compose ps ;;
+ stop) compose stop ;;
+ *) echo 'Unknown or unavailable command.' >&2; exit 2 ;;
+esac

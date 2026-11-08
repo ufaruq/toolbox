@@ -1,25 +1,26 @@
 # Toolbox handoff
 
-Read [implementation status](implementation-status.md) for verification evidence and [ROADMAP.md](ROADMAP.md) for the current backlog. The roadmap is the single pending-work list; the [historical ledger](history/implementation-checkpoints.md) preserves earlier failures and limitations without making them current tasks.
+`main` includes Okta owner sign-in, real local Google Workspace document access
+and the Okta-authenticated Streamable HTTP MCP interface (PRs #5, #6, #10 and #7).
+Use [Workspace setup](workspace-demo.md) and [MCP setup](mcp-setup.md) for the real
+account flow; `make workspace` preserves that runtime. Keep local secrets in the
+ignored `.env`; do not commit credentials or generated evidence.
 
-## Baseline and branch state
+PR #4 adds the [portable container and GCP preparation workflow](deployment-docker.md).
+It preserves released metadata migrations 001–005 and appends deployment migrations
+006 and 007. Upgrades preserve owner IDs, sessions, Google connections and MCP
+profiles. Disposable databases made from earlier, unmerged #4 revisions used
+conflicting migration numbers; use fresh disposable state for those tests. Do not
+rewrite a deployed migration ledger or delete an existing database to make it fit.
 
-The reviewed application checkpoint is `621fc2599bdae96661c001999fa0cc311a0e09af`, merged through [PR #2](https://github.com/ufaruq/toolbox/pull/2) into `main` at `6279f3aab67465aadf5b1ee07f50ed8a99d4bcb4`. [Design PR #1](https://github.com/ufaruq/toolbox/pull/1) has also merged. This documentation follow-up targets `main` and adds no application behavior.
+The persistent container verification uses synthetic providers, PostgreSQL and an
+encrypted SQL credential schema. The real local Workspace runtime continues to use
+OpenBao. These are distinct supported entry points; production serving is deliberately
+blocked until the real identity/provider runtime is wired into the hosted deployment.
+No GCP apply, image publication or public endpoint is part of this update.
 
-At that checkpoint, the refresh/disconnect regression, the six later review findings and the additional initial-exchange rejection finding were fixed. The recorded local checks and hosted CI passed; see the status page for exact scope. GitHub API access was blocked in the working environment, so the code fixes did not reply to or resolve review threads. Check remote state before treating a recorded PR status as current.
-
-## What can run today
-
-The Go fixture service provides separate owner/agent authentication, an approval UI, exact-document grants, short-lived tokens, live authorization, revocation, disconnect and audit. It can use actual local PostgreSQL/OpenBao. Google OAuth/Drive adapters are implemented as libraries; the executable uses simulated owner identity and Google, ephemeral signing keys and credential pepper, and loopback binding.
-
-Follow the [README](../README.md#run-the-local-fixture) to run it and the [browser instructions](../tests/browser/README.md) to verify the UI. Use fresh disposable fixture state: provider state and fixture cryptographic material do not survive process restarts. Existing database records do not make old fixture connections usable.
-
-## Continue the work
-
-1. Inspect the checkout, branch and existing changes before editing. Preserve user work and review history.
-2. Read the roadmap's [milestone dependencies](ROADMAP.md#milestones-and-dependencies). Start production identity work at M1; the isolated M2 Google protocol/configuration spike can run independently. The complete live flow requires both.
-3. Use [Google setup](google-setup.md) and [storage](storage.md) as technical constraints. Do not repeat fixed lifecycle bugs or completed fixture browser/CI setup as pending work.
-4. Scope each implementation PR to a roadmap deliverable and its acceptance checks. Keep optional MCP/client or additional-provider work distinct from the initial pilot gates.
-5. Update the roadmap, current verification evidence and this entry point when a milestone changes. Record passed, failed, blocked and unrun checks against the tested revision; maintain a separate record for fixture and live-provider results.
-
-No live Google account/app provisioning, production human OIDC acceptance, hosted pilot or deployment is evidenced by the fixture checkpoint. Production operation still depends on M1–M3; larger workloads and multiple replicas need the applicable M4 work.
+[Deployment verification](deployment-verification.md) records the current checks,
+including backup/recovery fences for MCP clients and unfinished sign-ins. Broader
+allow/block policies, write tools and larger-workload SQL changes remain future work.
+The [roadmap](ROADMAP.md) and [historical implementation ledger](history/implementation-checkpoints.md)
+retain the larger delivery plan and earlier checkpoints.

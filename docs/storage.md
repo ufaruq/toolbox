@@ -130,3 +130,27 @@ session survives. Use a dedicated disposable test database, and a role able to
 terminate its own backend. No real provider credentials or documents are needed.
 
 Tests cover transactional rollback and cancellation, deep-copy isolation, panic rollback, concurrent updates, immutable grants/revocations/approvals/audits, cross-owner and exact-resource foreign keys, unknown secret-field rejection, migration idempotency, separate-instance advisory contention, cancelled/lost-session cleanup, and database time after lock waiting. The recorded verification at `621fc25` includes the suite under Go's race detector against PostgreSQL 17.11 using synthetic records, within 301 passing Go tests/subtests with real PostgreSQL/OpenBao and Chromium fixture checks. See [implementation evidence](implementation-status.md) for scope and provenance. This documentation update does not rerun those application checks. Adapter and fixture results do not prove production OIDC, live Google/Picker, or production deployment readiness.
+
+## Portable deployment storage
+
+The [container profile](deployment-docker.md) adds a separate encrypted credential
+schema with envelope AAD bound to deployment, schema, logical path and generation.
+Production wrapping requires GCP KMS; the explicit local provider uses a persistent
+AES-GCM root key. API, cleanup, retention and migration roles are separate; API and
+cleanup roles cannot destroy encrypted history. Unknown or unresolved secret paths
+are retained and reported, including owner-login material not classified by the
+current retention policy. Monitor these blocked records rather than deleting them
+without a lifecycle proof. OpenBao remains available to the real local Workspace
+runtime and regression tests.
+
+Released metadata migrations 001–005 remain immutable. Deployment upgrades append
+006 (credential/session pepper IDs) and 007 (cleanup retry state), preserving existing
+owner, session, connection and MCP profile metadata. Old unmerged #4 databases with
+conflicting migration numbers are disposable development history, not an upgrade
+path. Recovery invalidates sessions, opaque credentials, document grants, MCP caller
+approvals, pending document requests and unfinished owner logins before restored
+state can serve users; it preserves provider material for reconciliation.
+
+PostgreSQL remains the chosen database over Spanner because it fits the pilot's
+cost and workload while preserving the implemented transactional constraints and
+permission controls. See the [decision and tradeoffs](superpowers/specs/2026-10-18-gcp-deployment-design.md#database-decision).

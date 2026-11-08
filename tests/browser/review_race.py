@@ -23,15 +23,19 @@ def check_selection_change(page, origin, artifact_dir, field, change_back):
         "async () => (await (await fetch('/v1/session')).json()).fixture"
     ) is True, "Refusing mutations outside explicit fixture mode"
 
+    # Persisted accounts can outlive the in-memory synthetic provider. Create
+    # and select two fresh connections for this scenario on every run.
+    previous = {item["id"] for item in page.evaluate(
+        "async () => (await fetch('/v1/connections')).json()")}
     # Use two actual active connections, rather than injecting select options.
     for _ in range(2):
         with page.expect_navigation(wait_until="domcontentloaded"):
             page.locator("#connect").click()
         expect(page.locator("#workspace")).to_be_visible()
-    connections = page.locator("#connection option").evaluate_all(
-        "options => options.map(option => option.value).filter(Boolean)"
-    )
-    assert len(connections) >= 2, "Expected two fixture connections"
+    current = page.evaluate("async () => (await fetch('/v1/connections')).json()")
+    connections = sorted(item["id"] for item in current
+                         if item["status"] == "active" and item["id"] not in previous)
+    assert len(connections) == 2, "Expected two newly connected fixture accounts"
     page.locator("#connection").select_option(connections[0])
     flow.click_response("create-agent", "/v1/agents", 201)
     page.locator("#file-id").fill("doc-A")

@@ -32,25 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 }
-func run() error {
-	if len(os.Args) > 1 {
-		if len(os.Args) == 3 && os.Args[1] == "keycloak-config" {
-			return runKeycloakConfig(os.Getenv, os.Args[2])
-		}
-		if os.Args[1] == "keycloak-link" {
-			if len(os.Args) == 2 {
-				return runKeycloakLink(os.Getenv, false, os.Stdout)
-			}
-			if len(os.Args) == 3 && os.Args[2] == "--apply" {
-				return runKeycloakLink(os.Getenv, true, os.Stdout)
-			}
-			return errors.New("keycloak-link accepts only optional --apply")
-		}
-		if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
-			return runGooglePKCECheck()
-		}
-		return errors.New("unknown command")
-	}
+func runLegacy() error {
 	cfg, e := loadConfig(os.Getenv)
 	if e != nil {
 		return e
