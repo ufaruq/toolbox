@@ -15,10 +15,12 @@ concurrency:
   cancel-in-progress: true
 jobs:
   review:
-    # Skip drafts, fork PRs (no secrets) and PRs labelled `skip-claude`.
+    # Skip drafts, fork PRs and bot PRs like Dependabot (no access to secrets),
+    # and PRs labelled `skip-claude`.
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot' &&
       !contains(github.event.pull_request.labels.*.name, 'skip-claude')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -27,10 +29,12 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@074f3963a45f3e002e58c97dd0ddf472e0146bf5 # v1
+        # A reviewer outage (e.g. network 504) shouldn't fail the PR.
+        continue-on-error: true
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |

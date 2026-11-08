@@ -166,6 +166,7 @@ func (s *Server) fixtureAuthorize(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "INVALID_CALLBACK")
 		return
 	}
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Same-origin scheme, host and exact callback path checked immediately above.
 	http.Redirect(w, r, u, 303)
 }
 func (s *Server) completeConnection(w http.ResponseWriter, r *http.Request) {
