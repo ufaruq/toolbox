@@ -43,6 +43,14 @@ configuration changes. Read-only investigation can happen in the main checkout.
 - Update the relevant focused documentation when behavior or setup changes. Keep the root README an overview; link to details instead of duplicating them.
 - Keep verification records dated/revision-specific and separate from current architecture. Do not present proposed features as implemented.
 
+## Keep component documentation current
+
+- Before changing a component, locate and read its existing documentation: nearby READMEs, the documentation map in the root README, and relevant guides under `docs/`. Search for the component name, configuration keys, and commands to find affected references.
+- Update the affected documentation in the same PR whenever a change alters documented behavior, APIs, configuration, setup, architecture, security guarantees, limitations, or testing instructions. A component change is not complete while its documentation describes the previous behavior.
+- Update the existing authoritative guide instead of creating a competing explanation. Keep the root README as an overview and update its links when documentation moves or new guides are added. Preserve dated historical evidence; update current guidance separately.
+- For login, identity linking, Google, or MCP changes, review the corresponding provider/setup guides and architecture/security documentation. For storage changes, review `docs/storage.md`. For Make targets, CI, tests, or hooks, review `docs/development/README.md` and the relevant test README. For worktree tooling, review `docs/agent-worktrees.md` and `.agents/skills/task-worktrees/SKILL.md`.
+- Verify changed commands and examples where practical, run `make docs-check`, and identify the documentation updated in the PR description. If no documentation update is needed, briefly explain why the existing documentation remains accurate; do not make cosmetic edits just to satisfy this rule.
+
 ## Navigation
 
 - Application wiring and acceptance: `internal/app`, `cmd/toolbox`.
