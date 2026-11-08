@@ -2,6 +2,8 @@
 
 Use the [roadmap](../../docs/ROADMAP.md) for pending work and [implementation status](../../docs/implementation-status.md) for recorded results. These automated tests use synthetic providers. Real-account Google and hosted acceptance remain separate gates.
 
+`make check` runs the Go checks but skips browser tests unless their opt-in environment variables are set. A passing `make check` alone is not browser acceptance. Run the explicit commands below and record the browser results separately.
+
 ## Synthetic Workspace and client-check flows
 
 After installing the pinned Python dependencies and Chromium described below:

@@ -1,0 +1,41 @@
+name: Semgrep
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '15 4 * * 2'
+permissions:
+  contents: read
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Scan with Semgrep Community Edition (no account required)
+        run: |
+          mkdir -p "$RUNNER_TEMP/semgrep"
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/semgrep:/reports" -w /src \
+            semgrep/semgrep:1.184.0@sha256:cc1b68266f267878b39739373ea9985b9a78e5d64497dd875c8de100b22695ed \
+            semgrep scan --config p/ci --metrics=off --disable-version-check \
+            --error --strict --sarif --output /reports/semgrep.sarif .
+      - uses: github/codeql-action/upload-sarif@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+        if: always()
+        with:
+          sarif_file: ${{ runner.temp }}/semgrep/semgrep.sarif
+          category: semgrep-ce
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: semgrep-results
+          path: ${{ runner.temp }}/semgrep/semgrep.sarif
+          retention-days: 14

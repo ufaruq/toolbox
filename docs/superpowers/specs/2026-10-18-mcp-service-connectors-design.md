@@ -1,6 +1,6 @@
 # Reusing MCP service connectors with Docker Gateway
 
-**Status:** Docker MCP Gateway is the selected runtime for new MCP-backed service connectors. This PR records that decision and updates the implementation plan; it does not implement or deploy the gateway/client, migrate credentials, or replace the existing Drive connector.
+**Status:** Docker MCP Gateway is the selected runtime for new MCP-backed service connectors. The shared outbound client and isolated synthetic gateway pilot are now on `main`; application-level GitHub grants and onboarding remain proposed. This documentation PR does not deploy connectors, migrate credentials, or replace the existing Drive connector.
 
 **Goal:** Make adding services to Toolbox cheaper by reusing existing MCP servers while preserving owner-approved, agent-specific access to selected resources.
 
@@ -29,11 +29,11 @@ There is no promised percentage reduction yet. The first pilot measures custom A
 
 ## Current baseline and related work
 
-The integration baseline is `main` commit `cac87b6d2d7d1f869c1794a68e63e3f874222aea`. It includes the original Drive authorization/token lifecycle, merged Okta owner login, optional corporate account linking, the `workspace-local` real Google runtime and the incoming MCP endpoint. These are code integrations, not a claim that every real provider/client acceptance gate has passed. See [implementation status](../../implementation-status.md), [Google setup](../../google-setup.md) and [MCP setup](../../mcp-setup.md).
+The original integration baseline was `main` commit `cac87b6d2d7d1f869c1794a68e63e3f874222aea`. It includes the original Drive authorization/token lifecycle, merged Okta owner login, optional corporate account linking, the `workspace-local` real Google runtime and the incoming MCP endpoint. These are code integrations, not a claim that every real provider/client acceptance gate has passed. See [implementation status](../../implementation-status.md), [Google setup](../../google-setup.md) and [MCP setup](../../mcp-setup.md).
 
 - [PR #3](https://github.com/ufaruq/toolbox/pull/3), [PR #5](https://github.com/ufaruq/toolbox/pull/5) and [PR #6](https://github.com/ufaruq/toolbox/pull/6) are merged: roadmap, owner login and optional corporate account matching.
 - [PR #10](https://github.com/ufaruq/toolbox/pull/10) is merged: real Google/Picker runtime using existing grants and provider adapters.
-- [PR #7](https://github.com/ufaruq/toolbox/pull/7) is merged: the **inbound MCP endpoint**, through which agents call Toolbox. Reuse its shared owner identity, caller profiles, grant checks and existing MCP SDK rather than rebuilding them. It does not provide this outbound service-connector client.
+- [PR #7](https://github.com/ufaruq/toolbox/pull/7) is merged: the **inbound MCP endpoint**, through which agents call Toolbox. Reuse its shared owner identity, caller profiles, grant checks and existing MCP SDK rather than rebuilding them. The separate shared outbound client and [Docker Gateway pilot](../../mcp-gateway-pilot.md) are now also merged; reuse them for this connector.
 - [PR #8](https://github.com/ufaruq/toolbox/pull/8) proposes service-account principals. The first connector pilot here keeps the existing human-owner model.
 
 This design PR remains separate from runtime implementation. Integrate from then-current `main`, preserve its existing migrations and session guarantees, and coordinate any secret/deployment changes with [PR #4](https://github.com/ufaruq/toolbox/pull/4).

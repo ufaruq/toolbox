@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify the real local probe form can navigate to Google's fixed consent host."""
+import os
 import sys
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright,expect
@@ -7,7 +8,7 @@ from playwright.sync_api import sync_playwright,expect
 def main():
     origin=sys.argv[1]
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
+        browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TOOLBOX_BROWSER_EXECUTABLE'),args=['--no-sandbox'])
         context=browser.new_context()
         page=context.new_page()
         page.set_default_timeout(5000)

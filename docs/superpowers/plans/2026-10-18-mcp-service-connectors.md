@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Docker MCP Gateway selected; runtime implementation is future work. All steps are unchecked; this design PR executes none of them.
+**Status:** Docker MCP Gateway selected. The shared outbound client and isolated synthetic gateway pilot are now on `main`; GitHub application grants and onboarding remain future work. Historical task checkboxes below record the original plan, not current delivery status. See the [pilot guide](../../mcp-gateway-pilot.md) and [implementation status](../../implementation-status.md).
 
 **Goal:** Validate that existing MCP servers reduce provider integration work, then add one opt-in GitHub read action while retaining Toolbox's owner-approved delegation contract.
 
@@ -21,7 +21,7 @@
 - Keep provider credentials, inbound Okta tokens and internal delegation tokens in separate trust contexts. Never pass the latter two to downstream servers.
 - Docker profiles are not owner credential isolation. Multi-user operation requires verified owner-to-connection credential binding.
 - No automatic call retry after dispatch, silent permission fallback or automatic authorization of discovered tools.
-- Start from current `main` (reviewed baseline `cac87b6d2d7d1f869c1794a68e63e3f874222aea`), which includes #5, #6, #7 and #10. Reuse owner login, live Google runtime, inbound MCP SDK/caller profiles and current migrations; add only the outbound connector path.
+- Start from current `main`, which now includes owner login, live Google runtime, inbound MCP SDK/caller profiles, the shared outbound `internal/mcpclient` and Docker Gateway pilot. Reuse those components and current migrations; reconcile Tasks 1–2 with their existing evidence before adding the remaining application connector path.
 
 ## Review focus
 
