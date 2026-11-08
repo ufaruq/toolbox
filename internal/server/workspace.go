@@ -119,5 +119,6 @@ func (s *Server) workspaceCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/#connection=failed", http.StatusSeeOther)
 		return
 	}
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Fixed relative path; connection ID is escaped inside a URL fragment.
 	http.Redirect(w, r, "/#connection=connected&connection_id="+url.QueryEscape(connection.ID), http.StatusSeeOther)
 }
