@@ -310,3 +310,29 @@ is separate from Toolbox's Google Drive callback. Test one personal account and
 one Workspace account, repeat login, logout, separate ownership and MCP access.
 The broader audience does not link equal email addresses or share existing grants.
 Real provider acceptance is pending until those accounts complete the live flow.
+
+### Upstream-only authentication and existing realms
+
+The generated realm now binds `toolbox-upstream-only` as its browser flow.
+It offers upstream providers and has no password, WebAuthn, OTP or cookie-login
+execution. The provider-selection subflow uses the built-in username screen
+followed by a required Deny Access execution; submitting any local username
+cannot authenticate. The optional Toolbox theme renders only provider choices
+on that screen. The denial is enforced by the flow, independently of the theme.
+
+Credential setup actions `UPDATE_PASSWORD`, `CONFIGURE_TOTP`,
+`webauthn-register`, `webauthn-register-passwordless` and
+`CONFIGURE_RECOVERY_AUTHN_CODES` are explicitly disabled. Native signup remains
+out of scope. Disabling registration/reset alone is insufficient: an already
+brokered user could otherwise create a password through Account Console actions.
+
+For an existing realm, startup import does **not** apply this change. Use trusted
+administration to create the two new flows exactly as generated, bind the new
+browser flow, and disable those required actions. Check client-specific browser
+flow overrides and remove any pointing to a password-enabled flow. Keep direct
+access grants disabled on application clients. Remove existing local credentials
+from brokered users and invalidate pre-change realm sessions as part of cutover;
+do not change the separate master-realm administration flow. Then test provider
+login and denial of local login and `kc_action=UPDATE_PASSWORD` before reopening
+access. Existing Toolbox sessions remain subject to the separately documented
+local revocation policy.

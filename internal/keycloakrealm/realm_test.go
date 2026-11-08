@@ -9,6 +9,11 @@ import (
 )
 
 type importedRealm struct {
+	BrowserFlow     string
+	RequiredActions []struct {
+		Alias, ProviderID      string
+		Enabled, DefaultAction bool
+	}
 	Realm                       string
 	Enabled                     bool
 	DefaultSignatureAlgorithm   string
@@ -132,10 +137,18 @@ func TestRenderSeparatesOwnerAndMCPTokenAudiences(t *testing.T) {
 
 func TestRenderKeepsUpstreamAccountsDistinct(t *testing.T) {
 	r := renderRealm(t, validConfig())
+	if r.BrowserFlow != "toolbox-upstream-only" || len(r.RequiredActions) != 5 {
+		t.Fatal("missing upstream-only browser and credential setup policy")
+	}
+	for _, action := range r.RequiredActions {
+		if action.Enabled || action.DefaultAction || action.Alias != action.ProviderID {
+			t.Fatal("local credential setup enabled")
+		}
+	}
 	if r.RegistrationAllowed || r.RegistrationEmailAsUsername || !r.DuplicateEmailsAllowed || r.LoginWithEmailAllowed || len(r.Users) != 0 {
 		t.Fatal("realm can register local credentials or identify people by email")
 	}
-	if len(r.AuthenticationFlows) != 1 {
+	if len(r.AuthenticationFlows) != 3 {
 		t.Fatalf("unexpected first-broker flows: %+v", r.AuthenticationFlows)
 	}
 	flow := r.AuthenticationFlows[0]

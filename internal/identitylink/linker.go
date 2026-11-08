@@ -406,7 +406,7 @@ func uniqueJSON(b []byte) bool {
 					return false
 				}
 				name, ok := key.(string)
-				name = strings.ToLower(name)
+				name = foldJSONName(name)
 				if !ok || names[name] {
 					return false
 				}
@@ -434,4 +434,18 @@ func uniqueJSON(b []byte) bool {
 	}
 	_, err := decoder.Token()
 	return err == io.EOF
+}
+
+// encoding/json matches struct fields using Unicode simple folding, not just
+// lowercase conversion (for example s, S and long-s are equivalent).
+func foldJSONName(name string) string {
+	return strings.Map(func(r rune) rune {
+		minimum := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			if next < minimum {
+				minimum = next
+			}
+		}
+		return minimum
+	}, name)
 }

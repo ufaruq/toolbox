@@ -35,6 +35,14 @@ func Render(cfg Config) ([]byte, error) {
 	realm := realmImport{
 		Realm: cfg.Realm, Enabled: true, SSLRequired: "external", DefaultSignatureAlgorithm: "RS256", FirstBrokerLoginFlow: firstBrokerFlow,
 		DuplicateEmailsAllowed: true,
+		BrowserFlow:            "toolbox-upstream-only",
+		RequiredActions: []requiredActionImport{
+			{Alias: "UPDATE_PASSWORD", ProviderID: "UPDATE_PASSWORD"},
+			{Alias: "CONFIGURE_TOTP", ProviderID: "CONFIGURE_TOTP"},
+			{Alias: "webauthn-register", ProviderID: "webauthn-register"},
+			{Alias: "webauthn-register-passwordless", ProviderID: "webauthn-register-passwordless"},
+			{Alias: "CONFIGURE_RECOVERY_AUTHN_CODES", ProviderID: "CONFIGURE_RECOVERY_AUTHN_CODES"},
+		},
 		// Use Keycloak's official factory so its built-in account/Admin clients
 		// receive the normal scopes. Application clients explicitly replace
 		// inherited scopes with basic (and optional mcp) below.
@@ -53,6 +61,20 @@ func Render(cfg Config) ([]byte, error) {
 		AuthenticationFlows: []flowImport{{
 			Alias: firstBrokerFlow, Description: "Create a separate account for each upstream subject; never link by email", ProviderID: "basic-flow", TopLevel: true,
 			AuthenticationExecutions: []executionImport{{Authenticator: "idp-create-user-if-unique", Requirement: "REQUIRED", Priority: 10}},
+		}, {
+			Alias: "toolbox-upstream-only", ProviderID: "basic-flow", TopLevel: true,
+			AuthenticationExecutions: []executionImport{
+				{Authenticator: "identity-provider-redirector", Requirement: "ALTERNATIVE", Priority: 10},
+				{FlowAlias: "toolbox-provider-selection", AuthenticatorFlow: true, Requirement: "ALTERNATIVE", Priority: 20},
+			},
+		}, {
+			// The built-in username screen renders provider choices. Its local
+			// submission must always terminate in denial; it is never authentication.
+			Alias: "toolbox-provider-selection", ProviderID: "basic-flow",
+			AuthenticationExecutions: []executionImport{
+				{Authenticator: "auth-username-form", Requirement: "REQUIRED", Priority: 10},
+				{Authenticator: "deny-access-authenticator", Requirement: "REQUIRED", Priority: 20},
+			},
 		}},
 	}
 	realm.Clients[0].Secret = cfg.OwnerClientSecret
@@ -246,23 +268,25 @@ func usernameMapper(alias string) providerMapper {
 // core/.../representations/idm, services/.../broker/oidc,
 // services/.../social/google and services/.../protocol/oidc/mappers.
 type realmImport struct {
-	Realm                       string            `json:"realm"`
-	Enabled                     bool              `json:"enabled"`
-	SSLRequired                 string            `json:"sslRequired"`
-	DefaultSignatureAlgorithm   string            `json:"defaultSignatureAlgorithm"`
-	FirstBrokerLoginFlow        string            `json:"firstBrokerLoginFlow"`
-	RegistrationAllowed         bool              `json:"registrationAllowed"`
-	RegistrationEmailAsUsername bool              `json:"registrationEmailAsUsername"`
-	DuplicateEmailsAllowed      bool              `json:"duplicateEmailsAllowed"`
-	LoginWithEmailAllowed       bool              `json:"loginWithEmailAllowed"`
-	ResetPasswordAllowed        bool              `json:"resetPasswordAllowed"`
-	EditUsernameAllowed         bool              `json:"editUsernameAllowed"`
-	Attributes                  map[string]string `json:"attributes"`
-	Clients                     []clientImport    `json:"clients"`
-	ClientScopes                []scopeImport     `json:"clientScopes"`
-	IdentityProviders           []providerImport  `json:"identityProviders"`
-	IdentityProviderMappers     []providerMapper  `json:"identityProviderMappers"`
-	AuthenticationFlows         []flowImport      `json:"authenticationFlows"`
+	BrowserFlow                 string                 `json:"browserFlow"`
+	RequiredActions             []requiredActionImport `json:"requiredActions"`
+	Realm                       string                 `json:"realm"`
+	Enabled                     bool                   `json:"enabled"`
+	SSLRequired                 string                 `json:"sslRequired"`
+	DefaultSignatureAlgorithm   string                 `json:"defaultSignatureAlgorithm"`
+	FirstBrokerLoginFlow        string                 `json:"firstBrokerLoginFlow"`
+	RegistrationAllowed         bool                   `json:"registrationAllowed"`
+	RegistrationEmailAsUsername bool                   `json:"registrationEmailAsUsername"`
+	DuplicateEmailsAllowed      bool                   `json:"duplicateEmailsAllowed"`
+	LoginWithEmailAllowed       bool                   `json:"loginWithEmailAllowed"`
+	ResetPasswordAllowed        bool                   `json:"resetPasswordAllowed"`
+	EditUsernameAllowed         bool                   `json:"editUsernameAllowed"`
+	Attributes                  map[string]string      `json:"attributes"`
+	Clients                     []clientImport         `json:"clients"`
+	ClientScopes                []scopeImport          `json:"clientScopes"`
+	IdentityProviders           []providerImport       `json:"identityProviders"`
+	IdentityProviderMappers     []providerMapper       `json:"identityProviderMappers"`
+	AuthenticationFlows         []flowImport           `json:"authenticationFlows"`
 }
 
 type clientImport struct {
@@ -331,9 +355,17 @@ type flowImport struct {
 }
 
 type executionImport struct {
+	FlowAlias         string `json:"flowAlias,omitempty"`
 	Authenticator     string `json:"authenticator"`
 	AuthenticatorFlow bool   `json:"authenticatorFlow"`
 	Requirement       string `json:"requirement"`
 	Priority          int    `json:"priority"`
 	UserSetupAllowed  bool   `json:"userSetupAllowed"`
+}
+
+type requiredActionImport struct {
+	Alias         string `json:"alias"`
+	ProviderID    string `json:"providerId"`
+	Enabled       bool   `json:"enabled"`
+	DefaultAction bool   `json:"defaultAction"`
 }

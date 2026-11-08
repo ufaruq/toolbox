@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"html"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -100,6 +102,7 @@ func TestKeycloakBrokerFlow(t *testing.T) {
 	// It deliberately does not visit Toolbox before the verified migration.
 	accessToken, idToken := keycloakTokens(t, infra, origin, callerClient, "okta", "openid mcp")
 	operatorToken := keycloakOperator(t, infra)
+	keycloakLocalCredentialDenied(t, infra, origin, callerClient, operatorToken)
 	linker, err := identitylink.New(ctx, identitylink.Config{RealmIssuer: infra.RealmIssuer, ClientID: "toolbox-linker", ClientSecret: infra.Credentials.Operator, SourceIssuer: infra.OktaIssuer, SourceProviderAlias: "okta", HTTPClient: infra.Client})
 	if err != nil {
 		t.Fatalf("construct trusted real Keycloak migration linker: %v", err)
@@ -274,7 +277,10 @@ func keycloakTestRealm(raw []byte, e keycloaktest.Endpoints, secrets keycloaktes
 		}},
 	})
 	realm["clients"] = clients
-	realm["users"] = []any{map[string]any{"username": "service-account-toolbox-linker", "enabled": true, "serviceAccountClientId": "toolbox-linker", "clientRoles": map[string]any{"realm-management": []string{"view-users", "query-users", "view-identity-providers"}}}}
+	realm["users"] = []any{
+		map[string]any{"username": "service-account-toolbox-linker", "enabled": true, "serviceAccountClientId": "toolbox-linker", "clientRoles": map[string]any{"realm-management": []string{"view-users", "query-users", "view-identity-providers", "view-realm"}}},
+		map[string]any{"username": "local-password-probe", "firstName": "Local", "lastName": "Probe", "email": "local@example.test", "emailVerified": true, "enabled": true, "credentials": []any{map[string]any{"type": "password", "value": "synthetic-local-password", "temporary": false}}},
+	}
 	return json.Marshal(realm)
 }
 
@@ -285,6 +291,87 @@ func keycloakBrowser(t *testing.T, infra *keycloaktest.Harness) *http.Client {
 		t.Fatal("create isolated broker browser")
 	}
 	return &http.Client{Transport: infra.Client.Transport, Jar: jar, Timeout: 20 * time.Second}
+}
+
+func keycloakLocalCredentialDenied(t *testing.T, infra *keycloaktest.Harness, origin, clientID, operator string) {
+	t.Helper()
+	redirect := origin + "/keycloak-test/callback"
+	query := url.Values{"client_id": {clientID}, "redirect_uri": {redirect}, "response_type": {"code"}, "scope": {"openid"}, "state": {"credential-probe"}, "code_challenge_method": {"S256"}, "code_challenge": {strings.Repeat("a", 43)}}
+	browser := keycloakBrowser(t, infra)
+	browser.CheckRedirect = func(r *http.Request, via []*http.Request) error {
+		if r.URL.Host == strings.TrimPrefix(origin, "http://") || len(via) > 15 {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	read := func(response *http.Response, err error) []byte {
+		t.Helper()
+		if err != nil {
+			t.Fatal("credential probe request failed")
+		}
+		defer response.Body.Close()
+		b, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		if err != nil {
+			t.Fatal("read credential probe")
+		}
+		return b
+	}
+	// Even a pre-existing valid password cannot complete browser login.
+	response, err := browser.Get(infra.RealmIssuer + "/protocol/openid-connect/auth?" + query.Encode())
+	page := read(response, err)
+	if bytes.Contains(page, []byte(`type="password"`)) {
+		t.Error("broker exposes a local password form")
+	}
+	action := regexp.MustCompile(`<form[^>]*action="([^"]+)"`).FindSubmatch(page)
+	if len(action) != 2 {
+		t.Fatal("missing provider selection form")
+	}
+	response, err = browser.PostForm(html.UnescapeString(string(action[1])), url.Values{"username": {"local-password-probe"}, "password": {"synthetic-local-password"}})
+	page = read(response, err)
+	if location, err := response.Location(); err == nil && location.Query().Get("code") != "" {
+		t.Error("local credentials produced authorization code")
+	}
+	if response.StatusCode != http.StatusForbidden && response.StatusCode != http.StatusUnauthorized {
+		t.Errorf("local credentials not explicitly denied: %d", response.StatusCode)
+	}
+	// Application-initiated credential setup (also used by the Account Console)
+	// must not display a password setup form after a successful upstream login.
+	query.Set("kc_idp_hint", "okta")
+	query.Set("kc_action", "UPDATE_PASSWORD")
+	response, err = browser.Get(infra.RealmIssuer + "/protocol/openid-connect/auth?" + query.Encode())
+	page = read(response, err)
+	if bytes.Contains(page, []byte(`type="password"`)) {
+		t.Error("broker permits application-initiated password setup")
+	}
+	admin := infra.Broker + "/admin/realms/toolbox-e2e"
+	request, _ := http.NewRequest(http.MethodGet, admin+"/authentication/required-actions", nil)
+	request.Header.Set("Authorization", "Bearer "+operator)
+	response, err = infra.Client.Do(request)
+	page = read(response, err)
+	var actions []struct {
+		Alias   string
+		Enabled bool
+	}
+	if response.StatusCode != 200 || json.Unmarshal(page, &actions) != nil {
+		t.Fatal("read real required-action policy")
+	}
+	for _, required := range []string{"UPDATE_PASSWORD", "CONFIGURE_TOTP", "webauthn-register", "webauthn-register-passwordless", "CONFIGURE_RECOVERY_AUTHN_CODES"} {
+		found := false
+		for _, a := range actions {
+			if a.Alias == required {
+				found = true
+				if a.Enabled {
+					t.Errorf("local credential action enabled: %s", required)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing explicit local credential action: %s", required)
+		}
+	}
+	if !t.Failed() {
+		t.Log("real broker denies local password login and credential setup actions")
+	}
 }
 
 func keycloakOperator(t *testing.T, infra *keycloaktest.Harness) string {

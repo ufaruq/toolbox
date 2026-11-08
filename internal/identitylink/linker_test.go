@@ -534,6 +534,23 @@ func TestRejectsLookalikeSubjectClaimOption(t *testing.T) {
 	}
 }
 
+func TestRejectsUnicodeShadowProofMembers(t *testing.T) {
+	var decoded federatedIdentity
+	if err := json.Unmarshal([]byte(`{"userId":"original","uſerId":"shadow"}`), &decoded); err != nil || decoded.UserID != "shadow" {
+		t.Fatal("regression fixture must demonstrate encoding/json subject overwrite")
+	}
+	for _, raw := range []string{
+		`{"userId":"original","uſerId":"shadow"}`,
+		`{"serviceAccountClientId":"service","ſerviceAccountClientId":""}`,
+		`{"alias":"google","aliaſ":"okta"}`,
+		`{"config":{"token":"a","toKen":"b"}}`,
+	} {
+		if uniqueJSON([]byte(raw)) {
+			t.Errorf("accepted Unicode-equivalent JSON names: %s", raw)
+		}
+	}
+}
+
 func TestRejectsCaseVariantJSONProofMembers(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/token") {
