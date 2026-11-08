@@ -1,0 +1,68 @@
+name: Claude Review
+on:
+  pull_request:
+    branches: [main]
+    # Once per PR (not every push) to save subscription usage.
+    # Add `synchronize` to review every push.
+    types: [opened, reopened, ready_for_review]
+    # Don't spend usage on docs-only changes.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.env*.example'
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    # Skip drafts, fork PRs and bot PRs like Dependabot (no access to secrets),
+    # and PRs labelled `skip-claude`.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - uses: anthropics/claude-code-action@074f3963a45f3e002e58c97dd0ddf472e0146bf5 # v1
+        # A reviewer outage (e.g. network 504) shouldn't fail the PR.
+        continue-on-error: true
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review ONLY the diff of this PR (`gh pr diff`). Read other files only
+            when needed to confirm a finding.
+
+            Report ONLY high-confidence, high-severity issues:
+            - Security: secret/credential leaks, auth or authz bypass, injection
+              (SQL, command, path), SSRF, unsafe deserialization, missing input
+              validation on untrusted data, insecure crypto or TLS settings.
+            - Bugs that would break production: crashes, nil dereferences, data
+              loss or corruption, race conditions, deadlocks, resource leaks,
+              unhandled errors that hide failures.
+
+            Do NOT comment on style, naming, formatting, docs, test coverage,
+            refactors, or minor performance. No praise, no summaries of the change.
+            If unsure an issue is real, leave it out.
+
+            Output:
+            - For each issue, one inline comment via
+              `mcp__github_inline_comment__create_inline_comment` (with
+              `confirmed: true`): what's wrong, why it matters, and a fix. Keep it short.
+            - Then ONE `gh pr comment`: either "No major security issues or bugs found."
+              or a list of the issues (one line each).
+          claude_args: |
+            --model sonnet
+            --max-turns 12
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"

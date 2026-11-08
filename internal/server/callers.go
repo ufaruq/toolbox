@@ -50,7 +50,7 @@ func (s *Server) callers(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "DEPENDENCY_UNAVAILABLE")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"callers": profiles, "clients": clients})
+	jsonOut(w, 200, map[string]any{"callers": profiles, "clients": clients, "owner_issuer": s.identityOwnerIssuer()})
 }
 
 type callerInput struct {
@@ -126,17 +126,18 @@ func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 	var profile domain.CallerProfile
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		u := st.Users[owner.UserID]
-		if u.Status != "active" || u.Issuer != s.identityOwnerIssuer() {
+		binding, ok := domain.IdentityForOwner(st, owner.UserID, s.identityOwnerIssuer())
+		if u.Status != "active" || !ok {
 			return domain.ErrDenied
 		}
 		for _, p := range st.CallerProfiles {
-			if p.Issuer == u.Issuer && p.UserID == u.Subject && p.ClientID == in.ClientID {
+			if p.Issuer == binding.Issuer && p.UserID == binding.Subject && p.ClientID == in.ClientID {
 				return domain.ErrDenied
 			}
 		}
 		a := domain.Agent{ID: security.ID(), OwnerID: u.ID, Name: in.Label, Status: "active"}
 		st.Agents[a.ID] = a
-		profile = domain.CallerProfile{ID: security.ID(), OwnerID: u.ID, AgentID: a.ID, Issuer: u.Issuer, UserID: u.Subject, ClientID: in.ClientID, Label: in.Label, Status: "active", Tools: append([]string{}, in.Tools...), ApprovedAt: st.Now, ExpiresAt: st.Now.Add(time.Duration(in.DurationSeconds) * time.Second)}
+		profile = domain.CallerProfile{ID: security.ID(), OwnerID: u.ID, AgentID: a.ID, Issuer: binding.Issuer, UserID: binding.Subject, ClientID: in.ClientID, Label: in.Label, Status: "active", Tools: append([]string{}, in.Tools...), ApprovedAt: st.Now, ExpiresAt: st.Now.Add(time.Duration(in.DurationSeconds) * time.Second)}
 		st.CallerProfiles[profile.ID] = profile
 		addCallerAudit(st, profile, "caller.approved")
 		return nil

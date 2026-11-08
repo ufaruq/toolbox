@@ -83,7 +83,10 @@ func (s *Service) Issuer() string { return s.cfg.Issuer }
 // Call it only inside a repository transaction.
 func (s *Service) SessionBound(st *domain.State, sessionID string) bool {
 	session, exists := st.Sessions[sessionID]
-	if !exists || st.Users[session.UserID].Issuer != s.cfg.Issuer {
+	if !exists {
+		return false
+	}
+	if _, ok := domain.IdentityForOwner(st, session.UserID, s.cfg.Issuer); !ok {
 		return false
 	}
 	for _, tx := range st.OwnerLogins {
@@ -305,13 +308,7 @@ func (s *Service) Complete(ctx context.Context, state, code, browserToken string
 		if !ok || current.Status != "exchanging" || !st.Now.Before(current.ExpiresAt) || (current.PreviousSessionID != "" && !ownerSessionLive(st, current.PreviousSessionID)) {
 			return ErrCallback
 		}
-		var user domain.User
-		for _, candidate := range st.Users {
-			if candidate.Issuer == identity.Issuer && candidate.Subject == identity.Subject {
-				user = candidate
-				break
-			}
-		}
+		user, _ := domain.ResolveIdentity(st, identity.Issuer, identity.Subject)
 		if user.ID != "" && user.Status != "active" {
 			return domain.ErrDenied
 		}

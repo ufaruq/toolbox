@@ -13,6 +13,7 @@ import (
 
 type runtimeConfig struct {
 	mode, addr, origin                         string
+	identityProvider                           string
 	oidcIssuer, oidcClientID, oidcClientSecret string
 	pepper                                     []byte
 	databaseURL, baoAddr, baoToken             string
@@ -29,6 +30,11 @@ type workspaceConfig struct {
 
 func loadConfig(getenv func(string) string) (runtimeConfig, error) {
 	c := runtimeConfig{mode: getenv("TOOLBOX_MODE"), addr: getenv("TOOLBOX_ADDR")}
+	var err error
+	c.identityProvider, err = loadIdentityProvider(getenv)
+	if err != nil {
+		return c, err
+	}
 	if c.mode != "fixture" && c.mode != "oidc-local" && c.mode != "workspace-local" {
 		return c, errors.New("TOOLBOX_MODE must explicitly select fixture, oidc-local or workspace-local")
 	}
@@ -61,6 +67,9 @@ func loadConfig(getenv func(string) string) (runtimeConfig, error) {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
 		return c, errors.New("TOOLBOX_OIDC_ISSUER must be an exact trusted HTTPS issuer")
 	}
+	if c.identityProvider == "keycloak" && !identity.ValidKeycloakOwnerBinding(c.oidcIssuer, c.oidcIssuer, false) {
+		return c, errors.New("Keycloak owner login requires an exact HTTPS realm issuer")
+	}
 	if len(c.oidcClientID) > 1024 || strings.TrimSpace(c.oidcClientID) != c.oidcClientID || strings.ContainsAny(c.oidcClientID+c.oidcClientSecret, "\x00\r\n") {
 		return c, errors.New("invalid OIDC client configuration")
 	}
@@ -80,6 +89,17 @@ func loadConfig(getenv func(string) string) (runtimeConfig, error) {
 		}
 	}
 	return c, nil
+}
+
+func loadIdentityProvider(getenv func(string) string) (string, error) {
+	provider := getenv("TOOLBOX_IDENTITY_PROVIDER")
+	if provider == "" {
+		provider = "okta"
+	}
+	if provider != "okta" && provider != "keycloak" {
+		return "", errors.New("TOOLBOX_IDENTITY_PROVIDER must be okta or keycloak")
+	}
+	return provider, nil
 }
 
 func loadWorkspaceConfig(getenv func(string) string, sessionPepper []byte) (workspaceConfig, error) {

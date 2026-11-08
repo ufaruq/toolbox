@@ -32,11 +32,25 @@ var errProductionGate = errors.New("hosted production owner authentication and l
 
 func output(v any) error { return json.NewEncoder(os.Stdout).Encode(v) }
 func run() error {
+	if len(os.Args) > 1 {
+		if len(os.Args) == 3 && os.Args[1] == "keycloak-config" {
+			return runKeycloakConfig(os.Getenv, os.Args[2])
+		}
+		if os.Args[1] == "keycloak-link" {
+			if len(os.Args) == 2 {
+				return runKeycloakLink(os.Getenv, false, os.Stdout)
+			}
+			if len(os.Args) == 3 && os.Args[2] == "--apply" {
+				return runKeycloakLink(os.Getenv, true, os.Stdout)
+			}
+			return errors.New("keycloak-link accepts only optional --apply")
+		}
+		if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
+			return runGooglePKCECheck()
+		}
+	}
 	if len(os.Args) == 1 && (os.Getenv("TOOLBOX_DATABASE_FILE") == "" || os.Getenv("TOOLBOX_MODE") == "oidc-local" || os.Getenv("TOOLBOX_MODE") == "workspace-local") {
 		return runLegacy()
-	}
-	if len(os.Args) == 2 && os.Args[1] == "google-pkce-check" {
-		return runGooglePKCECheck()
 	}
 	command := "fixture"
 	if len(os.Args) > 1 {

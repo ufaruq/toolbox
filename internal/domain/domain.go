@@ -15,6 +15,10 @@ const MaxBytes = 1 << 20
 var ErrDenied = errors.New("NOT_AUTHORIZED")
 
 type User struct{ ID, Issuer, Subject, Status string }
+
+// IdentityAlias is an immutable, operator-verified identity for an existing owner.
+// A link never changes the owner's primary identity or transfers its resources.
+type IdentityAlias struct{ Issuer, Subject, OwnerID string }
 type Agent struct{ ID, OwnerID, Name, Status string }
 type Credential struct {
 	ID, AgentID, Hash, Status string
@@ -27,7 +31,7 @@ type Session struct {
 	ExpiresAt            time.Time
 }
 
-// CallerProfile binds an approved Okta identity and client to one owner agent.
+// CallerProfile binds an approved OIDC identity and client to one owner agent.
 type CallerProfile struct {
 	ID, OwnerID, AgentID, Issuer, UserID, ClientID, Label, Status string
 	Tools                                                         []string
@@ -90,24 +94,25 @@ type Cleanup struct {
 // State is a transaction snapshot. Never retain its maps or pointers after Transact.
 // Provider tokens, OAuth codes and PKCE verifiers never belong in this structure.
 type State struct {
-	CallerProfiles map[string]CallerProfile
-	Now            time.Time
-	Users          map[string]User
-	Agents         map[string]Agent
-	Credentials    map[string]Credential
-	Sessions       map[string]Session
-	Connections    map[string]Connection
-	Resources      map[string]Resource
-	Requests       map[string]Request
-	Grants         map[string]Grant
-	OAuth          map[string]OAuthTransaction
-	OwnerLogins    map[string]OwnerLoginTransaction
-	Audits         []Audit
-	Cleanup        map[string]Cleanup
+	CallerProfiles  map[string]CallerProfile
+	IdentityAliases map[string]IdentityAlias
+	Now             time.Time
+	Users           map[string]User
+	Agents          map[string]Agent
+	Credentials     map[string]Credential
+	Sessions        map[string]Session
+	Connections     map[string]Connection
+	Resources       map[string]Resource
+	Requests        map[string]Request
+	Grants          map[string]Grant
+	OAuth           map[string]OAuthTransaction
+	OwnerLogins     map[string]OwnerLoginTransaction
+	Audits          []Audit
+	Cleanup         map[string]Cleanup
 }
 
 func NewState() *State {
-	return &State{CallerProfiles: map[string]CallerProfile{}, Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
+	return &State{IdentityAliases: map[string]IdentityAlias{}, CallerProfiles: map[string]CallerProfile{}, Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
 }
 func ResourceKey(connectionID, fileID string) string { return connectionID + ":" + fileID }
 func HasScope(scopes []string, scope string) bool {

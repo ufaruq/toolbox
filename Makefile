@@ -1,4 +1,4 @@
-.PHONY: run test check deps dev workspace google-pkce-check workspace-browser-check
+.PHONY: run test check deps dev workspace google-pkce-check workspace-browser-check mcp-gateway-check keycloak-check
 run:
 	TOOLBOX_MODE=fixture go run ./cmd/toolbox
 
@@ -66,3 +66,11 @@ workspace-browser-check:
 .PHONY: deploy-workflow-check
 deploy-workflow-check:
 	python3 tests/deployment/workflow_test.py
+# Requires local Docker Engine and the two digest-pinned images in the pilot guide.
+# Starts and removes only its own disposable resources; no provider account needed.
+mcp-gateway-check:
+	TOOLBOX_TEST_DOCKER_MCP=1 go test -race -count=1 ./internal/mcpclient -run '^TestDockerGatewayOwnerIsolation$$' -v -timeout=9m
+
+# Real Keycloak broker, controlled upstream identities; no personal credentials.
+keycloak-check:
+	TOOLBOX_TEST_KEYCLOAK=1 go test -race -count=1 ./internal/app -run '^TestKeycloakBrokerFlow$$' -v -timeout=9m

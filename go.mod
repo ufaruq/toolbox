@@ -1,13 +1,14 @@
 module github.com/ufaruq/toolbox
 
-go 1.27.2
+go 1.27.3
 
 require (
 	cloud.google.com/go/kms v1.35.0
 	filippo.io/age v1.2.1
 	github.com/coreos/go-oidc/v3 v3.21.0
+	github.com/google/jsonschema-go v0.4.3
 	github.com/googleapis/gax-go/v2 v2.23.0
-	github.com/jackc/pgx/v5 v5.7.6
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.47.0
@@ -26,7 +27,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.17 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

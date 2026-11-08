@@ -64,6 +64,12 @@ func TestRuntimePermissions(t *testing.T) {
 	if _, err = tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{roles.API}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = tx.Exec(ctx, `INSERT INTO users(payload) VALUES ('{"ID":"runtime-owner","Issuer":"https://runtime.example","Subject":"runtime-subject","Status":"active"}'::jsonb)`); err != nil {
+		t.Fatal("runtime cannot create primary identity", err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO identity_aliases(payload) VALUES ('{"Issuer":"https://alias.example","Subject":"alias-subject","OwnerID":"runtime-owner"}'::jsonb)`); err != nil {
+		t.Fatal("runtime cannot register verified alias", err)
+	}
 	if _, err = load(ctx, tx); err != nil {
 		t.Fatal("runtime cannot load metadata", err)
 	}

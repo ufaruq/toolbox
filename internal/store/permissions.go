@@ -80,6 +80,15 @@ func (p *Postgres) ConfigureRoles(ctx context.Context, schema, secrets string, r
 				return ErrUnavailable
 			}
 		}
+		// Identity triggers execute with the runtime role and maintain the shared
+		// primary/alias registry. Its immutable/source triggers still constrain writes.
+		bindingPrivilege := "SELECT"
+		if i < 2 {
+			bindingPrivilege = "SELECT, INSERT"
+		}
+		if run("GRANT "+bindingPrivilege+" ON "+q(schema)+".identity_bindings TO "+role) != nil {
+			return ErrUnavailable
+		}
 		if run("GRANT SELECT ON "+q(secrets)+".migrations TO "+role) != nil {
 			return ErrUnavailable
 		}

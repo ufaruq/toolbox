@@ -38,3 +38,10 @@ func TestHealthcheckDoesNotFollowRedirect(t *testing.T) {
 		t.Fatal("redirect followed", err)
 	}
 }
+
+func TestKeycloakLinkDispatchRejectsUnknownFlag(t *testing.T) {
+	arguments(t, "keycloak-link", "--unexpected")
+	if err := run(); err == nil || err.Error() != "keycloak-link accepts only optional --apply" {
+		t.Fatal("Keycloak command did not reach its dispatcher", err)
+	}
+}

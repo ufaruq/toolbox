@@ -9,6 +9,8 @@ The local fixture simulates owner sign-in and Google. Separate loopback-only mod
 - [Roadmap](docs/ROADMAP.md): completed baseline, remaining milestones, dependencies and acceptance criteria.
 - [Implementation status](docs/implementation-status.md): revision-specific verification and its limits.
 - [Handoff](docs/HANDOFF.md): how to continue without confusing historical checkpoints with current tasks.
+- [Keycloak setup](docs/keycloak-setup.md): optional Okta/Google Workspace broker, verified existing-owner migration, and real broker acceptance checks.
+- [Docker MCP Gateway pilot](docs/mcp-gateway-pilot.md): reproduce the shared outbound client's isolated two-owner test with the real gateway and official GitHub MCP server. This is a connector pilot; GitHub grants and application onboarding follow separately.
 - [Design PR #1](https://github.com/ufaruq/toolbox/pull/1): merged architecture and design artifacts.
 - [Implementation PR #2](https://github.com/ufaruq/toolbox/pull/2): merged application baseline.
 
@@ -94,6 +96,7 @@ See [implementation status](docs/implementation-status.md) for the actual checke
 - `internal/security`: agent credential hashing and scoped Ed25519 delegation tokens.
 - `internal/oauth`: bound OAuth/PKCE transactions, Google adapter and fixture provider.
 - `internal/connectors`: fixed Drive metadata/export plans and bounded executor.
+- `internal/mcpclient`: operator-pinned outbound Docker MCP Gateway client and opt-in Docker isolation test.
 - `internal/tokens`: OpenBao CAS, refresh coordination, generation-aware retries and cleanup.
 - `internal/store`: memory/PostgreSQL repositories, constraints and audit.
 - `internal/app`: wiring and API acceptance tests.

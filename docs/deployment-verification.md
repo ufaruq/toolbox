@@ -65,3 +65,24 @@ second-client isolation and enforced fresh eight-hour authentication remain open
 An independent whole-branch security/correctness review found three workflow defects: operator traversal beneath the mounted data directory, Docker startup ordering relative to that mount, and repeated initialization after moving a backup identity offline. Each was reproduced and fixed with regression checks. No unresolved Important or Critical findings remain from that review.
 
 The architecture decisions remain explicit: PostgreSQL preserves existing security controls and fits the pilot; encrypted credentials use a separate schema; local tests use real encryption; production requires GCP KMS; retention preserves unknown/orphaned issuance; backups use age and separately held recovery material. Off-host delivery and external alert routing require operator setup. The full-state metadata adapter remains a low-throughput boundary, and readiness checks a persisted sentinel rather than scanning every ciphertext on every probe. See [deployment](deployment-docker.md), [database decision](superpowers/specs/2026-10-18-gcp-deployment-design.md#database-decision) and [recovery](recovery-docker.md).
+
+## 2026-11-08 main integration
+
+Merged current main while preserving deployment and Keycloak command dispatch,
+maintenance Make targets, existing migration filenames/checksums, and the current
+pgx dependency. The Docker builder now matches Go 1.27.3 from main. Runtime roles
+can insert the shared identity registry required by primary/alias triggers;
+registry immutability and source validation remain enforced by those triggers.
+The permission regression covers primary owner and alias registration as the API
+role. The original review fixes remain present: schema-bound envelope AAD with a
+cross-schema rejection case, and standalone cleanup without signing material.
+
+The operator workflow regression tests passed in this maintenance environment.
+Docker, live GCP/provider checks, and browser acceptance require their documented
+runtimes and are separate from the default local Go checks.
+
+`make check` passed with Go 1.27.3 (format, vet, default race suite and build).
+Targeted schema-AAD/cleanup and Keycloak/deployment command dispatch checks also
+passed. PostgreSQL/OpenBao integration tests and Docker/browser opt-in tests were
+skipped because their services/runtimes are absent here; the new SQL permission
+regression is included for the actual-store CI run, not claimed as locally run.
