@@ -12,12 +12,29 @@ scratch=$(mktemp -d "$temp_root/toolbox-test-all.XXXXXX")
 evidence=$(mktemp -d "$temp_root/toolbox-test-evidence.XXXXXX")
 project="toolbox-check-$(basename "$scratch" | tr '[:upper:].' '[:lower:]-')"
 compose=(docker compose -p "$project" -f "$root/compose.yaml" -f "$scratch/ports.yaml")
+runner=
+host_uid=$(id -u)
+host_gid=$(id -g)
 cleanup() {
   status=$?
   trap - EXIT
   docker rm -f "$project-runner" >/dev/null 2>&1 || true
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  rm -rf "$scratch"
+  # Root-created 0700 browser/Go directories must be readable by the host
+  # artifact uploader and removable by its cleanup, including after test failure.
+  if [[ -n "$runner" ]]; then
+    if ! docker run --rm --network none \
+      -v "$evidence:/evidence" -v "$scratch:/scratch" \
+      -v "$root/tests/runner/restore-ownership.sh:/restore-ownership.sh:ro" \
+      -e HOST_UID="$host_uid" -e HOST_GID="$host_gid" \
+      "$runner" bash /restore-ownership.sh; then
+      echo 'Failed to restore test artifact ownership.' >&2
+      if [[ "$status" == 0 ]]; then status=1; fi
+    fi
+  fi
+  if ! rm -rf "$scratch"; then
+    if [[ "$status" == 0 ]]; then status=1; fi
+  fi
   printf 'Test evidence: %s\n' "$evidence"
   exit "$status"
 }
@@ -38,6 +55,7 @@ mkdir -p "$scratch/build/tests/browser"
 cp "$root/tests/runner/Dockerfile" "$scratch/build/Dockerfile"
 cp "$root/tests/browser/requirements.txt" "$scratch/build/tests/browser/requirements.txt"
 runner=$(docker build --quiet "$scratch/build")
+make -C "$root" test-artifacts RUNNER_IMAGE="$runner"
 "${compose[@]}" up -d --wait
 "${compose[@]}" exec -T postgres createdb -U toolbox toolbox_test
 "${compose[@]}" exec -T openbao bao write secret/config cas_required=true max_versions=3

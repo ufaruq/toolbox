@@ -38,12 +38,14 @@ Use the Go version declared in [go.mod](go.mod).
 git clone https://github.com/ufaruq/toolbox.git
 cd toolbox
 make install-hooks
-TOOLBOX_MODE=fixture go run ./cmd/toolbox
+make run
 ```
 
 Open http://127.0.0.1:8080. Sign in as the fixture owner, connect the simulated Google account, create an agent, approve `doc-A`, read it, then revoke access. A request for `doc-B` must be denied. Use synthetic data: fixture keys and provider state are ephemeral.
 
 `make dev` starts local PostgreSQL/OpenBao and the fixture. For real providers, follow the setup guides below; never commit client secrets.
+
+Run `make help` for the complete command list, including focused tests, browser setup, checks, and dev dependency lifecycle. See the [command reference](docs/development/README.md#make-command-reference).
 
 ## Tests and push checks
 

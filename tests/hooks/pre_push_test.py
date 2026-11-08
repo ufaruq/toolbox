@@ -87,6 +87,19 @@ class PushGate(unittest.TestCase):
         self.assertNotEqual(self.install().returncode, 0)
         self.assertEqual(self.git('config', '--get', 'core.hooksPath'), '/custom/hooks')
 
+    def test_preserves_global_custom_hooks(self):
+        config = self.repo / 'global.gitconfig'
+        config.write_text('[core]\n hooksPath = /global/custom-hooks\n')
+        self.env['GIT_CONFIG_GLOBAL'] = str(config)
+        self.assertNotEqual(self.install().returncode, 0)
+        self.assertEqual(self.git('config', '--get', 'core.hooksPath'), '/global/custom-hooks')
+
+    def test_preserves_worktree_custom_hooks(self):
+        self.git('config', 'extensions.worktreeConfig', 'true')
+        self.git('config', '--worktree', 'core.hooksPath', '/worktree/custom-hooks')
+        self.assertNotEqual(self.install().returncode, 0)
+        self.assertEqual(self.git('config', '--get', 'core.hooksPath'), '/worktree/custom-hooks')
+
     def test_missing_gate_rejected(self):
         self.commit(0)
         self.git('rm', 'scripts/test-all')

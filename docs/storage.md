@@ -91,35 +91,22 @@ Use a dedicated schema and revoke public `CREATE` rights. The runtime role must 
 Run ordinary tests:
 
 ```sh
-go test -race ./internal/store
+make test TEST_PACKAGES=./internal/store
 ```
 
 For the disposable Compose stack, start the stores and configure the OpenBao
 mount from the repository root:
 
 ```sh
-docker compose up -d --wait
-docker compose exec -T openbao bao write secret/config cas_required=true max_versions=3
+make deps-test
 ```
 
-Check whether the integration database exists:
-
-```sh
-docker compose exec -T postgres psql -U toolbox -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='toolbox_test'"
-```
-
-If it returns no row, create the database once. If it returns `1`, use that
-database only if it is the intended disposable fixture database; do not drop a
-pre-existing database to prepare tests.
-
-```sh
-docker compose exec -T postgres createdb -U toolbox toolbox_test
-```
+This starts the disposable dependencies, configures CAS, and creates `toolbox_test` only if absent. Existing databases are never dropped; use this only with the intended disposable Compose project.
 
 Run integration tests against an explicitly disposable database whose test role may create/drop schemas:
 
 ```sh
-TOOLBOX_TEST_DATABASE_URL='postgres://toolbox:fixture-only@127.0.0.1:5432/toolbox_test?sslmode=disable' go test -race ./internal/store
+TOOLBOX_TEST_DATABASE_URL='postgres://toolbox:fixture-only@127.0.0.1:5432/toolbox_test?sslmode=disable' make test TEST_PACKAGES=./internal/store
 ```
 
 Each integration test creates and drops a unique schema. Backend-termination

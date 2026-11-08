@@ -5,7 +5,7 @@ Read [README.md](README.md) first, then the relevant [architecture](docs/archite
 ## Required workflow
 
 - Run `make install-hooks` in each fresh clone before pushing.
-- Use focused tests while editing. Before every push, the installed hook must complete the full `scripts/test-all` gate against the committed revision. Use `make test-all` to debug the same suite before committing.
+- Use `make help` to discover commands and `make test TEST_PACKAGES=./internal/store TEST_RUN=TestMemoryRepository` for focused tests while editing. Before every push, the installed hook must complete the full `scripts/test-all` gate against the committed revision. Use `make test-all` to debug the same suite before committing.
 - Never bypass the gate with `--no-verify`, disable hooks, remove opt-in tests, suppress failures, or describe missing prerequisites/skipped tests as a pass. If the gate cannot run, report the blocker and do not push.
 - `make check` and ordinary `go test ./...` alone are insufficient: browser, PostgreSQL, OpenBao, Keycloak and MCP acceptance require explicit setup. The full runner supplies it.
 - Report the tested revision, commands, results, and any remaining live-provider validation. Synthetic providers do not prove live Google/Okta behavior. Do not claim CI passed without checking its result.

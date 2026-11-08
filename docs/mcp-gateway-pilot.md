@@ -90,12 +90,6 @@ server. Gateway signature verification stays enabled.
    TMPDIR=/tmp make mcp-gateway-check
    ```
 
-   The equivalent command is:
-
-   ```sh
-   TMPDIR=/tmp TOOLBOX_TEST_DOCKER_MCP=1 go test -race -count=1 ./internal/mcpclient -run '^TestDockerGatewayOwnerIsolation$' -v -timeout=9m
-   ```
-
    Do not put real credentials in the test. It generates synthetic tokens and
    short-lived certificates, compiles the small controlled API into a `scratch`
    image, starts one API and two isolated gateways, and lets those gateways

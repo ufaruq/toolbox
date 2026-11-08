@@ -2,20 +2,15 @@
 set -euo pipefail
 export TOOLBOX_TEST_OIDC_BROWSER=1 TOOLBOX_TEST_WORKSPACE_BROWSER=1
 export TOOLBOX_TEST_KEYCLOAK=1 TOOLBOX_TEST_DOCKER_MCP=1 TOOLBOX_TEST_DOCKER_BRIDGE=1
-python3 tests/hooks/pre_push_test.py
-python3 tests/runner/check_results_test.py
-python3 tests/docs/check_links.py
-[[ -z "$(gofmt -l .)" ]]
-go vet ./...
-# Serialize packages sharing disposable databases; test/subtest race detection
-# remains enabled. All environment-gated suites are explicitly enabled above.
-go test -json -race -count=1 -p 1 -timeout=15m ./... | tee "$TOOLBOX_BROWSER_ARTIFACT_DIR/go-tests.json"
-python3 tests/runner/check_results.py "$TOOLBOX_BROWSER_ARTIFACT_DIR/go-tests.json"
-go build ./...
+make test-tools docs-check fmt-check vet
+# Serialize packages sharing disposable databases, retaining race detection.
+make -s test-json | tee "$TOOLBOX_BROWSER_ARTIFACT_DIR/go-tests.json"
+make test-results-check TEST_RESULTS="$TOOLBOX_BROWSER_ARTIFACT_DIR/go-tests.json"
+make build
 
 # Run the two standalone browser scripts too; they are not Go tests.
 fixture="$TMPDIR/toolbox-fixture"
-go build -o "$fixture" ./cmd/toolbox
+make build-binary BUILD_OUTPUT="$fixture"
 port=$(python3 - <<'PY'
 import socket
 with socket.socket() as listener:
@@ -44,6 +39,5 @@ for attempt in range(60):
 else:
     raise SystemExit('Disposable fixture did not become ready')
 PY
-python3 tests/browser/fixture_e2e.py
-python3 tests/browser/review_race.py
+make browser-fixture-check browser-review-check BROWSER_PYTHON=python3
 printf 'Full acceptance suite passed for %s\n' "$TOOLBOX_E2E_REVISION"

@@ -22,12 +22,7 @@ jobs:
           persist-credentials: false
       - name: Scan with Semgrep Community Edition (no account required)
         run: |
-          mkdir -p "$RUNNER_TEMP/semgrep"
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/semgrep:/reports" -w /src \
-            semgrep/semgrep:1.184.0@sha256:cc1b68266f267878b39739373ea9985b9a78e5d64497dd875c8de100b22695ed \
-            semgrep scan --config p/ci --metrics=off --disable-version-check \
-            --error --strict --sarif --output /reports/semgrep.sarif .
+          make semgrep-check SEMGREP_REPORT_DIR="$RUNNER_TEMP/semgrep"
       - uses: github/codeql-action/upload-sarif@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
         if: always()
         with:

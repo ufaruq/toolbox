@@ -9,9 +9,7 @@ The code and synthetic tests can be prepared and reviewed before you create an O
 Use Go **1.27.2**. Protocol tests use a local TLS identity provider with signed tokens, discovery, JWKS and PKCE enforcement; they need no live account or secrets. Ordinary Go tests do not need Python:
 
 ```sh
-go vet ./...
-go test -race -count=1 ./...
-go build ./...
+make check
 ```
 
 Unset `TOOLBOX_TEST_DATABASE_URL` or `TOOLBOX_TEST_OPENBAO_ADDR` causes the corresponding store integrations to skip; a skip is not verification of that store. See [storage test setup](storage.md) for disposable PostgreSQL and the root [README](../README.md#checks) for both integration settings. The separate [OIDC browser flow](../tests/browser/README.md#synthetic-oidc-browser-flow) runs a real Chromium redirect through the synthetic TLS provider. It also requires no Okta account. Keep actual command results and skipped checks with the implementation PR; this guide itself is not execution evidence.
@@ -85,10 +83,7 @@ The callback is always `TOOLBOX_ORIGIN` plus `/auth/oidc/callback`; request head
 The executable does not read `.env` automatically. Load your edited local file and start it from the same shell:
 
 ```sh
-set -a
-. ./.env
-set +a
-go run ./cmd/toolbox
+make oidc
 ```
 
 Open the exact `TOOLBOX_ORIGIN` and choose **Sign in with Okta**. Missing required settings, an invalid pepper, an origin/listener mismatch, or unavailable required stores prevents startup or readiness; it never switches to fixture identity. For sign-in failure, check the exact issuer, app assignment, client secret and registered callback in your private configuration. A generic callback error does not justify publishing the callback URL or provider response.
