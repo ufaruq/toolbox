@@ -2,17 +2,20 @@ package identity
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"regexp"
 )
 
-// AccessConfig binds one Okta custom server to its existing organization owner
-// identity. The org ID-token sub and custom-server access-token uid are Okta user
-// IDs. The token's sub/email never establish that binding.
+// AccessConfig selects the MCP access-token policy. Empty Provider and "okta"
+// preserve the organization/custom-server immutable Okta uid binding. "keycloak"
+// requires one pinned realm for owner and access-token identities.
 type AccessConfig struct {
+	Provider                                     string
 	Issuer, OwnerIssuer, Audience, OwnerClientID string
 	Clients                                      map[string]string
-	AllowLoopbackHTTP                            bool // signed local fixtures only
+	AllowLoopbackHTTP                            bool         // signed local fixtures only
+	HTTPClient                                   *http.Client // trusted TLS roots for embedded callers; Keycloak only
 }
 
 var customServerPath = regexp.MustCompile(`^/oauth2/[A-Za-z0-9_-]+$`)
@@ -29,6 +32,13 @@ func ValidOwnerBinding(owner, access string, allowLoopback bool) bool {
 }
 
 func NewAccess(ctx context.Context, cfg AccessConfig) (*Service, error) {
+	switch cfg.Provider {
+	case "keycloak":
+		return newKeycloakAccess(ctx, cfg)
+	case "", "okta":
+	default:
+		return nil, errConfig
+	}
 	return newIdentity(ctx, Config{Issuer: cfg.Issuer, OwnerIssuer: cfg.OwnerIssuer, Audience: cfg.Audience,
 		OwnerClientID: cfg.OwnerClientID, Clients: cfg.Clients, AllowLoopbackHTTP: cfg.AllowLoopbackHTTP}, true)
 }

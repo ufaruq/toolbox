@@ -109,7 +109,7 @@ class OIDCBrowser:
         page.goto(self.app_origin + "/", wait_until="domcontentloaded")
         self.stage = "initial owner capabilities and UI"
         expect(page.locator("#owner-notice")).to_have_text(NOTICE)
-        expect(page.locator("#login")).to_have_text("Sign in with Okta")
+        expect(page.locator("#login")).to_have_text("Sign in")
         expect(page.locator("#login")).to_be_enabled()
         expect(page.locator("#owner-panel")).to_be_hidden()
         for selector in ("#fixture-notice", "#workspace", "#connect", "#agent-credential"):
