@@ -73,7 +73,7 @@ jobs:
           TOOLBOX_TEST_OPENBAO_TOKEN: fixture-only
         run: go test -race -count=1 ./...
       - run: go build ./...
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install browser test tools
