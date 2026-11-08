@@ -1,4 +1,4 @@
-# Keycloak with Okta and Google Workspace
+# Keycloak with Okta and Google login
 
 This optional backend makes Keycloak the OIDC issuer for Toolbox. Existing Okta
 and optional Google Workspace accounts authenticate upstream. Direct Okta remains
@@ -81,17 +81,18 @@ through reviewed administration rather than assuming a regenerated import update
    issuers use `/oauth2/v1/*` endpoints; custom issuers use their `/v1/*`
    endpoints. The generator handles that distinction.
 
-3. To enable Google Workspace login, create a **separate Google OAuth Web
+3. To enable Google login, create a **separate Google OAuth Web
    application** with an appropriate consent screen and register:
 
    ```text
    https://localhost:8443/realms/toolbox/broker/google/endpoint
    ```
 
-   Fill all three Google fields in the private file: client ID, client secret,
-   and the exact Workspace hosted domain, for example `example.com`. The
-   generated built-in Google provider validates the hosted-domain claim. Leave
-   all three empty to omit Google login. These credentials do not replace
+   Fill the Google client ID and client secret in the private file. Leave the
+   hosted domain empty to allow personal Gmail and Workspace accounts. Set an
+   exact domain such as `example.com` only to restrict sign-in to that Workspace
+   organization; the built-in provider then validates the hosted-domain claim.
+   Leave all Google fields empty to omit Google login. These credentials do not replace
    `TOOLBOX_GOOGLE_*` used by Drive/Picker.
 
 4. Set a new random `TOOLBOX_KEYCLOAK_OWNER_CLIENT_SECRET`; use a different
@@ -291,3 +292,21 @@ without the theme mount continue working. To revert, select `keycloak.v2`.
 Verify the login page, provider choices, error messages and narrow-screen layout
 before rollout. The theme changes presentation only; enabled providers and
 registration remain controlled by the realm configuration.
+
+## Personal Gmail and Workspace login
+
+Google login accepts both account types when
+`TOOLBOX_KEYCLOAK_GOOGLE_HOSTED_DOMAIN` is empty. The Google client ID and secret
+remain required. Set an exact hosted domain only when intentionally restricting
+sign-in to one Workspace organization; wildcard and comma-separated domains are
+rejected. For an existing Keycloak realm, remove its Google provider's Hosted
+Domain setting through administration; generating a new import does not update it.
+
+Configure the Google OAuth app for an External audience to admit personal accounts
+and accounts outside your organization. While it is in Testing, enroll the intended
+test users; publication/verification requirements depend on the selected scopes.
+Register Keycloak's exact `/realms/<realm>/broker/google/endpoint` callback. This
+is separate from Toolbox's Google Drive callback. Test one personal account and
+one Workspace account, repeat login, logout, separate ownership and MCP access.
+The broader audience does not link equal email addresses or share existing grants.
+Real provider acceptance is pending until those accounts complete the live flow.

@@ -29,9 +29,9 @@ type importedRealm struct {
 		}
 	}
 	IdentityProviders []struct {
-		Alias, ProviderID, FirstBrokerLoginFlowAlias string
-		Enabled, TrustEmail, StoreToken, LinkOnly    bool
-		Config                                       map[string]string
+		Alias, DisplayName, ProviderID, FirstBrokerLoginFlowAlias string
+		Enabled, TrustEmail, StoreToken, LinkOnly                 bool
+		Config                                                    map[string]string
 	}
 	IdentityProviderMappers []struct {
 		IdentityProviderAlias, IdentityProviderMapper string
@@ -248,7 +248,6 @@ func TestRenderRejectsUnsafeConfiguration(t *testing.T) {
 		{"empty issuer fragment", func(c *Config) { c.OktaIssuer += "#" }},
 		{"issuer list", func(c *Config) { c.OktaIssuer += ",https://attacker.example.com" }},
 		{"partial Google", func(c *Config) { c.GoogleClientSecret = "" }},
-		{"missing Workspace domain", func(c *Config) { c.GoogleHostedDomain = "" }},
 		{"wildcard Workspace domain", func(c *Config) { c.GoogleHostedDomain = "*" }},
 		{"Workspace list", func(c *Config) { c.GoogleHostedDomain = "example.com,attacker.com" }},
 		{"no providers", func(c *Config) {
@@ -322,4 +321,23 @@ func TestRenderIsDeterministicAndDoesNotMutateConfig(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("Render mutated operator configuration")
 	}
+}
+
+func TestRenderGoogleAllowsPersonalAndWorkspaceAccounts(t *testing.T) {
+	cfg := validConfig()
+	cfg.GoogleHostedDomain = ""
+	realm := renderRealm(t, cfg)
+	for _, provider := range realm.IdentityProviders {
+		if provider.Alias != "google" {
+			continue
+		}
+		if _, exists := provider.Config["hostedDomain"]; exists {
+			t.Fatal("unrestricted Google login must omit hostedDomain")
+		}
+		if provider.DisplayName != "Google" || provider.ProviderID != "google" || provider.Config["issuer"] != "https://accounts.google.com" {
+			t.Fatal("wrong Google provider")
+		}
+		return
+	}
+	t.Fatal("Google provider missing")
 }

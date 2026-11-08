@@ -89,11 +89,13 @@ func Render(cfg Config) ([]byte, error) {
 		realm.IdentityProviderMappers = append(realm.IdentityProviderMappers, usernameMapper("okta"))
 	}
 	if cfg.GoogleClientID != "" {
-		provider := newProvider("google", "Google Workspace", "google", cfg.GoogleClientID, cfg.GoogleClientSecret)
+		provider := newProvider("google", "Google", "google", cfg.GoogleClientID, cfg.GoogleClientSecret)
 		// The builtin Google provider pins endpoints/JWKS and validates the hd
-		// claim. Config.validate also requires its exact fixed issuer in 26.8.2.
+		// claim when a domain is configured. Keep its exact fixed issuer.
 		provider.Config["issuer"] = "https://accounts.google.com"
-		provider.Config["hostedDomain"] = cfg.GoogleHostedDomain
+		if cfg.GoogleHostedDomain != "" {
+			provider.Config["hostedDomain"] = cfg.GoogleHostedDomain
+		}
 		provider.Config["offlineAccess"] = "false"
 		realm.IdentityProviders = append(realm.IdentityProviders, provider)
 		realm.IdentityProviderMappers = append(realm.IdentityProviderMappers, usernameMapper("google"))
@@ -131,8 +133,8 @@ func validate(cfg Config) error {
 			return errors.New("Okta requires an exact HTTPS issuer, client ID and client secret")
 		}
 	}
-	if google && (!value(cfg.GoogleClientID, 2048) || !value(cfg.GoogleClientSecret, 4096) || !hostedDomain(cfg.GoogleHostedDomain)) {
-		return errors.New("Google requires a client ID, client secret and exact Workspace hosted domain")
+	if google && (!value(cfg.GoogleClientID, 2048) || !value(cfg.GoogleClientSecret, 4096) || (cfg.GoogleHostedDomain != "" && !hostedDomain(cfg.GoogleHostedDomain))) {
+		return errors.New("Google requires a client ID, client secret and an optional exact Workspace hosted domain")
 	}
 	if len(cfg.MCPClients) > 128 {
 		return errors.New("too many MCP client registrations")

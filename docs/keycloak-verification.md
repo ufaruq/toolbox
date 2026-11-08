@@ -84,3 +84,10 @@ exclude SQL, cloning and race instrumentation; the benchmark is retained.
 race suite. Real pinned Keycloak acceptance passed under the race detector in
 18.93 seconds in Linux/Docker with controlled upstreams. Live provider and
 production acceptance limitations above still apply.
+
+Google account audience follow-up: generation accepts an empty hosted domain
+for personal Gmail and Workspace accounts, with a regression proving the
+provider omits `hostedDomain`. Exact-domain restrictions and invalid-domain
+rejections remain covered. Full `make check` passed with PostgreSQL/OpenBao
+and the race detector. Real Google sign-in for both account types remains
+unperformed pending OAuth callback and External audience configuration.
