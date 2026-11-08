@@ -286,7 +286,7 @@ func TestKeycloakBindingAndProviderConfiguration(t *testing.T) {
 			case "untrusted TLS":
 				cfg.HTTPClient = nil
 			case "insecure TLS":
-				cfg.HTTPClient = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+				cfg.HTTPClient = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}}}
 			}
 			if _, err := NewAccess(context.Background(), cfg); err == nil {
 				t.Fatal("accepted invalid configuration")

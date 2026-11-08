@@ -70,6 +70,7 @@ func TestWorkspaceBrowserFlow(t *testing.T) {
 				http.Error(w, "synthetic consent failed", 400)
 				return
 			}
+			// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Synthetic test-only Google provider returns the configured callback.
 			http.Redirect(w, r, callback+"&scope=openid&authuser=0&hd=example.test", 303)
 			return
 		}
