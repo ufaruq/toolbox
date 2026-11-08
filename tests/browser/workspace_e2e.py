@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
@@ -57,7 +58,7 @@ def main():
             page.screenshot(path=str(artifacts/'connected.png'),full_page=True,animations="disabled")
             stage='MCP caller controls'
             expect(page.locator('#callers-panel')).to_be_visible()
-            page.locator('#callers-panel summary').click()
+            page.locator('#callers-panel > summary').click()
             page.locator('#caller-client').select_option('code')
             page.locator('#create-caller').click()
             # Confirmation must be visible beside the action, and a saved
@@ -68,7 +69,9 @@ def main():
             expect(page.locator('#caller-list')).to_contain_text('active')
             page.reload()
             expect(page.locator('#workspace')).to_be_visible()
-            page.locator('#callers-panel summary').click()
+            # Wait for the saved caller, including its nested identity summary.
+            expect(page.locator('#caller-list')).to_contain_text('active')
+            page.locator('#callers-panel > summary').click()
             page.locator('#caller-client').select_option('code')
             expect(page.locator('#create-caller')).to_be_disabled()
             page.locator('#caller-list').get_by_role('button',name='Disable',exact=True).click()
@@ -84,7 +87,9 @@ def main():
             expect(page.locator('#callers-panel').get_by_role('status')).to_contain_text('name saved')
             page.reload()
             expect(page.locator('#workspace')).to_be_visible()
-            page.locator('#callers-panel summary').click()
+            # Wait for the saved caller, including its nested identity summary.
+            expect(page.locator('#caller-list')).to_contain_text('active')
+            page.locator('#callers-panel > summary').click()
             expect(page.locator('#caller-list').get_by_label('Agent name',exact=True)).to_have_value('Codex local')
             expect(page.locator('#create-caller')).to_be_disabled()
             stage='Picker'
@@ -258,9 +263,13 @@ def main():
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             agent.dispose()
             print('PASS: synthetic Workspace consent, Picker, approval/read, different-document denial, revocation, disconnect, logout; artifacts='+str(artifacts))
-        except Exception:
+        except Exception as error:
             page.screenshot(path=str(artifacts/'failure.png'),full_page=True,animations="disabled",mask=[page.locator('#agent-credential')])
-            print('FAIL: synthetic Workspace stage='+stage+'; artifacts='+str(artifacts))
+            # Report only code locations/type; raw Playwright errors may contain credentials.
+            frames=[frame for frame in traceback.extract_tb(error.__traceback__) if Path(frame.filename).resolve()==Path(__file__).resolve()]
+            line=frames[-1].lineno if frames else 0
+            category='ambiguous locator' if 'strict mode violation' in str(error) else 'browser assertion/action'
+            print('FAIL: synthetic Workspace stage='+stage+'; error='+type(error).__name__+'; category='+category+'; line='+str(line)+'; artifacts='+str(artifacts))
             return 1
         finally:
             browser.close()
