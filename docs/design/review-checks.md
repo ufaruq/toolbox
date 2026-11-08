@@ -2,6 +2,8 @@
 
 Status as of 18 October 2026. These checks were completed before the initial draft PR. They are recorded here rather than represented as invented earlier commits.
 
+This is a historical design-validation record. PR #2 has since merged application code; use [implementation status](../implementation-status.md) for its checks and the [roadmap](../ROADMAP.md) for the current backlog. The application requirements below are not a current report that all those checks remain unrun.
+
 ## Initial draft checks completed
 
 - Reviewed the current official Google Drive, Picker, OAuth and OpenID Connect documentation, OpenBao KV v2 documentation, Go OAuth2 documentation, OPA documentation and OAuth/JWT RFCs linked in the design.
@@ -28,7 +30,7 @@ Status as of 18 October 2026. These checks were completed before the initial dra
 - Compared every PDF page's raster between the checked-in generator, clean rebuild and independent QA render: all 21 were pixel-identical in this environment. PDF metadata byte identity across environments is not claimed.
 - Validated the DOCX archive, five embedded diagrams, nine tables and absence of title borders. Checked Python source syntax.
 
-## Not yet run
+## Application checks outside this design record
 
 - No Toolbox application implementation or provider integration tests have run as part of this design work.
 - The Google client/Picker/backend account and project configuration still needs a real integration spike.

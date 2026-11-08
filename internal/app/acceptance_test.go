@@ -23,11 +23,80 @@ import (
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
 	"github.com/ufaruq/toolbox/internal/domain"
 	"github.com/ufaruq/toolbox/internal/oauth"
+	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
 	"github.com/ufaruq/toolbox/internal/server"
 	"github.com/ufaruq/toolbox/internal/store"
 	"github.com/ufaruq/toolbox/internal/tokens"
 )
+
+type workspaceOwnerProvider struct{}
+
+func (workspaceOwnerProvider) AuthorizationURL(state, nonce, challenge string) (string, error) {
+	return "https://owner.example.test/authorize?state=" + url.QueryEscape(state), nil
+}
+func (workspaceOwnerProvider) Exchange(context.Context, string, string, string) (ownerlogin.Identity, error) {
+	return ownerlogin.Identity{Issuer: "https://owner.example.test", Subject: "real-owner"}, nil
+}
+
+func TestWorkspaceRoutesRequireVerifiedOwnerAndSeparateSessionPepper(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ts = httptest.NewUnstartedServer(nil)
+	t.Cleanup(h.ts.Close)
+	origin := "http://" + h.ts.Listener.Addr().String()
+	sessionPepper := bytes.Repeat([]byte("s"), 32)
+	login, err := ownerlogin.NewService(h.repo, h.secrets, workspaceOwnerProvider{}, ownerlogin.ServiceConfig{
+		Issuer: "https://owner.example.test", ClientID: "owner-client", RedirectURI: origin + "/auth/oidc/callback", Pepper: sessionPepper,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := oauth.NewFixtureProvider("fixture-client", origin+"/oauth/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow, err := oauth.NewService(h.repo, h.secrets, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	integration := &app.Integration{OAuth: flow, TokenManager: &tokens.Manager{Repository: h.repo, Secrets: h.secrets, Provider: provider}, Drive: gdrive.NewFixture(h.drive)}
+	api, err := server.New(server.Config{Repository: h.repo, Signer: h.api.Signer, Pepper: bytes.Repeat([]byte("c"), 32), SessionPepper: sessionPepper, Origin: origin, WorkspaceLocal: true, OwnerLogin: login}, integration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.ts.Config.Handler = api
+	h.ts.Start()
+	// A fixture login issued by the earlier handler is never a live owner.
+	h.call("GET", "/v1/session", nil, "", "", 403)
+	for _, path := range []string{"/fixture/login", "/fixture/authorize"} {
+		resp, err := h.client.Get(h.ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 404 && resp.StatusCode != 405 {
+			t.Fatal("fixture route exposed")
+		}
+	}
+	started := h.call("POST", "/auth/oidc/start", map[string]any{}, "", "", 200)
+	authorization, _ := url.Parse(started["authorization_url"].(string))
+	resp, err := h.client.Get(h.ts.URL + "/auth/oidc/callback?state=" + url.QueryEscape(authorization.Query().Get("state")) + "&code=test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatal("verified callback failed")
+	}
+	session := h.call("GET", "/v1/session", nil, "", "", 200)
+	if session["fixture"] != false || session["owner_only"] != false {
+		t.Fatal("wrong runtime capabilities")
+	}
+	h.csrf = session["csrf_token"].(string)
+	h.call("POST", "/v1/connections/google/start", map[string]any{}, "", "", 200)
+	h.call("POST", "/v1/session/logout", map[string]any{}, "", "", 200)
+	h.call("GET", "/v1/session", nil, "", "", 403)
+}
 
 type countSecrets struct {
 	*tokens.MemorySecretStore
@@ -187,6 +256,37 @@ func TestAllowedReadAndAuditIsolation(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestFixtureAndOwnerCookiesDoNotOverwriteEachOther(t *testing.T) {
+	for _, relogin := range []bool{false, true} {
+		t.Run(strconv.FormatBool(relogin), func(t *testing.T) {
+			h := newHarness(t, nil)
+			// Cookie host scope ignores ports: simulate the real owner app on
+			// another loopback port issuing its cookie in the same browser.
+			ownerURL, err := url.Parse(h.ts.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ownerURL.Host = ownerURL.Hostname() + ":8080"
+			ownerToken := strings.Repeat("o", 43)
+			h.client.Jar.SetCookies(ownerURL, []*http.Cookie{{Name: "toolbox_session", Value: ownerToken, Path: "/", HttpOnly: true}})
+			if relogin {
+				login := h.call("POST", "/fixture/login", map[string]any{}, "", "", 200)
+				h.csrf = login["csrf_token"].(string)
+			}
+			ownerPreserved := false
+			for _, c := range h.client.Jar.Cookies(ownerURL) {
+				if c.Name == "toolbox_session" && c.Value == ownerToken {
+					ownerPreserved = true
+				}
+			}
+			if !ownerPreserved {
+				t.Fatal("fixture sign-in overwrote the real owner's cookie")
+			}
+			h.call("POST", "/v1/connections/google/start", map[string]any{}, "", "", 200)
+		})
+	}
+}
 func TestDeniedShapesNeverTouchProviderOrSecrets(t *testing.T) {
 	h := newHarness(t, nil)
 	h.approve()
@@ -271,6 +371,113 @@ func TestOwnerCSRFAndApprovalReplay(t *testing.T) {
 	h.csrf = csrf
 	h.invoke("doc-A", 200)
 }
+
+func TestGoogleStartRejectsClientSuppliedIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, wantError string
+		body                  map[string]any
+	}{
+		{"email body", "/v1/connections/google/start", "INVALID_SCHEMA", map[string]any{"email": "attacker@example.com"}},
+		{"domain body", "/v1/connections/google/start", "INVALID_SCHEMA", map[string]any{"domain": "example.com"}},
+		{"login hint body", "/v1/connections/google/start", "INVALID_SCHEMA", map[string]any{"login_hint": "attacker@example.com"}},
+		{"email query", "/v1/connections/google/start?email=attacker%40example.com", "INVALID_QUERY", map[string]any{}},
+		{"login hint query", "/v1/connections/google/start?login_hint=attacker%40example.com", "INVALID_QUERY", map[string]any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, nil)
+			var connections, transactions int
+			if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+				connections, transactions = len(st.Connections), len(st.OAuth)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			v := h.call("POST", tc.path, tc.body, "", "", 400)
+			if v["error"] != tc.wantError {
+				t.Fatalf("identity input reached OAuth setup: %v", v)
+			}
+			// Rejected identity input must not allocate OAuth state or a connection.
+			if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+				if len(st.Connections) != connections || len(st.OAuth) != transactions {
+					t.Fatal("rejected start created OAuth state or a connection")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestGoogleCallbackRejectsClientSuppliedIdentityBeforeCompletion(t *testing.T) {
+	h := newHarness(t, nil)
+	v := h.call("POST", "/v1/connections/google/start", map[string]any{}, "", "", 200)
+	// Capture the genuine provider callback before the browser follows it.
+	client := *h.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Get(v["authorization_url"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("fixture consent returned %d", resp.StatusCode)
+	}
+	callback, err := resp.Location()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transactionID, _, err := security.CredentialParts(callback.Query().Get("state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := h.secrets.Reads.Load()
+	for _, field := range []string{"email", "login_hint", "hd"} {
+		t.Run(field, func(t *testing.T) {
+			spoofed := *callback
+			query := spoofed.Query()
+			query.Set(field, "attacker@example.com")
+			spoofed.RawQuery = query.Encode()
+			v := h.call("GET", spoofed.RequestURI(), nil, "", "", 400)
+			if v["error"] != "INVALID_CALLBACK" {
+				t.Fatalf("spoofed identity was not rejected by callback schema: %v", v)
+			}
+			// Schema rejection must precede state consumption and token exchange.
+			if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+				tx, ok := st.OAuth[transactionID]
+				if !ok || tx.Consumed || st.Connections[tx.ConnectionID].Status != "pending" {
+					t.Fatal("spoofed callback consumed or completed OAuth state")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if h.secrets.Reads.Load() != reads {
+				t.Fatal("spoofed callback crossed the credential boundary")
+			}
+		})
+	}
+	resp, err = client.Get(callback.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
+		t.Fatalf("original callback failed after schema rejections: status=%d location=%q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	// The untouched callback still links the provider-issued identity.
+	if err := h.repo.Transact(context.Background(), func(st *domain.State) error {
+		tx := st.OAuth[transactionID]
+		c := st.Connections[tx.ConnectionID]
+		if !tx.Consumed || c.Status != "active" || c.Subject != "fixture-google-account" {
+			t.Fatal("original callback did not activate the provider-issued identity")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDisconnectBlocksAndCleansUp(t *testing.T) {
 	h := newHarness(t, nil)
 	h.approve()

@@ -115,6 +115,19 @@ func fixture(t *testing.T) (*Manager, *testRepo, *spyStore, *testProvider) {
 	return &Manager{Repository: repo, Secrets: store, Provider: provider, Now: func() time.Time { return now }}, repo, store, provider
 }
 func allow(context.Context) error { return nil }
+
+func TestAccessLeasePreservesProviderExpiryAcrossRefreshAndCache(t *testing.T) {
+	m, _, _, p := fixture(t)
+	for i := 0; i < 2; i++ {
+		lease, err := m.AccessLease(context.Background(), "c", allow)
+		if err != nil || lease.Token != "CANARY-NEW-ACCESS" || !lease.Expiry.Equal(m.now().Add(time.Hour)) {
+			t.Fatalf("lease lost provider expiry: %v", err)
+		}
+	}
+	if p.calls.Load() != 1 {
+		t.Fatal("cached lease refreshed again")
+	}
+}
 func TestRefreshCoordinatedAcrossManagers(t *testing.T) {
 	m, r, s, p := fixture(t)
 	second := &Manager{Repository: r, Secrets: s, Provider: p, Now: m.Now}

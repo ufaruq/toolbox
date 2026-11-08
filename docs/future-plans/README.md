@@ -10,5 +10,5 @@ specifications, or deployment readiness.
 
 See the [project README](../../README.md) and
 [implementation status](../implementation-status.md) for the existing application.
-Keep delivery tracking in the project roadmap when that documentation is merged;
-this directory holds proposal details rather than a second completion checklist.
+Keep delivery tracking in the [project roadmap](../ROADMAP.md); this directory
+holds proposal details rather than a second completion checklist.

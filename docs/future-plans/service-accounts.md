@@ -26,16 +26,17 @@ has that user's downstream consent and account dependencies.
 ## Existing model and required changes
 
 The implementation on `main` separates owner sessions, agent credentials,
-user-owned provider connections, and exact-document grants. Its runnable
-executable uses fixture identity and Google; real provider adapters are library
-components. Agents already have independent credentials, but their ownership and
+user-owned provider connections, and exact-document grants. Its runnable executable supports the synthetic fixture, local Okta owner
+sign-in, and local Google Workspace flow; inbound MCP and an outbound Docker
+MCP Gateway pilot are also on `main`. See the [implementation status](../implementation-status.md)
+for verification limits. Agents already have independent credentials, but their ownership and
 grants remain tied to a human owner. That is not yet an organization-owned
 service-account model.
 
 Related work includes [owner Okta sign-in](https://github.com/ufaruq/toolbox/pull/5)
 and [hosted MCP with per-client permissions](https://github.com/ufaruq/toolbox/pull/7).
-Those are separate proposals/implementation branches, not evidence that this
-service-account flow is available. MCP or another transport does not itself
+Those changes are now merged into `main`; neither implements this
+service-account flow. MCP or another transport does not itself
 establish a service's authority.
 
 The extension needs service-principal lifecycle management, trusted workload

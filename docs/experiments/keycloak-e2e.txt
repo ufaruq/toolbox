@@ -1,0 +1,11 @@
+TOOLBOX_TEST_KEYCLOAK=1 go test -race -count=1 ./internal/app -run '^TestKeycloakBrokerFlow$' -v -timeout=9m
+=== RUN   TestKeycloakBrokerFlow
+    keycloak_e2e_test.go:63: real Keycloak ready: quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+    keycloak_e2e_test.go:102: temporary operator realm-management roles: [view-identity-providers view-users query-groups query-users]
+    keycloak_e2e_test.go:127: real Admin API proof: dry-run, atomic apply and idempotence passed
+    keycloak_e2e_test.go:146: real Keycloak access verifier: user token accepted; ID token, operator token and token requested without mcp scope rejected
+    keycloak_e2e_test.go:201: real Keycloak tokens: fresh caller approval, SDK request/read, wrong-resource denial, grant revocation and caller disable passed
+    keycloak_e2e_test.go:233: controlled HTTPS Okta/Google-shaped brokering and same-email separation passed in 41s; live tenant and built-in Google hosted-domain acceptance remain external
+--- PASS: TestKeycloakBrokerFlow (41.32s)
+PASS
+ok  	github.com/ufaruq/toolbox/internal/app	42.347s

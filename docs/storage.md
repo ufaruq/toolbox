@@ -1,5 +1,17 @@
 # Storage adapters and operating limits
 
+[Project overview](../README.md) · [Current roadmap](ROADMAP.md) ·
+[Implementation evidence](implementation-status.md)
+
+This is the technical storage reference. The [roadmap](ROADMAP.md) is the single
+pending-work index: **M1** is real owner OIDC; **M2** is live Google/Picker wiring
+and acceptance; **M3** is a deployable controlled pilot with persistent/rotatable
+keys, least-privilege stores, secret cleanup and operations; **M4** is larger
+workload SQL, rate limits and retention. Optional agent clients/MCP (**F1**) and
+more tools/providers (**F2**) are future features. The limits and operating
+requirements below inform those milestones; adapter implementation alone does
+not establish release readiness.
+
 ## Supported slice
 
 `internal/store` implements `domain.Repository` with:
@@ -11,6 +23,13 @@
 - `(*Postgres).Close()` for shutdown of the transaction pool. Cancel active request contexts before shutdown so dedicated connection-lock sessions also close promptly.
 
 Opening the database does not migrate it. Run migrations explicitly with a migration owner, then start the service with a less-privileged runtime role. Production configuration must require verified database TLS, for example `sslmode=verify-full` and the deployment's trusted CA. The adapter accepts plaintext local-development DSNs; it does not silently upgrade them or certify their security.
+
+The current fixture executable calls `Migrate` at startup when `DATABASE_URL` is
+set. That development convenience does not implement the separate production
+migration/runtime-role arrangement. It also generates an ephemeral signing key
+and credential pepper on every start. Persistent database records therefore do
+not establish restart-safe credentials or a deployable pilot; key persistence,
+rotation and recovery belong to **M3**.
 
 This is a **low-throughput reference adapter**, not a scale-ready storage engine. Each transaction reads every non-secret record, copies the complete snapshot, validates it, and writes changed records. All application transactions, including reads, take one database-wide advisory transaction lock. Memory and transaction work are proportional to total stored state, including audit history. The connection pool has eight connections; one transaction is active at a time. Adding API replicas does not increase storage throughput. Do not run an unbounded production workload on this adapter.
 
@@ -56,6 +75,15 @@ Always inspect the unlock result before returning success or releasing a provide
 
 SQL stores only identity metadata, hashes of agent credentials and CSRF/OAuth state, secret references, grant policy, resource metadata, cleanup state, and audit metadata. It must never store Google access/refresh tokens, OAuth codes, PKCE verifiers, plaintext agent credentials, or document contents. Those belong in their specific request/secret-store boundary. Field allowlists are defense in depth, not a guarantee against application code putting a secret into an ordinary string field.
 
+OpenBao KV-v2 stores provider credential bundles and OAuth transaction secrets.
+Durable exchange/refresh intents and cleanup-only responses fence uncertain
+provider outcomes; a pending cleanup record is not proof that provider revocation
+has completed. Current-version deletion does not erase historical KV versions.
+Production needs separately permissioned expiry/orphan cleanup and historical
+version destruction, with backup and audit-retention handling reviewed together.
+Those **M3** operating requirements are not supplied by the SQL adapter or the
+fixture's cleanup loop.
+
 Use a dedicated schema and revoke public `CREATE` rights. The runtime role must not own tables, functions, or the schema, must not be superuser, and must not have DDL, trigger-disable, replication, or unrestricted role-management privileges. It needs SELECT/INSERT/UPDATE/DELETE on mutable tables, SELECT/INSERT/UPDATE on grants, SELECT/INSERT only on audit events, and sequence USAGE for audit ordering. Trigger protections are not a security boundary against a database owner. Separate backups/restore, migration, runtime, and any future retention privileges. Disable statement/parameter logging that would capture metadata or hashes; do not log DSNs.
 
 ## Verification
@@ -66,12 +94,39 @@ Run ordinary tests:
 go test -race ./internal/store
 ```
 
+For the disposable Compose stack, start the stores and configure the OpenBao
+mount from the repository root:
+
+```sh
+docker compose up -d --wait
+docker compose exec -T openbao bao write secret/config cas_required=true max_versions=3
+```
+
+Check whether the integration database exists:
+
+```sh
+docker compose exec -T postgres psql -U toolbox -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='toolbox_test'"
+```
+
+If it returns no row, create the database once. If it returns `1`, use that
+database only if it is the intended disposable fixture database; do not drop a
+pre-existing database to prepare tests.
+
+```sh
+docker compose exec -T postgres createdb -U toolbox toolbox_test
+```
+
 Run integration tests against an explicitly disposable database whose test role may create/drop schemas:
 
 ```sh
-TOOLBOX_TEST_DATABASE_URL='postgres://test:local-only@127.0.0.1:5432/toolbox_test?sslmode=disable&application_name=toolbox-lock-test' go test -race ./internal/store
+TOOLBOX_TEST_DATABASE_URL='postgres://toolbox:fixture-only@127.0.0.1:5432/toolbox_test?sslmode=disable' go test -race ./internal/store
 ```
 
-Each integration test creates and drops a unique schema. Backend-termination testing uses `application_name=toolbox-lock-test`; use a dedicated test database and no unrelated application sessions with that name. The role must be able to terminate its own backend. No real provider credentials or documents are needed.
+Each integration test creates and drops a unique schema. Backend-termination
+testing identifies the exact lease by its database and schema-specific advisory
+lock key in `pg_locks`, independent of `application_name` or DSN format. It waits
+for that backend to terminate and checks that an unrelated same-application
+session survives. Use a dedicated disposable test database, and a role able to
+terminate its own backend. No real provider credentials or documents are needed.
 
-Tests cover transactional rollback and cancellation, deep-copy isolation, panic rollback, concurrent updates, immutable grants/revocations/approvals/audits, cross-owner and exact-resource foreign keys, unknown secret-field rejection, migration idempotency, separate-instance advisory contention, cancelled/lost-session cleanup, and database time after lock waiting. The suite has been run under Go's race detector against PostgreSQL 17.11 using synthetic records. It is an adapter test, not proof of the end-to-end Google/OpenBao deployment.
+Tests cover transactional rollback and cancellation, deep-copy isolation, panic rollback, concurrent updates, immutable grants/revocations/approvals/audits, cross-owner and exact-resource foreign keys, unknown secret-field rejection, migration idempotency, separate-instance advisory contention, cancelled/lost-session cleanup, and database time after lock waiting. The recorded verification at `621fc25` includes the suite under Go's race detector against PostgreSQL 17.11 using synthetic records, within 301 passing Go tests/subtests with real PostgreSQL/OpenBao and Chromium fixture checks. See [implementation evidence](implementation-status.md) for scope and provenance. This documentation update does not rerun those application checks. Adapter and fixture results do not prove production OIDC, live Google/Picker, or production deployment readiness.

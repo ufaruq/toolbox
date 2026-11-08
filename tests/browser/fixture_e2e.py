@@ -103,6 +103,7 @@ class FixtureBrowser:
         return value
 
     def follow_approval_link(self, request_id):
+        connection_id = self.page.locator("#connection").input_value()
         link = self.page.get_by_role("link", name="Open trusted approval page")
         assert link.get_attribute("href") == f"{self.origin}/approve/{request_id}", (
             "Approval link must use the trusted origin and requested ID"
@@ -111,6 +112,9 @@ class FixtureBrowser:
             link.click()
         expect(self.page.locator("#workspace")).to_be_visible()
         expect(self.page.locator("#request-id")).to_have_value(request_id)
+        # Re-select the reviewed account after navigation when multiple sample
+        # connections exist; the approval page must still require an explicit review.
+        self.page.locator("#connection").select_option(connection_id)
         expect(self.page.locator("#connection")).not_to_have_value("")
         expect(self.page.locator("#approve")).to_be_disabled()
 
@@ -156,6 +160,26 @@ class FixtureBrowser:
         expect(page.locator("#connection")).not_to_have_value("")
         expect(page.locator("#connection-info")).to_contain_text("active: fixture-google-account")
         connection_id = page.locator("#connection").input_value()
+        expect(page.locator("#connection-status")).to_contain_text("Connected to the sample Google account.")
+        expect(page.locator("#connection-status")).to_be_in_viewport()
+
+        self.stage = "repeat connect selects the new account and confirms success"
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            page.locator("#connect").click()
+        expect(page.locator("#connection-status")).to_contain_text("Connected to the sample Google account.")
+        expect(page.locator("#connection")).not_to_have_value("")
+        expect(page.locator("#connection")).not_to_have_value(connection_id)
+        connection_id = page.locator("#connection").input_value()
+
+        self.stage = "connect failure is visible beside the button"
+        def unavailable(route):
+            route.fulfill(status=503, content_type="application/json", body='{"error":"DEPENDENCY_UNAVAILABLE"}')
+        page.route(self.origin + "/v1/connections/google/start", unavailable)
+        self.click_response("connect", "/v1/connections/google/start", 503)
+        expect(page.locator("#connection-status")).to_have_text("DEPENDENCY_UNAVAILABLE")
+        expect(page.locator("#connection-status")).to_be_in_viewport()
+        expect(page.locator("#connection")).to_have_value(connection_id)
+        page.unroute(self.origin + "/v1/connections/google/start", unavailable)
 
         self.stage = "independent agent creation and pending request"
         page.locator("#agent-name").fill("Browser E2E synthetic agent")
@@ -185,6 +209,7 @@ class FixtureBrowser:
         expect(page.locator("#request-id")).to_have_value(request_id)
         expect(page.locator("#approve")).to_be_disabled()
         expect(page.locator("#review-details")).to_be_hidden()
+        page.locator("#connection").select_option(connection_id)
         self.review(request_id)
         self.capture("01-review.png")
 

@@ -1,9 +1,31 @@
 # Google connection setup and release gates
 
-The repository includes a production-oriented Google OAuth adapter and an explicit
-fixture provider. It has **not** created a Google Cloud project or OAuth client,
-used real credentials, completed a real Google consent flow, proved Google's
-PKCE enforcement, or run the real Drive/Picker integration spike.
+[Project overview](../README.md) · [Current roadmap](ROADMAP.md) ·
+[Implementation evidence](implementation-status.md)
+
+This is the technical reference for Google integration. The [roadmap](ROADMAP.md)
+is the single pending-work index: **M1** covers real owner OIDC, **M2** covers live
+Google/Picker wiring and acceptance, and **M3** covers a deployable controlled
+pilot, including persistent/rotatable keys, least-privilege stores, secret cleanup
+and operations. **M4** covers larger-workload storage, rate limits and retention;
+optional agent clients/MCP (**F1**) and more tools/providers (**F2**) are future
+features, not prerequisites for proving this Google integration.
+
+The repository includes real Google OAuth and Drive adapters and an explicit
+fixture provider. The fixture mode wires simulated Google/Drive and creates an ephemeral signer
+and credential pepper on each start. The separate `oidc-local` mode provides
+[real owner sign-in](okta-setup.md) while disabling Google and agent operations.
+The separate `workspace-local` mode now wires real Google adapters and Picker with
+verified owner sessions. Follow [Workspace setup](workspace-demo.md) for exact
+Google console settings, private configuration, `make google-pkce-check` and
+`make workspace`. It uses the explicit independent-account identity contract
+`openid email drive.file`; the default/fixture scope contract is unchanged.
+The user has now configured a dedicated Google test project/client privately, and
+the [actual-client PKCE/scope check passed](workspace-verification.md): four fresh
+consent/code rounds, matching/missing/wrong/matching verifiers, signed ID-token
+validation and known probe-token cleanup. The combined Workspace app starts with
+the real providers. The real Drive/Picker document flow and remaining release
+gates are still unverified; the protocol result alone does not establish a demo.
 
 The runnable fixture is deliberately a development demonstration. A fixture
 owner session or fixture Google subject is not human authentication. Production
@@ -19,9 +41,10 @@ Select and implement this integration before enabling a production server. Do no
 replace it with a user ID from JSON, an unverified JWT claim, a trusted-looking
 header, or fixture login.
 
-The Google account connected for Drive can differ from the Toolbox sign-in
-account. `oauth.Service` takes the authenticated owner and session IDs from the
-server and checks the active owner, session ownership and DB-time expiry. It does
+By default, the Google account connected for Drive can differ from the Toolbox
+sign-in account. Deployments requiring the same corporate person must explicitly
+use the corporate linking mode described below. `oauth.Service` takes the
+authenticated owner and session IDs from the server and checks the active owner, session ownership and DB-time expiry. It does
 not create or authenticate Toolbox users. It records Google's validated `sub` as
 the connection identity; email is not an account key. The owner UI should show
 which Google account is connected before approving any delegation.
@@ -34,7 +57,9 @@ These are operator steps, not actions performed by this implementation:
    integrating the real selection UI, Google Picker API.
 2. Configure the consent screen and limited test users. Request only `openid` and
    `https://www.googleapis.com/auth/drive.file`. No `drive.readonly`, broad `drive`,
-   `email`, or `profile` fallback is implemented.
+   or `profile` fallback is implemented. The corporate mode below and the explicit
+   independent `workspace-local` identity mode add `email`; neither changes the
+   default or fixture request.
 3. Create a web-application OAuth client. Register the **exact** configured
    callback URI. The fixture server currently uses
    `http://127.0.0.1:8080/oauth/callback`; use the actual configured local port.
@@ -81,9 +106,10 @@ Also verify that the exact `openid` plus `drive.file` request returns the requir
 ID token and exact granted scopes. Google's current OIDC endpoint reference says
 its scope list includes `openid` plus `profile` or `email`; this differs from the
 minimal design adopted here and must be resolved by the real-project spike and
-review. The implementation intentionally does not add personal-data scopes. If
-the minimal request does not work, treat the scope/identity design as blocked and
-obtain review before changing it.
+review. The default implementation does not add personal-data scopes. If the
+minimal request does not work, treat the default scope/identity design as blocked
+and obtain review before changing it. Corporate mode is a separate explicit
+identity-scope choice; it still needs the real-project PKCE and scope spike.
 
 If either negative test succeeds, do not set the flag. Revise the architecture or
 client arrangement and review the result. Do not omit the challenge, switch to
@@ -112,10 +138,96 @@ if err != nil {
 service, err := oauth.NewService(repo, bao, provider)
 ```
 
-This shows the library API, not an assertion that live server configuration is
-wired or production owner login is complete. The same `provider` implements
+This shows the minimal library API. The local Workspace runtime instead explicitly
+requests email identity scopes and uses `NewIndependentGoogleService`; a production
+runtime still needs deployment configuration and live acceptance. The same `provider` implements
 `tokens.Provider` for coordinated refresh and revocation. There is no SDK token
 source performing background refresh outside that coordinator.
+
+### Optional corporate Workspace account linking
+
+Corporate linking is an opt-in library policy, not currently enabled by the
+fixture command. For a trusted Toolbox owner mapped to `ufaruq@company.com`, the
+policy permits that exact verified Workspace mailbox and signed hosted domain
+`company.com`. A colleague at the same domain, a personal account, missing or
+false `email_verified`, missing `hd`, and either identity mismatch are denied.
+A domain allowlist or a Google `login_hint` alone does not establish the person.
+
+Enable both parts in reviewed server code:
+
+```go
+provider, err := oauth.NewGoogleProvider(oauth.GoogleConfig{
+    ClientID:      configuredClientID,
+    ClientSecret:  injectedClientSecret,
+    CallbackURL:   "https://toolbox.example/oauth/callback",
+    PKCEValidated: validatedForThisActualGoogleClient,
+    IdentityScopes: true,
+})
+if err != nil {
+    return err
+}
+// trustedDirectory implements oauth.TrustedOwnerIdentityResolver. It receives
+// only an already authenticated Toolbox owner ID, then reads an independently
+// trusted identity source or an explicit reviewed server configuration mapping.
+service, err := oauth.NewCorporateService(repo, bao, provider, trustedDirectory)
+```
+
+`TrustedOwnerIdentityResolver.ResolveCorporateIdentity(ctx, ownerID)` returns
+`oauth.CorporateIdentity{Email: "ufaruq@company.com", HostedDomain: "company.com"}`
+only when its trusted source proves that this owner is the permitted corporate
+person. An OIDC-backed resolver must validate the owner IdP, verified mailbox and
+binding to the stored stable owner issuer/subject; alternatively, an operator can
+maintain an explicit owner-ID-to-corporate-identity configuration. Never construct
+this mapping from request JSON, query parameters, a forwarded email header,
+`login_hint`, or the Google account being connected. Unmapped owners, unavailable
+sources and invalid configuration must return an error. Resolution honors a
+five-second context deadline. The policy is evaluated at completion against the
+transaction's validated owner; it is not a replacement for owner authentication.
+The service rechecks the live owner session before activation.
+
+`IdentityScopes: true` changes the authorization request and exact accepted scope
+set to `openid email https://www.googleapis.com/auth/drive.file`. This requests
+additional personal identity data and requires explicit deployment consent/review.
+`NewService` refuses this mode; `NewCorporateService` refuses a provider without
+this exact contract or a missing resolver. `NewIndependentGoogleService` explicitly
+accepts the email identity contract without enforcing a corporate owner mapping;
+the local Workspace runtime selects it. The default provider and fixture still
+request exactly `openid` and `drive.file`. Unknown, additional, duplicate or missing
+granted scopes fail closed. The email contract also survives refresh: omitted
+refresh scope fields retain the stored contract; a changed explicit scope set is
+rejected. The token manager cannot add email scopes to an existing default grant.
+
+The provider validates the ID-token signature, issuer, audience, authorized party,
+nonce and lifetime before exposing the signed email claims. The policy requires
+boolean true `email_verified`, a valid canonical ASCII mailbox and hosted domain,
+exact expected mailbox and `hd`, and matching mailbox/hosted domains. Local parts
+are case-sensitive; there is no alias, dot or plus-address folding. Workspace
+aliases whose mailbox domain differs from `hd` are rejected by this strict mode;
+supporting them would require a separately reviewed explicit mapping policy.
+Google issuer/provider and stable `sub` remain the account identity. Email and
+hosted-domain claims are transient authorization evidence, never a database key.
+This does not add organization membership or tenant isolation.
+
+A rejection after Google issues credentials persists them only as a cleanup bundle
+and keeps the connection pending. No grant or access lease is created. Use the
+existing explicit disconnect/cleanup lifecycle to revoke the known credential;
+automatic account-wide revocation is avoided because it can affect other grants.
+Resolver timeout/cancellation also retains a fresh detached cleanup write budget.
+
+The local Okta owner mode does not provide the corporate identity resolver or
+Google runtime wiring. This policy supplies no trusted directory, server
+configuration mapping, public deployment or real Google acceptance.
+The fixture supplies none of these and must not be described as enforcing this
+policy. Existing connections are not retroactively revalidated; a strict rollout
+must retire or explicitly review earlier connections and create new policy-checked
+connections. Complete a live test with the intended Google Workspace tenant and
+client before claiming enforcement in production. Confirm the exact returned
+scope names (including any provider canonicalization of `email` to a URI) and
+signed mailbox/`hd` behavior; an unreviewed alias is rejected by the exact scope
+contract. The existing fixture HTTP callback accepts only `state` and `code`;
+Google may also return `scope`, `authuser`, `hd` or `prompt`. Production callback
+integration must explicitly review and handle these provider fields without using
+them as identity evidence. No live results are claimed here.
 
 The trusted owner endpoint calls:
 
@@ -128,10 +240,13 @@ The trusted owner endpoint calls:
   first-party session. Do not derive owner/session from query parameters or
   from the Google subject. Do not treat the callback as grant approval.
 
-Provider cancellation/error leaves a pending connection, which has no execution
-rights. Completing a new connection does not create a document selection or
-agent grant. The owner must select/verify the document and explicitly approve
-new delegation.
+The Workspace callback consumes a correctly bound provider cancellation without
+exchanging a code and marks the connection cancelled. An unknown exchange outcome
+leaves a blocked pending connection. A rejected response containing known credentials is retained only for
+cleanup; a missing refresh token can mark the connection `needs_reauth`. None of
+these states has execution rights. Completing a new connection does not create a
+document selection or agent grant. The owner must select/verify the document and
+explicitly approve new delegation.
 
 ## 5. Persistence and failure behavior
 
@@ -147,20 +262,40 @@ new delegation.
   Google issuer, configured client audience, authorized party where applicable,
   subject, expiry/issued time and nonce. It never follows JWT-provided `jku` or
   `x5u` URLs. It rejects missing, unexpected, or broadened granted scopes.
-- After verification, the service locks the new connection, rechecks its pending
-  state and owner session, then CAS-writes the complete initial bundle at
-  `connections/{connection_id}`. Only afterward can the DB connection become
-  active. A missing refresh token changes the connection to `needs_reauth`; an
-  access token alone never activates the connection.
-- A secret-write timeout is reconciled only when the authoritative stable path
-  contains the exact operation ID and complete initial bundle. Otherwise the
-  connection stays pending. No blind write or code-exchange retry occurs.
-- A DB activation failure after durable secret storage leaves a blocked pending
-  connection and a retained credential bundle. The MVP does not automatically
-  activate this orphan. Reconnect with a new connection and use reviewed cleanup
-  to retire the pending record. Account-level revocation can affect other
-  connections for that app, so do not automatically revoke a pending orphan
-  without considering that consequence.
+- Before calling the token endpoint, the service locks the connection, rechecks
+  its pending state and live owner session, and CAS-writes a durable,
+  operation-bound `refreshing` intent at `connections/{connection_id}`. It checks
+  unlock success before dispatching the exchange. The provider call runs outside
+  that lock. Disconnect cleanup cannot treat an unresolved intent as completed
+  merely because credentials have not arrived.
+- Known exchange credentials are persisted using a bounded detached context,
+  including after cancellation, expired sessions, disconnect, and rejected
+  identity/scope results. The service reacquires the connection lock and replaces
+  only its original CAS intent. A valid complete bundle can activate the DB
+  connection only after fresh identity, scope, session, lifecycle and expiry
+  checks. An access-only response is retained as cleanup-only and changes the DB
+  connection to `needs_reauth` when the session/lifecycle checks still pass; it
+  never activates the connection.
+- A secret-write timeout is reconciled only when a strictly newer version at the
+  authoritative stable path contains the exact operation and complete expected
+  bundle. This applies to the intent and response writes. No blind write or
+  code-exchange retry occurs. Unknown exchange outcomes remain fenced by the
+  unresolved intent and keep provider cleanup pending.
+- A definitive initial `invalid_grant` rejection resolves that same CAS-bound
+  intent into an empty cleanup-only generation, even after caller cancellation.
+  No credential is invented for revocation; disconnect can finish. Timeouts,
+  malformed responses and other unknown outcomes retain the uncertainty fence.
+- If the post-exchange lock cannot be reacquired, the service uses a fresh bounded
+  detached deadline to attempt CAS persistence of the known response as
+  cleanup-only. A competing generation is never overwritten. If activation fails
+  or the lock is lost, the service attempts to convert its exact persisted
+  response to cleanup-only and mark an already-active matching DB connection
+  `needs_reauth`. Failed or uncertain persistence returns an error and requires
+  durable-state review; it does not establish cleanup completion or authorize
+  automatic activation of an orphan. Reconnect uses a new connection. Review
+  retained operations and provider cleanup
+  before retiring old records: account-level revocation can affect other
+  connections for the app.
 - The consumed verifier's current KV version is deleted on a best-effort basis.
   Start failures, secret-read failures and crashes can leave orphans. A
   separately permissioned expiry/retention job must remove expired OAuth secrets
@@ -186,7 +321,7 @@ Google HTTP calls use fixed HTTPS endpoints, bounded timeouts/body sizes, no
 redirects, no ambient proxy, and public-address-only dialing. Add deployment-level
 egress controls and workload-secret authentication as independent protections.
 
-## 6. Tests and remaining live acceptance
+## 6. Verification and live acceptance criteria
 
 Run the local tests with the pinned toolchain:
 
@@ -199,17 +334,28 @@ OAuth tests cover wrong state/session/owner, nonce mismatch, transaction expiry,
 callback replay and races, missing/mismatched fixture PKCE, missing refresh token,
 scope mismatch, initial secret failures, reconciliation of a confirmed write,
 new-identity reconnect, signed ID-token claim failures, signature/algorithm/key URL
-rejection, fixed token/JWKS/revocation endpoints, and redirect refusal. They use
-synthetic credentials and do not contact Google.
+rejection, fixed token/JWKS/revocation endpoints, redirect refusal, and durable
+exchange-intent/cleanup races. Coverage includes late responses after disconnect,
+caller cancellation or session expiry, post-exchange lock loss, uncertain writes,
+and competing generations. They use synthetic credentials and do not contact
+Google. The recorded verification at `621fc25` includes 301 Go tests/subtests with
+real PostgreSQL/OpenBao and Chromium fixture checks; see
+[implementation evidence](implementation-status.md) for scope and provenance.
 
-Before a live pilot, also complete real owner OIDC integration, the PKCE spike,
-Google Picker selection under the chosen app identity, Drive metadata plus
+Corporate tests also cover an allowed exact Workspace identity; same-domain colleague, personal/different-domain
+and missing/unverified identities; trusted resolver failure/timeout; stale owner,
+session and transaction bindings; spoofed query/JSON/consent hints; cleanup-only
+persistence and revocation; and default versus corporate refresh scope contracts.
+
+The acceptance criteria for roadmap **M1–M3** include real owner OIDC integration,
+the PKCE spike, Google Picker selection under the chosen app identity, Drive metadata plus
 plain-text export of a native document, denied/unselected document behavior,
 revoked provider access, re-consent/missing-refresh behavior, cross-account consent,
 restricted downloads and multi-tab coverage. Confirm consent-screen publishing,
 verification and test-user/token lifetime rules for the actual project. Confirm
 production OpenBao history destruction, orphan cleanup, backups, and audit
-retention. The production launch must stay blocked while these are unresolved.
+retention. These remain unresolved live-release gates; fixture and real-store
+test passes do not close them. Track their current status in the roadmap.
 
 ## Official references
 

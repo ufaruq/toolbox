@@ -17,7 +17,9 @@ import (
 	"github.com/ufaruq/toolbox/internal/domain"
 )
 
-func testPostgres(t *testing.T) *Postgres {
+func testPostgres(t *testing.T) *Postgres { return testPostgresSetup(t, nil) }
+
+func testPostgresSetup(t *testing.T, setup func(*Postgres)) *Postgres {
 	t.Helper()
 	dsn := os.Getenv("TOOLBOX_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -53,6 +55,10 @@ func testPostgres(t *testing.T) *Postgres {
 		}
 		admin.Close(ctx)
 	})
+	if setup != nil {
+		setup(p)
+		return p
+	}
 	if err = p.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}

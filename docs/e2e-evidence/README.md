@@ -1,5 +1,7 @@
 # Browser E2E screenshot evidence
 
+For current progress, use [implementation status](../implementation-status.md) and the [roadmap](../ROADMAP.md). This gallery preserves one historical fixture run and is not a pending-work checklist.
+
 These are raw screenshots from a passing run of [the browser test](../../tests/browser/fixture_e2e.py) at checkout [`5e34ca9`](https://github.com/ufaruq/toolbox/commit/5e34ca93624ba963f97c1b4fa86ffbaf0ebb2bc9). The agent credential input is masked in every image. All accounts, agent credentials and documents are synthetic.
 
 The run used Playwright 1.62.0 and headless Chromium 154.0.8037.57, with a 1280 × 1100 viewport. The Go fixture executable used actual PostgreSQL 17.11 and OpenBao 2.4.1 from `compose.yaml`. [result.json](result.json) records the capture revision, browser versions, fixture scope and image filenames. It was written only after the full E2E flow passed.

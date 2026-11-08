@@ -41,6 +41,8 @@ type GoogleConfig struct {
 	CallbackURL       string
 	PKCEValidated     bool
 	AllowLoopbackHTTP bool
+	// IdentityScopes explicitly requests email claims for identity-aware linking.
+	IdentityScopes bool
 }
 
 type GoogleProvider struct {
@@ -50,6 +52,7 @@ type GoogleProvider struct {
 	mu                                  sync.Mutex
 	keys                                map[string]*rsa.PublicKey
 	keysExpire                          time.Time
+	identityScopes                      bool
 }
 
 var _ Provider = (*GoogleProvider)(nil)
@@ -70,7 +73,16 @@ func NewGoogleProvider(config GoogleConfig) (*GoogleProvider, error) {
 		ResponseHeaderTimeout: 10 * time.Second,
 	}
 	client := &http.Client{Transport: transport, Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &GoogleProvider{clientID: config.ClientID, clientSecret: config.ClientSecret, callbackURL: config.CallbackURL, client: client, now: time.Now, keys: map[string]*rsa.PublicKey{}}, nil
+	return &GoogleProvider{clientID: config.ClientID, clientSecret: config.ClientSecret, callbackURL: config.CallbackURL, client: client, now: time.Now, keys: map[string]*rsa.PublicKey{}, identityScopes: config.IdentityScopes}, nil
+}
+
+// ExpectedScopes returns a fresh copy of the exact configured grant contract.
+// Email identity mode requires an explicit identity-aware service constructor.
+func (p *GoogleProvider) ExpectedScopes() []string {
+	if p.identityScopes {
+		return []string{"openid", "email", domain.DriveScope}
+	}
+	return []string{"openid", domain.DriveScope}
 }
 
 func validCallback(raw string, allowLoopback bool) bool {
@@ -120,6 +132,7 @@ func (p *GoogleProvider) AuthorizationURL(state, nonce, challenge string) (strin
 		return "", ErrConfiguration
 	}
 	values := authorizationValues(p.clientID, p.callbackURL, state, nonce, challenge)
+	values.Set("scope", strings.Join(p.ExpectedScopes(), " "))
 	return googleAuthorizationEndpoint + "?" + values.Encode(), nil
 }
 func authorizationValues(clientID, callback, state, nonce, challenge string) url.Values {
@@ -154,16 +167,16 @@ func (p *GoogleProvider) Exchange(ctx context.Context, code, verifier, nonceHash
 	}
 	// Parsed credentials from a successful token response remain cleanup material
 	// even if validation fails. A non-nil error never authorizes activation.
-	result := ExchangeResult{ClientID: p.clientID, AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: strings.Fields(response.Scope)}
+	result := ExchangeResult{ClientID: p.clientID, AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: googleScopes(response.Scope)}
 	if err != nil {
 		return result, err
 	}
-	subject, err := p.verifyIDToken(ctx, response.IDToken, nonceHash)
+	identity, err := p.verifyIDToken(ctx, response.IDToken, nonceHash)
 	if err != nil {
 		return result, err
 	}
-	result.Subject = subject
-	if !exactScopes(result.Scopes) {
+	result.Subject, result.Identity = identity.subject, identity.VerifiedIdentity
+	if !sameScopes(result.Scopes, p.ExpectedScopes()) {
 		return result, ErrScope
 	}
 	return result, nil
@@ -179,15 +192,29 @@ func (p *GoogleProvider) Refresh(ctx context.Context, refreshToken string) (toke
 	if err != nil && response.AccessToken == "" && response.RefreshToken == "" {
 		return none, err
 	}
-	result := tokens.RefreshResult{AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: strings.Fields(response.Scope)}
+	result := tokens.RefreshResult{AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, Expiry: start.Add(time.Duration(response.ExpiresIn) * time.Second), Scopes: googleScopes(response.Scope)}
 	if err != nil {
 		return result, err
 	}
-	if response.ScopePresent && !exactScopes(result.Scopes) {
+	if response.ScopePresent && !sameScopes(result.Scopes, p.ExpectedScopes()) {
 		return result, tokens.ErrReauth
 	}
 	return result, nil
 }
+
+// Google may return the documented userinfo.email spelling for OIDC email.
+// Preserve all entries so exact-contract validation still rejects duplicates
+// after canonicalization and never accepts broader Google permissions.
+func googleScopes(value string) []string {
+	scopes := strings.Fields(value)
+	for i, scope := range scopes {
+		if scope == "https://www.googleapis.com/auth/userinfo.email" {
+			scopes[i] = "email"
+		}
+	}
+	return scopes
+}
+
 func (p *GoogleProvider) Revoke(ctx context.Context, token string) error {
 	if token == "" {
 		return nil
@@ -306,57 +333,62 @@ type idHeader struct {
 	Type      string `json:"typ,omitempty"`
 }
 
-func (p *GoogleProvider) verifyIDToken(ctx context.Context, token, nonceHash string) (string, error) {
+type googleIdentity struct {
+	subject string
+	VerifiedIdentity
+}
+
+func (p *GoogleProvider) verifyIDToken(ctx context.Context, token, nonceHash string) (googleIdentity, error) {
 	if len(token) == 0 || len(token) > 16384 {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	headerBytes, err := base64.RawURLEncoding.Strict().DecodeString(parts[0])
 	var header idHeader
 	if err != nil || strict.Decode(headerBytes, &header) != nil || header.Algorithm != "RS256" || header.KeyID == "" || len(header.KeyID) > 256 || (header.Type != "" && header.Type != "JWT") {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	key, err := p.signingKey(ctx, header.KeyID)
 	if err != nil {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	signature, err := base64.RawURLEncoding.Strict().DecodeString(parts[2])
 	if err != nil {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
 	if rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], signature) != nil {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	payload, err := base64.RawURLEncoding.Strict().DecodeString(parts[1])
 	var claims map[string]json.RawMessage
 	if err != nil || strict.Decode(payload, &claims) != nil || claims == nil {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	var issuer, subject, nonce, authorizedParty string
 	for key, destination := range map[string]*string{"iss": &issuer, "sub": &subject, "nonce": &nonce, "azp": &authorizedParty} {
 		if b, ok := claims[key]; ok {
 			if json.Unmarshal(b, destination) != nil {
-				return "", ErrIdentity
+				return googleIdentity{}, ErrIdentity
 			}
 		}
 	}
 	if (issuer != "https://accounts.google.com" && issuer != "accounts.google.com") || !validSubject(subject) || nonce == "" || !security.Equal(security.Hash(nonce), nonceHash) || (authorizedParty != "" && authorizedParty != p.clientID) {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	var audience string
 	var audiences []string
 	audienceJSON, ok := claims["aud"]
 	if !ok {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	if json.Unmarshal(audienceJSON, &audience) == nil {
 		audiences = []string{audience}
 	} else if json.Unmarshal(audienceJSON, &audiences) != nil {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	found := false
 	for _, a := range audiences {
@@ -365,21 +397,34 @@ func (p *GoogleProvider) verifyIDToken(ctx context.Context, token, nonceHash str
 		}
 	}
 	if !found || (len(audiences) > 1 && authorizedParty != p.clientID) {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
 	var expires, issued, notBefore int64
 	for key, destination := range map[string]*int64{"exp": &expires, "iat": &issued, "nbf": &notBefore} {
 		if b, ok := claims[key]; ok {
 			if json.Unmarshal(b, destination) != nil {
-				return "", ErrIdentity
+				return googleIdentity{}, ErrIdentity
 			}
 		}
 	}
 	now := p.now().Unix()
 	if expires <= now || issued <= 0 || issued > now+60 || expires <= issued || notBefore > now+60 {
-		return "", ErrIdentity
+		return googleIdentity{}, ErrIdentity
 	}
-	return subject, nil
+	identity := googleIdentity{subject: subject, VerifiedIdentity: VerifiedIdentity{Issuer: "https://accounts.google.com"}}
+	for key, destination := range map[string]*string{"email": &identity.Email, "hd": &identity.HostedDomain} {
+		if b, ok := claims[key]; ok {
+			if string(b) == "null" || json.Unmarshal(b, destination) != nil {
+				return googleIdentity{}, ErrIdentity
+			}
+		}
+	}
+	if b, ok := claims["email_verified"]; ok {
+		if string(b) == "null" || json.Unmarshal(b, &identity.EmailVerified) != nil {
+			return googleIdentity{}, ErrIdentity
+		}
+	}
+	return identity, nil
 }
 
 func (p *GoogleProvider) signingKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {

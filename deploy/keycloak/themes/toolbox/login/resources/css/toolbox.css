@@ -1,0 +1,53 @@
+/* Match internal/server/web/workspace.css. Keep Keycloak's accessible forms. */
+:root {
+  color-scheme: light;
+  --tb-ink: #173c32;
+  --tb-muted: #61726a;
+  --tb-paper: #f5f4ee;
+  --tb-line: #d6ded5;
+  --pf-v5-global--FontFamily--text: "Avenir Next", "Segoe UI", sans-serif;
+  --pf-v5-global--FontFamily--heading: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  --pf-v5-global--Color--100: var(--tb-ink);
+  --pf-v5-global--Color--200: var(--tb-muted);
+  --pf-v5-global--primary-color--100: var(--tb-ink);
+  --pf-v5-global--primary-color--200: #2c5546;
+  --pf-v5-global--active-color--100: var(--tb-ink);
+}
+html, body#keycloak-bg { background: var(--tb-paper) !important; color: var(--tb-ink); }
+body#keycloak-bg { margin: 0; font: 16px/1.55 "Avenir Next", "Segoe UI", sans-serif; }
+.pf-v5-c-login { background: none !important; min-height: 100dvh; padding: 0 30px 48px; }
+.pf-v5-c-login__container { width: 100%; max-width: 820px; margin: 0 auto; grid-template-columns: 1fr; gap: 48px; }
+#kc-header { margin: 0; padding: 26px 0; min-height: 90px; border-bottom: 1px solid var(--tb-line); }
+#kc-header-wrapper { padding: 0; color: var(--tb-ink); font: 750 25px/1.5 "Avenir Next", "Segoe UI", sans-serif; letter-spacing: -1px; text-transform: none; text-align: left; }
+.pf-v5-c-login__main { width: 100%; max-width: 480px; margin: 0 auto; background: #fff; border: 1px solid var(--tb-line); border-top: 3px solid var(--tb-ink); border-radius: 8px; box-shadow: none; color: var(--tb-ink); }
+.pf-v5-c-login__main-header { padding: 30px 30px 24px; }
+#kc-page-title { color: var(--tb-ink); font: 500 clamp(30px, 5vw, 38px)/1.12 "Iowan Old Style", "Palatino Linotype", Palatino, serif; letter-spacing: -1px; }
+.pf-v5-c-login__main-body { padding: 0 30px 24px; }
+.pf-v5-c-form__label { color: var(--tb-ink); font-size: 13px; font-weight: 650; }
+.pf-v5-c-form-control { border: 1px solid #afc0b4; border-radius: 5px; background: #fff; color: var(--tb-ink); }
+.pf-v5-c-form-control::before, .pf-v5-c-form-control::after { border: 0; }
+.pf-v5-c-form-control input { font: inherit; color: var(--tb-ink); min-height: 46px; }
+.pf-v5-c-button { font-family: "Avenir Next", "Segoe UI", sans-serif; font-weight: 650; font-size: 14px; min-height: 46px; border-radius: 5px; }
+.pf-v5-c-button::after { border-radius: 5px; }
+.pf-v5-c-button.pf-m-primary { background: var(--tb-ink); color: #fff; }
+.pf-v5-c-button.pf-m-primary:hover { background: #2c5546; }
+.pf-v5-c-button.pf-m-tertiary { color: var(--tb-ink); background: #fff; }
+.pf-v5-c-button.pf-m-tertiary::after { border-color: #afc0b4; }
+.pf-v5-c-button.pf-m-tertiary:hover { background: #f1f5eb; }
+.pf-v5-c-button.pf-m-control { background: #edf1e9; color: var(--tb-ink); }
+.pf-v5-c-login__main-footer { color: var(--tb-muted); }
+#kc-social-providers { padding: 0 30px 6px; }
+#kc-social-providers ul { padding: 0; }
+a { color: var(--tb-ink); }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #a0be69 !important; outline-offset: 3px; }
+@media (max-width: 550px) {
+  .pf-v5-c-login { padding: 0 18px 30px; }
+  .pf-v5-c-login__container { gap: 30px; }
+  .pf-v5-c-login__main-header { padding: 24px 22px; }
+  .pf-v5-c-login__main-body { padding: 0 22px 22px; }
+  #kc-social-providers { padding: 0 22px 6px; }
+}
+/* PatternFly's dark-mode brand and main-header accent use component variables. */
+#kc-header-wrapper { color: #173c32 !important; font-size: 25px !important; }
+.pf-v5-c-login__main { --pf-v5-c-login__main--BorderTopColor: #173c32; }
+.pf-v5-c-login__main-header { border-top: 0; }
