@@ -3,7 +3,7 @@
 All scanner workflows use pull_request (never pull_request_target), main pushes,
 weekly schedules and manual dispatch. No scanner service account or paid API key
 is required. Action revisions and scanner containers are pinned. GitHub Actions
-updates are managed by Dependabot; container pins require reviewed updates. Dependabot has an explicit three-day
+updates are managed by Dependabot; container pins require reviewed updates. Dependabot has an explicit seven-day
 version-update cooldown; security updates are not delayed.
 
 | Tool | Scope and gate | Location |
