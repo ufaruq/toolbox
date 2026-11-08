@@ -272,3 +272,22 @@ read one explicitly granted document, then revoke and disconnect. Verify logout
 ends the Toolbox session; upstream/Keycloak browser sessions may still exist.
 No live-provider acceptance is claimed by synthetic tests. mTLS, IAP,
 self-service merging, general multi-tenancy and production rollout are follow-ups.
+
+## Toolbox login theme
+
+The optional `deploy/keycloak/themes/toolbox` theme matches the Workspace UI's
+paper background, green controls, serif heading and accessible focus rings. It
+inherits Keycloak 26.8.2's `keycloak.v2` forms and scripts, including errors,
+password visibility and provider redirects; it adds no external fonts or scripts.
+
+Mount `deploy/keycloak/themes/toolbox` read-only at
+`/opt/keycloak/themes/toolbox` in the Keycloak container. In Realm settings →
+Themes, select **toolbox** as the Login theme and save. For a fresh realm import,
+set `"loginTheme": "toolbox"` in the private import JSON after rendering it.
+Existing realms require the administration setting; startup import does not
+update them. The default generator keeps the stock theme so installations
+without the theme mount continue working. To revert, select `keycloak.v2`.
+
+Verify the login page, provider choices, error messages and narrow-screen layout
+before rollout. The theme changes presentation only; enabled providers and
+registration remain controlled by the realm configuration.
