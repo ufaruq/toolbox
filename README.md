@@ -6,6 +6,7 @@ The local fixture simulates owner sign-in and Google. Separate loopback-only mod
 
 ## Start here
 
+- [Future plans](docs/future-plans/README.md): proposals for service accounts and autonomous remote agents.
 - [Roadmap](docs/ROADMAP.md): completed baseline, remaining milestones, dependencies and acceptance criteria.
 - [Implementation status](docs/implementation-status.md): revision-specific verification and its limits.
 - [Handoff](docs/HANDOFF.md): how to continue without confusing historical checkpoints with current tasks.
