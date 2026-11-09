@@ -209,7 +209,7 @@ async function loadCallers() {
   badge.className = 'badge' + (active ? ' connected' : '');
   badge.textContent = active ? 'Approved' : profile.status === 'disabled' ? 'Disabled' : 'Expired';
   identity.textContent = profile.label + ' · ' + (value.clients[profile.client_id] || profile.client_id);
-  detail.textContent = 'Status: ' + profile.status + ' · Expires: ' + new Date(profile.expires_at).toLocaleString() + ' · Tools: ' + (profile.tools.length ? 'Request approved Google Drive document reads' : 'None');
+  detail.textContent = 'Status: ' + profile.status + ' · Expires: ' + new Date(profile.expires_at).toLocaleString() + ' · Tools: ' + (profile.tools.length ? profile.tools.map(tool => tool === 'github.operation.v1' ? 'Scoped GitHub operations' : 'Google Drive document reads').join(', ') : 'None');
   const identifiers = document.createElement('details'), identifiersTitle = document.createElement('summary'), identifiersText = document.createElement('p');
   identifiersTitle.textContent = 'Client identity'; identifiersText.className = 'mono';
   identifiersText.textContent = 'Verified client: ' + profile.client_id + '\nAgent: ' + profile.agent_id;
@@ -261,7 +261,7 @@ function syncCallerButton() {
  else if (wasDisabled) $('caller-label').value = 'My assistant';
 }
 $('caller-client').addEventListener('change', () => { $('caller-status').textContent = ''; syncCallerButton(); });
-function callerPermissions() { return {tools: $('caller-tool').checked ? ['google_drive.read_document.v1'] : [], duration_seconds: Number($('caller-duration').value)}; }
+function callerPermissions() { return {tools: [...($('caller-tool').checked ? ['google_drive.read_document.v1'] : []), ...($('caller-github').checked ? ['github.operation.v1'] : [])], duration_seconds: Number($('caller-duration').value)}; }
 action('create-caller', async () => { const epoch = uiEpoch; $('caller-status').textContent = 'Saving caller approval…'; await request('/v1/callers', {client_id: $('caller-client').value, label: $('caller-label').value, ...callerPermissions()}); if (epoch !== uiEpoch) return; await loadCallers(); $('caller-status').textContent = 'Caller approved. Its saved status and expiry are shown below. Each document still needs its own approval.'; }, 'caller-status');
 
 signedIn().catch(error => { if (error.status === 403) showSignedOut(); else $('status').textContent = 'Could not load your session: ' + error.message; });

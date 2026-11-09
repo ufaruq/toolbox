@@ -55,6 +55,21 @@ Database constraints include:
 
 The shared Go validator applies these semantic invariants to both adapters before commit. SQL constraints independently enforce the relational boundary even if a buggy writer bypasses that validator. Authorization remains the service's responsibility: a relationally valid record does not itself authorize its creator.
 
+## GitHub authorization records
+
+Migration 007 adds `github_connections`, `github_requests` and `github_grants`;
+legacy Google tables and document IDs are unchanged. Connections bind owner,
+installation, immutable repository ID, locator and generation. Grants bind the
+same owner and agent to that connection, repository, generation and immutable
+scope. Requests approved into grants must match scope, epoch and expiry as well
+as the composite ownership foreign keys. Tokens and keys are absent.
+
+Memory and PostgreSQL both reject ownership changes, scope widening, deleting
+approval records and reversing revocation. SQL additionally validates JSON types
+explicitly so null values cannot pass CHECK constraints. Connection disconnect
+increments its generation and cannot be reversed. A new connection needs new
+grants. See [GitHub access](github-connector.md) for approval semantics.
+
 ## Transactions and time
 
 `Transact` callbacks receive a private copy. Return an error, cancel the context, or panic and the mutation is rolled back. The memory adapter clones again before committing, preventing retained callback pointers from modifying committed state. Callbacks must remain short, avoid network I/O, and never recursively call `Transact`. Do not retain or concurrently mutate the supplied snapshot.

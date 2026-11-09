@@ -128,6 +128,13 @@ oidc-browser-check: ## Test synthetic OIDC login (no running app required)
 workspace-browser-check: ## Test synthetic Workspace and probe browser flows
 	PATH="$(BROWSER_PATH)" TOOLBOX_TEST_WORKSPACE_BROWSER=1 go test -race -count=1 ./internal/app ./cmd/toolbox -run 'Test(Workspace|Probe)BrowserFlow'
 
+github-browser-check: ## Test GitHub owner connect, review, approve and revoke in Chromium
+	PATH="$(BROWSER_PATH)" TOOLBOX_TEST_WORKSPACE_BROWSER=1 go test -race -count=1 ./internal/server -run '^TestGitHubBrowserFlow$$'
+
+github-check: ## Test GitHub credential, policy, authorization and persistence logic
+	$(MAKE) test TEST_PACKAGES='./internal/githubapp ./internal/servicepolicy/github'
+	$(MAKE) test TEST_PACKAGES='./internal/store ./internal/server' TEST_RUN=TestGitHub
+
 browser-fixture-check: ## Test approval/revocation against a running fresh fixture
 	"$(BROWSER_PYTHON)" tests/browser/fixture_e2e.py
 
@@ -135,7 +142,7 @@ browser-review-check: ## Test delayed-review races against that same fixture
 	"$(BROWSER_PYTHON)" tests/browser/review_race.py
 
 browser-check: ## Run all browser flows; needs a fresh running fixture
-	$(MAKE) oidc-browser-check workspace-browser-check
+	$(MAKE) oidc-browser-check workspace-browser-check github-browser-check
 	$(MAKE) browser-fixture-check
 	$(MAKE) browser-review-check
 
@@ -176,3 +183,5 @@ install-hooks: ## Install the push gate without replacing custom hooks
 .PHONY: github-app-setup
 github-app-setup: ## Print the prefilled GitHub App registration URL (no secrets)
 	$(PYTHON) github-app/registration_url.py
+
+.PHONY: github-check github-browser-check

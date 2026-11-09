@@ -12,6 +12,7 @@ import (
 )
 
 type runtimeConfig struct {
+	github                                     *githubConfig
 	mode, addr, origin                         string
 	identityProvider                           string
 	oidcIssuer, oidcClientID, oidcClientSecret string
@@ -46,6 +47,10 @@ func loadConfig(getenv func(string) string) (runtimeConfig, error) {
 	ip := net.ParseIP(host)
 	if err != nil || portErr != nil || p < 1 || p > 65535 || (host != "localhost" && (ip == nil || !ip.IsLoopback())) {
 		return c, errors.New("TOOLBOX_ADDR must be a loopback listener with an explicit port")
+	}
+	c.github, err = loadGitHubConfig(getenv, c.mode)
+	if err != nil {
+		return c, err
 	}
 	c.origin = "http://" + c.addr
 	c.databaseURL, c.baoAddr, c.baoToken = getenv("DATABASE_URL"), getenv("OPENBAO_ADDR"), getenv("OPENBAO_TOKEN")

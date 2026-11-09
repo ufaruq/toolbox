@@ -67,7 +67,7 @@ Toolbox publishes protected-resource metadata at `/.well-known/oauth-protected-r
 
 ## Tool and approval flow
 
-The three MCP tools are:
+The Google Drive MCP tools are:
 
 - `toolbox_request_document_access`: request a bounded read of an exact document and receive an owner approval URL.
 - `toolbox_get_access_request`: poll the calling agent's request and obtain the grant ID after approval.
@@ -76,6 +76,11 @@ The three MCP tools are:
 Open the approval URL in the owner browser, sign in if needed, review the verified client/agent/account/document/expiry, then approve. Agent authentication never grants document access by itself. Provider credentials and internal delegation tokens are not returned to MCP clients.
 
 Disabling a caller revokes its grants and cancels pending requests. Re-enabling it or changing the ceiling requires fresh document approval. Expiry, other-client/document denial, revocation and final content-release checks apply equally through HTTP and MCP.
+
+The optional [GitHub connector](github-connector.md) adds four tools for callers
+explicitly approved for `github.operation.v1`. Caller disabling and permission
+updates revoke both document and GitHub grants. Repository connection alone
+never grants agent access.
 
 ## Storage and upgrade
 

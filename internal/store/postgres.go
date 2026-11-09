@@ -158,7 +158,7 @@ func (p *Postgres) Transact(ctx context.Context, fn func(*domain.State) error) e
 	return dbError(tx.Commit(ctx))
 }
 
-var tableNames = []string{"users", "identity_aliases", "agents", "caller_profiles", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "owner_login_transactions", "cleanup_outbox", "audit_events"}
+var tableNames = []string{"users", "identity_aliases", "agents", "caller_profiles", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "owner_login_transactions", "cleanup_outbox", "audit_events", "github_connections", "github_grants", "github_requests"}
 
 func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 	s := domain.NewState()
@@ -185,6 +185,12 @@ func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 			return nil, dbError(err)
 		}
 		switch table {
+		case "github_connections":
+			err = decode(raw, s.GitHubConnections, func(v domain.GitHubConnection) string { return v.ID })
+		case "github_grants":
+			err = decode(raw, s.GitHubGrants, func(v domain.GitHubGrant) string { return v.ID })
+		case "github_requests":
+			err = decode(raw, s.GitHubRequests, func(v domain.GitHubRequest) string { return v.ID })
 		case "users":
 			err = decode(raw, s.Users, func(v domain.User) string { return v.ID })
 		case "identity_aliases":
@@ -305,6 +311,11 @@ func syncState(ctx context.Context, tx pgx.Tx, old, s *domain.State) error {
 		func() error { return upsert(ctx, tx, "users", old.Users, s.Users, nil) },
 		func() error { return insertIdentityAliases(ctx, tx, old.IdentityAliases, s.IdentityAliases) },
 		func() error { return upsert(ctx, tx, "agents", old.Agents, s.Agents, nil) },
+		func() error {
+			return upsert(ctx, tx, "github_connections", old.GitHubConnections, s.GitHubConnections, nil)
+		},
+		func() error { return upsert(ctx, tx, "github_grants", old.GitHubGrants, s.GitHubGrants, nil) },
+		func() error { return upsert(ctx, tx, "github_requests", old.GitHubRequests, s.GitHubRequests, nil) },
 		func() error { return upsert(ctx, tx, "caller_profiles", old.CallerProfiles, s.CallerProfiles, nil) },
 		func() error { return upsert(ctx, tx, "credentials", old.Credentials, s.Credentials, nil) },
 		func() error { return upsert(ctx, tx, "sessions", old.Sessions, s.Sessions, nil) },

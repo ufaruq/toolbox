@@ -28,7 +28,9 @@ the suggested name is taken, choose a distinct name on the form.
   OAuth callback endpoint is configured by this initial registration.
 
 Create the App and generate a private key from its settings when GitHub prompts
-you to do so. Then install it on **Only select repositories -> ufaruq/toolbox**.
+you to do so. Then install it on **Only select repositories** and choose the repositories you
+want available for future Toolbox connections, including `ufaruq/toolbox`.
+Keep those selections: Toolbox independently authorizes every agent operation.
 Record its App ID, client ID, slug and installation ID. Store the download in an operator-controlled private directory
 outside tracked source (for local development, an ignored `work/` directory is
 acceptable). Restrict the directory to mode 0700 and key to 0600. Never paste the

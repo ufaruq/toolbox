@@ -18,6 +18,7 @@ import (
 )
 
 type Config struct {
+	GitHub         GitHubProvider
 	Identity       Identity
 	Repository     domain.Repository
 	Signer         *security.Signer
@@ -135,6 +136,7 @@ func (s *Server) routes() {
 		s.staticRoutes()
 		return
 	}
+	s.githubRoutes()
 	s.mcpRoutes()
 	s.ownerRoutes()
 	s.mux.HandleFunc("POST /v1/agents", s.createAgent)

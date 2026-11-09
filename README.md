@@ -59,6 +59,7 @@ Requires Docker Engine and Compose 2.24.4 or later. It creates isolated disposab
 
 - [Parallel agent work](docs/agent-worktrees.md): isolated task worktrees for Codex, Claude, and other agents.
 
+- [GitHub connector](docs/github-connector.md): App installation, scoped grants and MCP repository operations.
 - [Architecture](docs/architecture/README.md): components, trust boundaries, request flows, and extension points.
 - [Development](docs/development/README.md): local setup, test coverage, push hooks, and documentation conventions.
 - [Security](docs/security/README.md): invariants, review expectations, scan limits, and acceptance evidence.
