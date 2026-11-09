@@ -8,7 +8,8 @@ permission set. A separate read token supplies metadata preflight.
 
 Each operation runs inside a 20 second context, creates a disposable private state
 directory, Docker bridge and gateway, uses one explicit 0600 installation secret
-file, and removes its own containers/network/state afterward. Independent bounded
+file, and removes its own containers/network/state afterward. Cleanup failure suppresses
+the result and reports unavailable (or unknown outcome for dispatched writes). Independent bounded
 cleanup revokes both credentials even when the operation context is canceled.
 Docker Engine is trusted; no arbitrary operator image, URL or provider host is
 accepted. The two images are digest pinned in `docker.go`. The gateway identifies
@@ -27,7 +28,8 @@ resource URIs and provider metadata.
 Metadata preflight checks repository numeric ID and exact owner/name before and
 after execution; PR reads and writes require same-repository head/base and approved
 refs/revision. File reads walk Git tree modes and ancestors, reject symlinks and
-submodules, and pin the MCP read to the resolved commit SHA. File updates verify
+submodules, and pin the MCP read to the resolved commit SHA. Multi-file writes require an existing exact target branch and valid commit/tree
+metadata before launch. File updates verify
 existing regular-file blob SHA and retain the upstream SHA condition. Multi-file
 writes rely on policy authority over complete replaceable subtrees and ancestors;
 the upstream push tool offers no expected-head condition and remains explicitly
