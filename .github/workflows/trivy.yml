@@ -1,0 +1,87 @@
+name: Trivy
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '40 6 * * 1'
+permissions:
+  contents: read
+jobs:
+  upstream-releases:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Flag upstream releases for patch retirement review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status=0
+          for component in openbao keycloak; do
+            latest=$(gh api "repos/$component/$component/releases/latest" --jq .tag_name)
+            version=${latest#v}
+            printf '%s latest upstream release: %s\n' "$component" "$latest" >> "$GITHUB_STEP_SUMMARY"
+            if ! grep -Fq "$component:$version@sha256:" "deploy/$component/Dockerfile"; then
+              echo "::error::Review the newer $component release and retire local patches where possible."
+              status=1
+            fi
+          done
+          exit "$status"
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Scan dependencies, secrets and infrastructure configuration
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy"
+          docker run --rm -v "$PWD:/src:ro" -v "$RUNNER_TEMP/trivy:/reports" \
+            aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+            fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 \
+            --format sarif --output /reports/trivy.sarif /src
+      - uses: github/codeql-action/upload-sarif@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+        if: always()
+        with:
+          sarif_file: ${{ runner.temp }}/trivy/trivy.sarif
+          category: trivy-source
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: trivy-source
+          path: ${{ runner.temp }}/trivy/trivy.sarif
+          retention-days: 14
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [postgres, openbao, keycloak]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and scan patched runtime image
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          image=$(scripts/build-vendor-image "$COMPONENT")
+          scripts/scan-vendor-image "$image" "$RUNNER_TEMP/image-report"
+      - name: Preserve image identity, SBOM and findings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trivy-image-${{ matrix.component }}
+          path: ${{ runner.temp }}/image-report/
+          retention-days: 14

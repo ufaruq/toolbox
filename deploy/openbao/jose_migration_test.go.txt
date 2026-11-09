@@ -1,0 +1,40 @@
+// This test is copied into the patched upstream Okta SDK during the image build.
+package okta
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
+	"strings"
+	"testing"
+	"time"
+
+	jose "github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
+)
+
+func TestToolboxClientAssertion(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil { t.Fatal(err) }
+	encoded := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	signer, err := CreateKeySigner(string(encoded), "test-key")
+	if err != nil { t.Fatal(err) }
+	token, err := CreateClientAssertion("https://fixture.invalid", "client-id", signer)
+	if err != nil { t.Fatal(err) }
+	parsed, err := jwt.ParseSigned(token, []jose.SignatureAlgorithm{jose.RS256})
+	if err != nil { t.Fatal(err) }
+	var claims jwt.Claims
+	if err := parsed.Claims(&key.PublicKey, &claims); err != nil { t.Fatal(err) }
+	if err := claims.Validate(jwt.Expected{Issuer: "client-id", Subject: "client-id", AnyAudience: jwt.Audience{"https://fixture.invalid/oauth2/v1/token"}, Time: time.Now()}); err != nil { t.Fatal(err) }
+	if len(parsed.Headers) != 1 || parsed.Headers[0].KeyID != "test-key" { t.Fatal("signer lost key ID") }
+	if _, err := CreateKeySigner("invalid", "test-key"); err == nil { t.Fatal("accepted invalid private key") }
+}
+
+// CVE-2026-116587: reject private JWK parameters before expensive RSA parsing.
+func TestToolboxRejectsEmbeddedPrivateJWK(t *testing.T) {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","jwk":{"kty":"RSA","n":"AQAB","e":"AQAB","d":"AQAB","p":"AQAB","q":"AQAB"}}`))
+	_, err := jose.ParseSigned(header+".e30.AA", []jose.SignatureAlgorithm{jose.RS256})
+	if err == nil || !strings.Contains(err.Error(), "JWK contains private parameters") { t.Fatalf("private parameters not rejected before parsing: %v", err) }
+}

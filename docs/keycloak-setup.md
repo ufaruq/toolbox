@@ -28,10 +28,13 @@ material. Never put secrets in this repository or a PR comment. Runtime settings
 from [Workspace setup](workspace-demo.md) and Google Drive consent stay separate
 from the Google login settings below.
 
-Use Keycloak **26.8.2**, pinned to:
+Toolbox's tests use Keycloak **26.8.2** from the reviewed
+[patched image recipe](../deploy/keycloak/Dockerfile). It preserves the upstream
+distribution, updates Guava, and uses a pinned Temurin Java 21 runtime without
+the unused GPG/SQLite packages. Build it locally and use the returned immutable ID:
 
-```text
-quay.io/keycloak/keycloak@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+```sh
+scripts/build-vendor-image keycloak
 ```
 
 Keycloak needs an HTTPS origin reachable by the browser and Toolbox, such as
@@ -254,11 +257,11 @@ separately planned recovery procedure.
 ## Reproduce automated proof and perform live acceptance
 
 ```sh
-docker pull quay.io/keycloak/keycloak@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
 make keycloak-check
 ```
 
-This runs the real Keycloak image with a verified local CA and controlled OIDC
+Run the focused command on Linux; use `make test-all` on macOS. It builds and
+runs the patched Keycloak image with a verified local CA and controlled OIDC
 upstreams. The Google-shaped fixture uses generic OIDC in test configuration;
 it is not a live Google account or proof of Google's built-in adapter. The
 configured operator realm uses the built-in Google provider. The test checks

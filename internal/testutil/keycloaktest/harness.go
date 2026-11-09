@@ -27,9 +27,6 @@ import (
 	"time"
 )
 
-// Image is the immutable upstream 26.8.2 manifest, verified by docker pull.
-const Image = "quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b"
-
 // Endpoints are reachable both from the test process and dedicated containers.
 type Endpoints struct{ Broker, RealmIssuer, OktaIssuer, GoogleIssuer string }
 
@@ -48,6 +45,10 @@ type Harness struct {
 // Docker access must be explicitly authorized by the outer test invocation.
 func Start(t testing.TB, realm string, render func(Endpoints, Credentials) ([]byte, error)) *Harness {
 	t.Helper()
+	brokerImage := os.Getenv("TOOLBOX_TEST_KEYCLOAK_IMAGE")
+	if !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(brokerImage) {
+		t.Fatal("TOOLBOX_TEST_KEYCLOAK_IMAGE must be the immutable local image ID from scripts/build-vendor-image keycloak; use make keycloak-check or make test-all")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	t.Cleanup(cancel)
 	dir := t.TempDir()
@@ -111,15 +112,15 @@ func Start(t testing.TB, realm string, render func(Endpoints, Credentials) ([]by
 		image, "--config", "/run/config.json", "--cert", "/run/server.pem", "--key", "/run/server.key", "--listen", ":9443")
 	t.Cleanup(func() { cleanup(t, "rm", "--force", fixture) })
 	waitReady(t, ctx, h.Client, "https://"+upstreamIP.String()+":9443/healthz", "controlled OIDC upstream", fixture)
-	// Pulling by digest verifies content rather than trusting a mutable local tag.
-	docker(t, ctx, "pull", Image)
+	// The outer runner builds the reviewed recipe and supplies its immutable ID.
+	docker(t, ctx, "image", "inspect", brokerImage)
 	broker := docker(t, ctx, "run", "--detach", "--name", name+"-broker", "--network", network, "--ip", brokerIP.String(), "--user", uid+":0",
 		"--env", "KC_BOOTSTRAP_ADMIN_USERNAME=fixture-admin", "--env", "KC_BOOTSTRAP_ADMIN_PASSWORD="+h.Credentials.Bootstrap,
 		"--env", "NO_PROXY="+strings.Trim(os.Getenv("NO_PROXY")+","+upstreamIP.String()+","+brokerIP.String(), ","),
 		"--env", "no_proxy="+strings.Trim(os.Getenv("no_proxy")+","+upstreamIP.String()+","+brokerIP.String(), ","),
 		"--mount", mount(dir, "realm.json", "/opt/keycloak/data/import/realm.json"), "--mount", mount(dir, "ca.pem", "/opt/keycloak/conf/truststores/test-ca.pem"),
 		"--mount", mount(dir, "server.pem", "/opt/keycloak/conf/server.pem"), "--mount", mount(dir, "server.key", "/opt/keycloak/conf/server.key"),
-		Image, "start-dev", "--import-realm", "--hostname="+h.Broker, "--http-enabled=false", "--https-certificate-file=/opt/keycloak/conf/server.pem", "--https-certificate-key-file=/opt/keycloak/conf/server.key", "--log-level=warn")
+		brokerImage, "start-dev", "--import-realm", "--hostname="+h.Broker, "--http-enabled=false", "--https-certificate-file=/opt/keycloak/conf/server.pem", "--https-certificate-key-file=/opt/keycloak/conf/server.key", "--log-level=warn")
 	t.Cleanup(func() { cleanup(t, "rm", "--force", broker) })
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -139,7 +140,7 @@ func Start(t testing.TB, realm string, render func(Endpoints, Credentials) ([]by
 		}
 	})
 	waitReady(t, ctx, h.Client, h.RealmIssuer+"/.well-known/openid-configuration", "pinned Keycloak broker", broker)
-	t.Log("real Keycloak ready: " + Image)
+	t.Log("real Keycloak ready: " + brokerImage)
 	return h
 }
 

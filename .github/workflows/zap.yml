@@ -1,0 +1,54 @@
+name: ZAP
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '40 6 * * 1'
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build disposable fixture service
+        run: go build -o "$RUNNER_TEMP/toolbox-zap" ./cmd/toolbox
+      - name: Passive scan of disposable fixture (no live provider credentials)
+        shell: bash
+        run: |
+          export TOOLBOX_MODE=fixture TOOLBOX_ADDR=127.0.0.1:18089
+          "$RUNNER_TEMP/toolbox-zap" > "$RUNNER_TEMP/toolbox-zap.log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18089/readyz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18089/readyz >/dev/null
+          mkdir -p "$RUNNER_TEMP/zap"
+          chmod 777 "$RUNNER_TEMP/zap"
+          status=0
+          docker run --rm --network host -v "$RUNNER_TEMP/zap:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
+            zap-baseline.py -t http://127.0.0.1:18089/ -m 1 -T 5 \
+            -J report.json -r report.html || status=$?
+          # 2 means passive warnings; inspect their risk below. All tool errors fail.
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then exit "$status"; fi
+          python3 scripts/security/check-zap.py "$RUNNER_TEMP/zap/report.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: zap-fixture-results
+          path: |
+            ${{ runner.temp }}/zap/
+            ${{ runner.temp }}/toolbox-zap.log
+          retention-days: 14

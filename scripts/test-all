@@ -56,14 +56,18 @@ cp "$root/tests/runner/Dockerfile" "$scratch/build/Dockerfile"
 cp "$root/tests/browser/requirements.txt" "$scratch/build/tests/browser/requirements.txt"
 runner=$(docker build --quiet "$scratch/build")
 make -C "$root" test-artifacts RUNNER_IMAGE="$runner"
-"${compose[@]}" up -d --wait
+TOOLBOX_POSTGRES_IMAGE=$("$root/scripts/build-vendor-image" postgres)
+TOOLBOX_OPENBAO_IMAGE=$("$root/scripts/build-vendor-image" openbao)
+export TOOLBOX_POSTGRES_IMAGE TOOLBOX_OPENBAO_IMAGE
+keycloak_image=$("$root/scripts/build-vendor-image" keycloak)
+printf 'postgres=%s\nopenbao=%s\nkeycloak=%s\n' "$TOOLBOX_POSTGRES_IMAGE" "$TOOLBOX_OPENBAO_IMAGE" "$keycloak_image" | tee "$evidence/images.txt"
+"${compose[@]}" up --no-build -d --wait
 "${compose[@]}" exec -T postgres createdb -U toolbox toolbox_test
 "${compose[@]}" exec -T openbao bao write secret/config cas_required=true max_versions=3
 pg_host=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$("${compose[@]}" ps -q postgres)")
 bao_host=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$("${compose[@]}" ps -q openbao)")
 [[ -n "$pg_host" && -n "$bao_host" ]]
 # The real gateway test requires the same pinned images as hosted CI.
-docker pull quay.io/keycloak/keycloak@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
 docker pull docker/mcp-gateway@sha256:b0a3876ffbb352813d658cf25c137b8eae29bbe23db5944560a1c9059533bb16
 docker pull ghcr.io/github/github-mcp-server@sha256:250bc6ce70788207608ef74cef4397230ff2e8481218da74d6093e4bd9101132
 # Host networking here is the Docker Engine's Linux network namespace. Test
@@ -75,9 +79,15 @@ docker run --rm --name "$project-runner" --network host --add-host "openbao:$bao
   -v toolbox-test-go:/go -v toolbox-test-build:/root/.cache/go-build \
   -w "$root" -e TMPDIR="$scratch" -e TOOLBOX_BROWSER_ARTIFACT_DIR="$evidence" \
   -e TOOLBOX_E2E_REVISION="${TOOLBOX_E2E_REVISION:-working-tree}" \
+  -e TOOLBOX_TEST_KEYCLOAK_IMAGE="$keycloak_image" \
   -e TOOLBOX_TEST_DATABASE_URL="postgres://toolbox:fixture-only@$pg_host:5432/toolbox_test?sslmode=disable&application_name=toolbox-lock-test" \
   -e TOOLBOX_TEST_OPENBAO_ADDR="http://openbao:8200" \
   -e TOOLBOX_TEST_OPENBAO_TOKEN=fixture-only \
   -e DATABASE_URL="postgres://toolbox:fixture-only@$pg_host:5432/toolbox?sslmode=disable" \
   -e OPENBAO_ADDR="http://openbao:8200" -e OPENBAO_TOKEN=fixture-only \
   "$runner" bash tests/runner/run.sh
+
+# Scan exactly the image IDs exercised above, including on local pre-push runs.
+"$root/scripts/scan-vendor-image" "$TOOLBOX_POSTGRES_IMAGE" "$evidence/images/postgres"
+"$root/scripts/scan-vendor-image" "$TOOLBOX_OPENBAO_IMAGE" "$evidence/images/openbao"
+"$root/scripts/scan-vendor-image" "$keycloak_image" "$evidence/images/keycloak"

@@ -2,7 +2,9 @@
 # No real OAuth credentials or real documents belong in this stack.
 services:
   postgres:
-    image: postgres:17.11
+    image: ${TOOLBOX_POSTGRES_IMAGE:-toolbox-postgres:17.11-hardened}
+    build:
+      context: ./deploy/postgres
     environment:
       POSTGRES_USER: toolbox
       POSTGRES_PASSWORD: fixture-only
@@ -15,9 +17,11 @@ services:
       timeout: 2s
       retries: 20
     tmpfs:
-      - /var/lib/postgresql/data
+      - /var/lib/postgresql/data:uid=70,gid=70,mode=0700
   openbao:
-    image: openbao/openbao:2.4.1
+    image: ${TOOLBOX_OPENBAO_IMAGE:-toolbox-openbao:2.7.2-toolbox.1}
+    build:
+      context: ./deploy/openbao
     command: server -dev -dev-root-token-id=fixture-only -dev-listen-address=0.0.0.0:8200
     environment:
       BAO_ADDR: http://127.0.0.1:8200

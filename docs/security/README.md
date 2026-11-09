@@ -14,6 +14,8 @@ The full test gate includes race detection, real disposable storage, synthetic b
 
 Inspect the checked-out [.github/workflows](../../.github/workflows) for the scanners actually configured in that revision. Repository settings, workflow files, and required branch checks are separate controls. Dependency scanning detects known advisories; static analysis looks for code weaknesses; secret scanners detect supported credential patterns; dynamic web scans exercise reachable running routes. None replaces authorization and account-linking tests. Do not silence unfixed container findings merely to make a gate green: record the affected package, vendor image, available fix and disposition.
 
+See [security scanning](../security-scanning.md) for Trivy, Gitleaks and ZAP coverage, failure thresholds and recorded vendor-image blockers.
+
 ## CodeQL configuration
 
 The [CodeQL advanced workflow](../../.github/workflows/codeql.yml) scans Go,
