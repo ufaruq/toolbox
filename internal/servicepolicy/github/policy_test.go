@@ -7,7 +7,7 @@ import (
 )
 
 func approved() Grant {
-	return Grant{OwnerID: "owner-a", AgentID: "agent-a", ConnectionID: "connection-a", RepositoryID: 99, Owner: "org", Repository: "repo", Epoch: 1, Actions: []string{"files.read", "files.write", "branches.create", "prs.create"}, Branches: []string{"agent/task"}, Paths: []string{"src/"}, ExpiresAt: time.Now().Add(time.Hour)}
+	return Grant{OwnerID: "owner-a", AgentID: "agent-a", ConnectionID: "connection-a", RepositoryID: 99, Owner: "org", Repository: "repo", Epoch: 1, AllowUnconditionalWrites: true, Actions: []string{"files.read", "files.write", "branches.create", "prs.create"}, Branches: []string{"agent/task"}, Paths: []string{"src/"}, ExpiresAt: time.Now().Add(time.Hour)}
 }
 func TestPolicyConstructsBoundedCall(t *testing.T) {
 	g := approved()

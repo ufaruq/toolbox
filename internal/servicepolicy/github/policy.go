@@ -23,6 +23,10 @@ type Grant struct {
 	RepositoryID, Epoch            int64
 	Owner, Repository              string
 	Actions, Branches, Paths       []string
+	BaseBranches                   []string
+	PullRequests                   []int64
+	ExpectedHead                   string
+	AllowUnconditionalWrites       bool
 	ExpiresAt                      time.Time
 	Revoked                        bool
 }
@@ -40,7 +44,7 @@ func contains(values []string, v string) bool {
 	return false
 }
 func branch(v string) bool {
-	if v == "" || len(v) > 200 || v == "@" || strings.HasPrefix(v, "/") || strings.HasSuffix(v, "/") || strings.Contains(v, "..") || strings.Contains(v, "@{") || strings.ContainsAny(v, " ~^:?*[\\") {
+	if !utf8.ValidString(v) || v == "" || len(v) > 200 || v == "@" || strings.HasPrefix(v, "refs/") || strings.HasPrefix(v, "/") || strings.HasSuffix(v, "/") || strings.Contains(v, "..") || strings.Contains(v, "@{") || strings.ContainsAny(v, " ~^:?*[\\") {
 		return false
 	}
 	for _, c := range v {
@@ -56,7 +60,7 @@ func branch(v string) bool {
 	return true
 }
 func allowedPath(g Grant, v string) bool {
-	if v == "" || len(v) > 1024 || !utf8.ValidString(v) || strings.HasPrefix(v, "/") || strings.Contains(v, "\\") || path.Clean(v) != v {
+	if v == "" || len(v) > 1024 || !utf8.ValidString(v) || strings.HasPrefix(v, "/") || strings.Contains(v, "\\") || strings.Contains(v, "%") || path.Clean(v) != v {
 		return false
 	}
 	for _, r := range v {
@@ -70,7 +74,7 @@ func allowedPath(g Grant, v string) bool {
 		}
 	}
 	// Workflow changes need a separately reviewed capability.
-	if strings.HasPrefix(strings.ToLower(v), ".github/workflows/") {
+	if strings.EqualFold(v, ".github/workflows") || strings.HasPrefix(strings.ToLower(v), ".github/workflows/") {
 		return false
 	}
 	for _, p := range g.Paths {
@@ -88,10 +92,10 @@ func build(tool string, args map[string]any) (Call, error) {
 	return Call{Tool: tool, Arguments: b}, nil
 }
 
-// Build supports bounded file read/write mappings. Other capabilities remain
-// rejected until their schemas and concurrency guarantees have been reviewed.
+// Build constructs fixed upstream calls. Live identity, repository and PR checks
+// remain mandatory at dispatch; see ValidatePullRequest and the operation contract.
 func Build(g Grant, action string, raw json.RawMessage, now time.Time) (Call, error) {
-	if g.OwnerID == "" || g.AgentID == "" || g.ConnectionID == "" || g.RepositoryID <= 0 || g.Epoch <= 0 || !locator.MatchString(g.Owner) || !locator.MatchString(g.Repository) || g.Revoked || !now.Before(g.ExpiresAt) || !contains(g.Actions, action) || len(raw) > 16<<10 {
+	if g.OwnerID == "" || g.AgentID == "" || g.ConnectionID == "" || g.RepositoryID <= 0 || g.Epoch <= 0 || !locator.MatchString(g.Owner) || !locator.MatchString(g.Repository) || g.Revoked || !now.Before(g.ExpiresAt) || !contains(g.Actions, action) || len(raw) > 16<<10 || !utf8.Valid(raw) {
 		return Call{}, ErrDenied
 	}
 	args := map[string]any{"owner": g.Owner, "repo": g.Repository}
@@ -104,13 +108,16 @@ func Build(g Grant, action string, raw json.RawMessage, now time.Time) (Call, er
 		if strict.Decode(raw, &in) != nil || !branch(in.Branch) || !contains(g.Branches, in.Branch) || !allowedPath(g, in.Path) {
 			return Call{}, ErrDenied
 		}
-		args["ref"] = in.Branch
+		args["ref"] = "refs/heads/" + in.Branch
 		args["path"] = in.Path
 		return build("get_file_contents", args)
 	case "files.write":
+		if !g.AllowUnconditionalWrites {
+			return Call{}, ErrDenied
+		}
 		type file struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
+			Path    string  `json:"path"`
+			Content *string `json:"content"`
 		}
 		var in struct {
 			Branch  string `json:"branch"`
@@ -122,7 +129,7 @@ func Build(g Grant, action string, raw json.RawMessage, now time.Time) (Call, er
 		}
 		seen := map[string]bool{}
 		for _, f := range in.Files {
-			if !allowedPath(g, f.Path) || seen[f.Path] || !utf8.ValidString(f.Content) || strings.ContainsRune(f.Content, 0) {
+			if !allowedPath(g, f.Path) || seen[f.Path] || f.Content == nil || !utf8.ValidString(*f.Content) || strings.ContainsRune(*f.Content, 0) {
 				return Call{}, ErrDenied
 			}
 			seen[f.Path] = true
@@ -132,6 +139,6 @@ func Build(g Grant, action string, raw json.RawMessage, now time.Time) (Call, er
 		args["files"] = in.Files
 		return build("push_files", args)
 	default:
-		return Call{}, ErrDenied
+		return buildOperation(g, action, raw, args)
 	}
 }
