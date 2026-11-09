@@ -130,7 +130,7 @@ mount from the repository root:
 make deps-test
 ```
 
-This builds the PostgreSQL 17.11 Alpine fixture from `deploy/postgres/Dockerfile`, starts it as the image’s postgres user (UID/GID 70) with an owned disposable tmpfs, builds the patched OpenBao 2.7.2 recipe from `deploy/openbao/Dockerfile`, configures CAS, and creates `toolbox_test` only if absent. OpenBao retains its release UI and upstream runtime/entrypoint; the binary is rebuilt with the dependency fixes described in [security scanning](security-scanning.md#maintained-vendor-images). Existing databases are never dropped; use this only with the intended disposable Compose project.
+This builds the PostgreSQL 18.6 Alpine fixture from `deploy/postgres/Dockerfile`, starts it as the image’s postgres user (UID/GID 70) with an owned disposable tmpfs at `/var/lib/postgresql` (the PostgreSQL 18 data parent), builds the patched OpenBao 2.7.2 recipe from `deploy/openbao/Dockerfile`, configures CAS, and creates `toolbox_test` only if absent. OpenBao retains its release UI and upstream runtime/entrypoint; the binary is rebuilt with the dependency fixes described in [security scanning](security-scanning.md#maintained-vendor-images). This Compose fixture is ephemeral: PostgreSQL 18 stores its data under `/var/lib/postgresql/18/docker`. Do not reuse a PostgreSQL 17 data directory with the new image; persistent operator databases require a separately planned dump/restore or `pg_upgrade`. Use this only with the intended disposable Compose project.
 
 Run integration tests against an explicitly disposable database whose test role may create/drop schemas:
 
