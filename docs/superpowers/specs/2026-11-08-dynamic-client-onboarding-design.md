@@ -1,6 +1,7 @@
 # Dynamic MCP clients with dashboard approval
 
-Status: proposed; not implemented. Based on `715d7bf` from `origin/main`.
+Status: approved by the user; implementation in progress. Based on `715d7bf`
+from `origin/main`.
 
 ## Intent and agreed boundaries
 
