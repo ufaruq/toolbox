@@ -1,0 +1,3 @@
+# Unified patches require a leading context space before upstream Go tabs and
+# on blank context lines. Preserve their syntax rather than rewriting it.
+deploy/openbao/*.patch -whitespace
