@@ -150,6 +150,11 @@ cancels pending requests. Each `(issuer, subject, client ID)` has its own approv
 Two installations sharing the same OAuth client ID share that owner's approval;
 use separate registrations to manage them independently.
 
+For a client in `TOOLBOX_MCP_CLIENTS`, the existing **Approve caller** action
+also approves any matching Pending entry in the same transaction. This remains
+available after dynamic onboarding is turned off. A rejected entry still requires
+**Reopen review** with onboarding enabled before it can be approved.
+
 Only a valid owner browser session can decide a candidate, with the existing
 Origin and CSRF checks. MCP bearer tokens cannot call the management API. Limits
 are 64 retained candidates per owner, 4096 globally, and 10 new candidates per

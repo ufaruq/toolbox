@@ -316,7 +316,7 @@ func (r *candidateDecisionBody) Read(p []byte) (int, error) {
 }
 func (r *candidateDecisionBody) Close() error { return nil }
 func TestCandidateDecisionRechecksSessionAtCommit(t *testing.T) {
-	for _, op := range []string{"approve", "reject", "reopen"} {
+	for _, op := range []string{"approve", "static-approve", "reject", "reopen"} {
 		for _, revoke := range []string{"logout", "expiry"} {
 			t.Run(op+"/"+revoke, func(t *testing.T) {
 				s, repo, _ := mcpFixture(t)
@@ -333,7 +333,13 @@ func TestCandidateDecisionRechecksSessionAtCommit(t *testing.T) {
 				if op == "approve" {
 					payload = `{"label":"Delayed approval","tools":[],"duration_seconds":3600}`
 				}
-				r := httptest.NewRequest("POST", "/v1/callers/pending/"+id+"/"+op, nil)
+				path := "/v1/callers/pending/" + id + "/" + op
+				if op == "static-approve" {
+					s.Identity = staticOnboardingIdentity{onboardingIdentity{enabled: false}}
+					path = "/v1/callers"
+					payload = `{"client_id":"new-client","label":"Delayed static approval","tools":[],"duration_seconds":3600}`
+				}
+				r := httptest.NewRequest("POST", path, nil)
 				r.AddCookie(cookie)
 				r.Header.Set("Origin", s.Origin)
 				r.Header.Set("Content-Type", "application/json")
@@ -380,6 +386,113 @@ type staticOnboardingIdentity struct{ onboardingIdentity }
 func (staticOnboardingIdentity) Clients() map[string]string {
 	return map[string]string{"new-client": "Explicit static admission"}
 }
+
+func TestStaticCallerApprovesPendingCandidate(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("onboarding=%t", enabled), func(t *testing.T) {
+			s, repo, _ := mcpFixture(t)
+			s.Identity = staticOnboardingIdentity{onboardingIdentity{enabled: true}}
+			if w := pendingMCP(s, "new-client"); w.Code != 403 || !strings.Contains(w.Body.String(), "CALLER_PENDING_APPROVAL") {
+				t.Fatalf("initial connection: %d %s", w.Code, w.Body)
+			}
+			id := candidateID(t, s)
+			if err := repo.Transact(context.Background(), func(st *domain.State) error {
+				st.Users["other"] = domain.User{ID: "other", Issuer: s.Identity.Issuer(), Subject: "other", Status: "active"}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, peer := range []struct{ user, client string }{{"other", "new-client"}, {"owner", "other-client"}} {
+				s.Identity = staticOnboardingIdentity{onboardingIdentity{enabled: true, user: peer.user}}
+				if w := pendingMCP(s, peer.client); w.Code != 403 || !strings.Contains(w.Body.String(), "CALLER_PENDING_APPROVAL") {
+					t.Fatalf("peer connection: %d %s", w.Code, w.Body)
+				}
+			}
+			s.Identity = staticOnboardingIdentity{onboardingIdentity{enabled: enabled}}
+			cookie, csrf := ownerCookie(t, s, "owner")
+			if w := ownerPost(s, "/v1/callers", `{"client_id":"other-client","label":"Unknown client","tools":[],"duration_seconds":3600}`, cookie, csrf); w.Code != 400 {
+				t.Fatalf("non-allowlisted static approval: %d %s", w.Code, w.Body)
+			}
+			payload := `{"client_id":"new-client","label":"Static client","tools":["` + domain.Tool + `"],"duration_seconds":3600}`
+			w := ownerPost(s, "/v1/callers", payload, cookie, csrf)
+			if w.Code != 201 {
+				t.Fatalf("static approval after connection: %d %s", w.Code, w.Body)
+			}
+			var profile struct {
+				ID      string `json:"id"`
+				AgentID string `json:"agent_id"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &profile); err != nil {
+				t.Fatal(err)
+			}
+			access, err := s.resolveCaller(context.Background(), identity.Claims{Issuer: s.Identity.Issuer(), UserID: "owner", ClientID: "new-client", ExpiresAt: time.Now().Add(time.Hour)})
+			if err != nil || access.AgentID != profile.AgentID || access.CallerProfileID != profile.ID {
+				t.Fatalf("approved caller: %+v %v", access, err)
+			}
+			if _, err := s.mintDelegation(context.Background(), access, "grant"); err == nil {
+				t.Fatal("static approval inherited another agent's document grant")
+			}
+			if w := ownerPost(s, "/v1/callers", payload, cookie, csrf); w.Code != 403 {
+				t.Fatalf("duplicate approval: %d %s", w.Code, w.Body)
+			}
+			if err := repo.Transact(context.Background(), func(st *domain.State) error {
+				c := st.CallerCandidates[id]
+				if c.Status != "approved" || c.DecidedAt.IsZero() || c.DecidedAt.Before(c.FirstSeenAt) {
+					t.Fatalf("candidate not approved atomically: %+v", c)
+				}
+				if len(st.CallerCandidates) != 3 || len(st.CallerProfiles) != 3 || len(st.Agents) != 3 || len(st.Grants) != 1 {
+					t.Fatal("approval duplicated identities or changed document grants")
+				}
+				for otherID, other := range st.CallerCandidates {
+					if otherID != id && (other.Status != "pending" || !other.DecidedAt.IsZero()) {
+						t.Fatal("approval changed another owner or client's decision")
+					}
+				}
+				approved := 0
+				for _, event := range st.Audits {
+					if event.Action == "caller.approved" && event.CallerProfileID == profile.ID {
+						approved++
+					}
+				}
+				if approved != 1 {
+					t.Fatalf("approval audit count = %d", approved)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestStaticCallerCannotApproveRejectedCandidate(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("onboarding=%t", enabled), func(t *testing.T) {
+			s, repo, _ := mcpFixture(t)
+			s.Identity = staticOnboardingIdentity{onboardingIdentity{enabled: true}}
+			pendingMCP(s, "new-client")
+			id := candidateID(t, s)
+			cookie, csrf := ownerCookie(t, s, "owner")
+			if w := ownerPost(s, "/v1/callers/pending/"+id+"/reject", `{}`, cookie, csrf); w.Code != 200 {
+				t.Fatal(w.Code, w.Body)
+			}
+			s.Identity = staticOnboardingIdentity{onboardingIdentity{enabled: enabled}}
+			payload := `{"client_id":"new-client","label":"Rejected client","tools":[],"duration_seconds":3600}`
+			if w := ownerPost(s, "/v1/callers", payload, cookie, csrf); w.Code != 403 {
+				t.Fatalf("static approval reset rejection: %d %s", w.Code, w.Body)
+			}
+			if err := repo.Transact(context.Background(), func(st *domain.State) error {
+				if st.CallerCandidates[id].Status != "rejected" || len(st.CallerProfiles) != 2 || len(st.Agents) != 2 {
+					t.Fatal("rejected candidate gained privileges")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestDynamicCredentialRespectsAdmissionRollback(t *testing.T) {
 	s, repo, _ := mcpFixture(t)
 	s.Identity = onboardingIdentity{enabled: true}

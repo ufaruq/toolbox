@@ -132,6 +132,10 @@ func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 	}
 	var profile domain.CallerProfile
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
+		session, live := st.Sessions[owner.ID]
+		if !live || session.UserID != owner.UserID || !st.Now.Before(session.ExpiresAt) || !security.Equal(session.CSRFHash, owner.CSRFHash) || (s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, owner.ID)) {
+			return domain.ErrDenied
+		}
 		u := st.Users[owner.UserID]
 		binding, ok := domain.IdentityForOwner(st, owner.UserID, s.identityOwnerIssuer())
 		if u.Status != "active" || !ok {
@@ -140,6 +144,18 @@ func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 		for _, p := range st.CallerProfiles {
 			if p.Issuer == binding.Issuer && p.UserID == binding.Subject && p.ClientID == in.ClientID {
 				return domain.ErrDenied
+			}
+		}
+		// A configured client may have connected before its owner approved it.
+		// Consume that pending decision with the profile, including after rollback
+		// of dynamic onboarding. Rejected decisions still require explicit reopen.
+		for id, c := range st.CallerCandidates {
+			if c.Issuer == binding.Issuer && c.UserID == binding.Subject && c.ClientID == in.ClientID {
+				if c.OwnerID != u.ID || c.Status != "pending" {
+					return domain.ErrDenied
+				}
+				c.Status, c.DecidedAt = "approved", st.Now
+				st.CallerCandidates[id] = c
 			}
 		}
 		a := domain.Agent{ID: security.ID(), OwnerID: u.ID, Name: in.Label, Status: "active"}
