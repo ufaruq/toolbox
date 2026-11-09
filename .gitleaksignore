@@ -1,3 +1,6 @@
 # False positive: prose "key rejection, and versioned authentication" in a design plan.
 # Exact historical finding only; no path-wide or credential-pattern exemption.
 028171f243b9f766a62ea68ff3a54decc2e8a635:docs/superpowers/plans/2026-10-18-gcp-deployment.md:generic-api-key:48
+# Public Go module content checksum for golang.org/x/oauth2 v0.36.0, not a key.
+# Exact patch context in this historical commit; other checksum/credential matches still fail.
+1a5cda988ace396be8526603c22e23b5b6a795b5:deploy/openbao/dependencies.patch:generic-api-key:58

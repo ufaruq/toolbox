@@ -28,6 +28,10 @@ coverage, run an active attack scan, or validate production TLS. Informational
 "Modern Web Application" detection remains in its report. The report gate rejects
 missing/wrong target reports and medium/high alerts; scanner failures also fail.
 
+Gitleaks retains a redacted JSON report. Its two exact historical fingerprint
+exceptions cover documentation prose and a public Go module checksum in patch
+context; no path-wide or credential-pattern allowlist is used.
+
 ## Maintained vendor images
 
 Toolbox owns narrow downstream recipes for its disposable dependency containers.
