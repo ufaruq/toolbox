@@ -1,9 +1,17 @@
-FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS build
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS source
 WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends xz-utils patch \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils patch \
     && rm -rf /var/lib/apt/lists/*
-# Upstream distribution includes the release UI; verify before extracting.
-ADD --checksum=sha256:f50ac5b150e780728b0f8c5c1533e6542576ff3834f9a89d6c9921e6759f0109 https://github.com/openbao/openbao/releases/download/v2.7.2/openbao-dist-v2.7.2.tar.xz /tmp/source.tar.xz
+# Fail on HTTP errors and retry transient release-download failures. Remote ADD
+# can report an HTTP error response as a checksum mismatch. Never accept a new
+# digest automatically: verify the pinned release bytes before extraction.
+RUN curl --fail --location --proto '=https' --proto-redir '=https' \
+    --retry 5 --retry-max-time 180 --connect-timeout 20 --max-time 120 \
+    --output /tmp/source.tar.xz \
+    https://github.com/openbao/openbao/releases/download/v2.7.2/openbao-dist-v2.7.2.tar.xz \
+    && echo 'f50ac5b150e780728b0f8c5c1533e6542576ff3834f9a89d6c9921e6759f0109  /tmp/source.tar.xz' | sha256sum --check --strict
+
+FROM source AS build
 RUN tar -xJf /tmp/source.tar.xz --strip-components=1 && rm /tmp/source.tar.xz
 COPY dependencies.patch okta-jose-v4.patch /patches/
 RUN patch --batch --fuzz=0 -p1 < /patches/dependencies.patch
