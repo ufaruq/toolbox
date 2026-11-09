@@ -118,3 +118,38 @@ func TestGitHubCallerDisableRevokesGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGitHubMutationOutcomeUnknown(t *testing.T) {
+	s, r, auth, stub := githubInvocationFixture(t)
+	if e := r.Transact(context.Background(), func(st *domain.State) error {
+		g := st.GitHubGrants["ghg"]
+		g.ID = "writegrant"
+		g.Scope.Actions = []string{"files.update"}
+		st.GitHubGrants[g.ID] = g
+		return nil
+	}); e != nil {
+		t.Fatal(e)
+	}
+	stub.during = func() {
+		if e := r.Transact(context.Background(), func(st *domain.State) error {
+			g := st.GitHubGrants["writegrant"]
+			g.RevokedAt = &st.Now
+			st.GitHubGrants[g.ID] = g
+			return nil
+		}); e != nil {
+			t.Error(e)
+		}
+	}
+	req := httptest.NewRequest("POST", "/v1/github/invoke", strings.NewReader(`{"grant_id":"writegrant","action":"files.update","arguments":{"branch":"main","path":"src/a.go","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","content":"new","message":"change"}}`))
+	req.Header.Set("Authorization", auth)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "GITHUB_WRITE_OUTCOME_UNKNOWN") || strings.Contains(w.Body.String(), "bounded fixture") || stub.calls != 1 {
+		t.Fatalf("%d %s calls=%d", w.Code, w.Body.String(), stub.calls)
+	}
+	events := invocationEvents(t, r)
+	if len(events) != 2 || events[1].Outcome != "unknown" {
+		t.Fatalf("missing unknown outcome audit: %+v", events)
+	}
+}

@@ -1,9 +1,9 @@
 # Toolbox GitHub App
 
-Status: registration scaffolding for the expanded GitHub MCP connector. Creating
-this App does not enable GitHub operations in Toolbox yet. The existing runtime
-only has the isolated outbound MCP pilot; grants, UI, token rotation and write
-policies still need implementation and acceptance.
+The local connector uses an installed GitHub App, operator-bound Toolbox owner,
+scoped grants and an isolated Docker MCP Gateway. Creating the App alone does not
+grant an agent access. Follow [runtime and approval setup](../docs/github-connector.md)
+after registration; live-provider evidence remains scenario-specific.
 
 ## Register and install
 
@@ -41,7 +41,7 @@ Registration and installation require GitHub account authentication. A local
 subfolder cannot create an installed GitHub App by itself. The helper only prints
 a URL; it creates no GitHub resource and reads or writes no secrets.
 
-## Intended credential lifecycle
+## Credential lifecycle
 
 A protected service signs a short-lived App JWT and requests an installation token
 for an explicit repository ID and permission subset. Installation tokens expire
@@ -62,7 +62,7 @@ never trust a callback's installation ID as ownership proof.
 
 See the [expanded design](../docs/superpowers/specs/2026-11-08-github-mcp-operations.md)
 and [current pilot limits](../docs/mcp-gateway-pilot.md). Live calls and token
-rotation are not yet validated by this registration scaffolding.
+rotation require their own acceptance evidence.
 
 ## References
 

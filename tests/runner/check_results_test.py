@@ -15,7 +15,7 @@ class ResultsGate(unittest.TestCase):
     def passing(self):
         return [dict(Action='pass', Test=name) for name in (
             'TestWorkspaceBrowserFlow', 'TestProbeBrowserFlow', 'TestOIDCBrowserFlow', 'TestGitHubBrowserFlow',
-            'TestKeycloakBrokerFlow', 'TestDockerGatewayOwnerIsolation')]
+            'TestKeycloakBrokerFlow', 'TestDockerGatewayOwnerIsolation', 'TestDockerReviewedRuntimeStartup')]
 
     def test_accept_complete(self):
         self.assertEqual(self.run_gate(self.passing()), 0)

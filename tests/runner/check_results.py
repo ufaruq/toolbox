@@ -5,7 +5,7 @@ from pathlib import Path
 
 required = {
     'TestWorkspaceBrowserFlow', 'TestProbeBrowserFlow', 'TestOIDCBrowserFlow', 'TestGitHubBrowserFlow',
-    'TestKeycloakBrokerFlow', 'TestDockerGatewayOwnerIsolation',
+    'TestKeycloakBrokerFlow', 'TestDockerGatewayOwnerIsolation', 'TestDockerReviewedRuntimeStartup',
 }
 passed = set()
 skipped = []

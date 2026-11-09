@@ -248,7 +248,7 @@ func (s *Server) githubCreateRequest(ctx context.Context, access agentAccess, in
 			return domain.ErrDenied
 		}
 		g := domain.GitHubGrant{OwnerID: a.OwnerID, AgentID: a.ID, ConnectionID: c.ID, RepositoryID: c.RepositoryID, Epoch: c.Epoch, Scope: domain.GitHubScope(in.Scope), ExpiresAt: expiry}
-		if err := policy.ValidateGrant(policyGrant(g, c)); err != nil {
+		if err := policy.ValidateGrant(GitHubPolicyGrant(g, c)); err != nil {
 			return err
 		}
 		count := 0
@@ -383,7 +383,7 @@ func (s *Server) githubDecision(w http.ResponseWriter, r *http.Request) {
 		q.Status = decision
 		if decision == "approved" {
 			g := domain.GitHubGrant{ID: security.ID(), OwnerID: q.OwnerID, AgentID: q.AgentID, ConnectionID: q.ConnectionID, RepositoryID: q.RepositoryID, Epoch: q.Epoch, Scope: q.Scope, NotBefore: st.Now, ExpiresAt: q.ExpiresAt}
-			if e := policy.ValidateGrant(policyGrant(g, c)); e != nil {
+			if e := policy.ValidateGrant(GitHubPolicyGrant(g, c)); e != nil {
 				return e
 			}
 			st.GitHubGrants[g.ID] = g

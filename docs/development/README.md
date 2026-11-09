@@ -33,6 +33,8 @@ Run `make run` for the in-memory synthetic demo, or `make dev` for disposable lo
 | Install pinned browser dependencies | `make browser-install` |
 | Synthetic OIDC / Workspace browsers | `make oidc-browser-check` / `make workspace-browser-check` |
 | Running fixture / delayed-review browsers | `make browser-fixture-check` / `make browser-review-check` |
+| Explicit live GitHub read / test-branch writes | `make github-live-check` / `make github-live-write-check` |
+| Pinned GitHub gateway startup / schema / cleanup | `make github-docker-check` |
 | GitHub authorization / browser flow | `make github-check` / `make github-browser-check` |
 | All browser flows | `make browser-check` |
 | Real Keycloak / MCP gateway acceptance | `make keycloak-check` / `make mcp-gateway-check` |
@@ -52,7 +54,7 @@ Internal runner targets are also discoverable: `make test-json` runs every Go pa
 
 Use `make test TEST_PACKAGES=./internal/store TEST_RUN=TestMemoryRepository` for targeted checks during editing. `make check` is a quick baseline, not complete acceptance: unset integration environments cause some tests to skip.
 
-Run `make test-all` for full validation. The runner builds a pinned Linux image with Go, Chromium/Playwright and Docker CLI; starts unique PostgreSQL/OpenBao fixtures on a dedicated Docker bridge without published storage ports; enables all gated Go suites; runs race detection, formatting, vet and build; and runs standalone fixture/review-race browsers. It rejects skipped tests and requires the named browser/Keycloak/MCP acceptance suites to pass.
+Run `make test-all` for full validation. The runner builds a pinned Linux image with Go, Chromium/Playwright and Docker CLI; starts unique PostgreSQL/OpenBao fixtures on a dedicated Docker bridge without published storage ports; enables all gated Go suites; runs race detection, formatting, vet and build; and runs standalone fixture/review-race browsers. It rejects skipped tests and requires the named browser/Keycloak/MCP acceptance suites, including the pinned GitHub runtime startup to pass.
 
 The runner needs image download access and Docker socket access. It runs trusted repository test code with control of the local Docker engine. Do not run untrusted contributions on a machine with sensitive Docker workloads. It uses only its own disposable resources, does not source `.env`, and does not use personal provider credentials. Evidence stays in the printed temporary directory after cleanup. Initial image downloads and builds can take several minutes.
 

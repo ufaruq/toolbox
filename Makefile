@@ -132,8 +132,8 @@ github-browser-check: ## Test GitHub owner connect, review, approve and revoke i
 	PATH="$(BROWSER_PATH)" TOOLBOX_TEST_WORKSPACE_BROWSER=1 go test -race -count=1 ./internal/server -run '^TestGitHubBrowserFlow$$'
 
 github-check: ## Test GitHub credential, policy, authorization and persistence logic
-	$(MAKE) test TEST_PACKAGES='./internal/githubapp ./internal/servicepolicy/github'
-	$(MAKE) test TEST_PACKAGES='./internal/store ./internal/server' TEST_RUN=TestGitHub
+	$(MAKE) test TEST_PACKAGES='./internal/githubapp ./internal/githubruntime ./internal/servicepolicy/github'
+	$(MAKE) test TEST_PACKAGES='./internal/store ./internal/server ./cmd/toolbox' TEST_RUN=TestGitHub
 
 browser-fixture-check: ## Test approval/revocation against a running fresh fixture
 	"$(BROWSER_PYTHON)" tests/browser/fixture_e2e.py
@@ -185,3 +185,17 @@ github-app-setup: ## Print the prefilled GitHub App registration URL (no secrets
 	$(PYTHON) github-app/registration_url.py
 
 .PHONY: github-check github-browser-check
+
+
+github-live-check: ## Explicit operator read-only acceptance using exported real App settings
+	go run ./cmd/toolbox github-live-check
+
+github-live-write-check: ## Explicit live acceptance on a new test branch and draft PR (never merged)
+	go run ./cmd/toolbox github-live-write-check
+
+.PHONY: github-live-check github-live-write-check
+
+github-docker-check: ## Test the real pinned GitHub gateway startup, schema and cleanup
+	TOOLBOX_TEST_DOCKER_MCP=1 $(MAKE) test TEST_PACKAGES=./internal/githubruntime TEST_RUN=TestDockerReviewedRuntimeStartup
+
+.PHONY: github-docker-check

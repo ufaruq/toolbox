@@ -6,6 +6,37 @@ The GitHub connector separates App installation access, owner connections, calle
 approval and repository grants. Keep the repositories selected in GitHub; an
 installation's access is a ceiling, not permission for an agent to use them.
 
+## Local runtime setup
+
+Use `workspace-local` with existing owner login, PostgreSQL and MCP settings.
+Register the [GitHub App](../github-app/README.md), install it on your chosen
+repositories, and preserve those selections. Add these settings to the trusted
+private environment loaded by `make workspace`:
+
+```sh
+TOOLBOX_GITHUB_ENABLED=true
+TOOLBOX_GITHUB_APP_ID=<numeric-app-id>
+TOOLBOX_GITHUB_INSTALLATION_ID=<numeric-installation-id>
+TOOLBOX_GITHUB_OWNER_ID=<existing-toolbox-owner-id>
+TOOLBOX_GITHUB_PRIVATE_KEY_FILE=/absolute/private/app.pem
+TOOLBOX_GITHUB_STATE_DIRECTORY=/absolute/private/github-gateway
+```
+
+The owner ID is the stable `user_id` from the signed-in `/v1/session` response,
+not a GitHub username or email. This binding is operator-controlled. The key must
+be a private regular file (0600), not a symlink. Use a private service-owned state
+directory and trusted parent chain. Docker Engine must be available and able to
+pull the digest-pinned gateway/server images. No paid gateway subscription is
+required. The runtime is restricted to the loopback development mode; it does not
+implement a hosted multi-owner registration service.
+
+Each call issues one-repository action-scoped installation credentials, runs a
+separate gateway context, then revokes credentials and cleans up its own Docker
+resources. Owner repository discovery uses a separate metadata-only token across
+the installation; that discovery token never enters the gateway. Existing Google
+connections and execution remain separate. Omitting all GitHub settings disables
+the connector; partially configured or non-workspace modes fail startup.
+
 ## Owner and agent flow
 
 1. The operator binds a verified GitHub App installation to a specific existing
@@ -40,6 +71,10 @@ Only callers explicitly approved for `github.operation.v1` see these tools:
 | `toolbox_request_github_access` | Request an exact connection, scope and duration. |
 | `toolbox_get_github_request` | Poll this caller's request and obtain the grant ID. |
 | `github_operation_v1` | Invoke a fixed supported action with a grant ID. |
+
+MCP discovery publishes closed, action-specific argument schemas for all supported
+operations, including required fields and bounds. Unknown fields are rejected
+before provider execution.
 
 Example access request:
 
@@ -119,3 +154,22 @@ before deciding to retry.
 synthetic provider. The full `make test-all` enables that browser test together
 with storage, Google, Keycloak and gateway acceptance. Synthetic results are not
 live GitHub acceptance; record real-provider evidence separately.
+
+### Explicit operator live checks
+
+After exporting the private App settings, set
+`TOOLBOX_GITHUB_ACCEPTANCE_REPOSITORY_ID` to the dedicated installed test
+repository's immutable numeric ID. `make github-live-check` discovers repositories,
+reads `main:README.md` through the real gateway, and verifies that a public
+repository locator mismatch is denied. It does not use a browser or certify the
+owner-login flow.
+
+`make github-live-write-check` additionally creates a unique
+`toolbox-acceptance/<id>` branch, writes two synthetic files under
+`.toolbox-acceptance/`, reads them back, conditionally updates one file, and
+creates/reads/closes a draft PR against `main`. It never merges. The branch remains
+for inspection, and its name and PR URL are printed without credentials. If a
+write returns an uncertain outcome, inspect that branch/PR before retrying; the
+command does not retry dispatched writes. PR reviews and merges still need
+separate controlled or explicitly authorized acceptance. These live commands are
+opt-in operator actions and are never run by CI or the push hook.

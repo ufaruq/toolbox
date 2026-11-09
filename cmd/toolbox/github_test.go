@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,5 +36,37 @@ func TestGitHubConfigExplicitBinding(t *testing.T) {
 	}
 	if c, e := loadGitHubConfig(func(string) string { return "" }, "workspace-local"); e != nil || c != nil {
 		t.Fatal("disabled configuration failed")
+	}
+}
+
+func TestGitHubKeyFileSafety(t *testing.T) {
+	if got, e := newGitHubIntegration(nil); e != nil || got != nil {
+		t.Fatal("disabled integration")
+	}
+	dir := t.TempDir()
+	key := filepath.Join(dir, "app.pem")
+	// An invalid key must not appear in an error, nor may a readable key be used.
+	secret := []byte("fixture-private-material")
+	if e := os.WriteFile(key, secret, 0644); e != nil {
+		t.Fatal(e)
+	}
+	cfg := &githubConfig{appID: "123", installationID: 42, ownerID: "owner", keyFile: key, stateDirectory: filepath.Join(dir, "state")}
+	if _, e := newGitHubIntegration(cfg); e == nil || strings.Contains(e.Error(), string(secret)) {
+		t.Fatal("permissive key accepted or leaked")
+	}
+	if e := os.Chmod(key, 0600); e != nil {
+		t.Fatal(e)
+	}
+	link := filepath.Join(dir, "link.pem")
+	if e := os.Symlink(key, link); e != nil {
+		t.Fatal(e)
+	}
+	cfg.keyFile = link
+	if _, e := newGitHubIntegration(cfg); e == nil {
+		t.Fatal("symlink key accepted")
+	}
+	cfg.keyFile = key
+	if _, e := newGitHubIntegration(cfg); e == nil || strings.Contains(e.Error(), string(secret)) {
+		t.Fatal("invalid key accepted or leaked")
 	}
 }

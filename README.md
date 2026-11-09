@@ -26,9 +26,9 @@ Keycloak optionally brokers Google and Okta login. Google sign-in and authorizat
 | --- | --- |
 | `fixture` | Synthetic owner and Google data; approval/read/denial/revocation demo without provider accounts. |
 | `oidc-local` | Real owner OIDC sign-in with persistent stores; tool operations hidden. |
-| `workspace-local` | Owner sign-in, Google consent and Picker, exact-document grants and reads; optional inbound MCP. |
+| `workspace-local` | Owner sign-in, Google consent and Picker, exact-document grants and reads; optional inbound MCP and GitHub App connector. |
 
-These modes bind to loopback. Public production deployment is not implemented. Native password registration and device mTLS are separate work. The outbound Docker MCP Gateway integration is an isolation pilot, not general GitHub connector onboarding. Automated synthetic tests do not establish every live-provider acceptance case.
+These modes bind to loopback. Public production deployment is not implemented. Native password registration and device mTLS are separate work. The optional [GitHub connector](docs/github-connector.md) uses operator-bound App installations and scoped grants through Docker MCP Gateway. Public multi-owner App onboarding is not implemented. Automated synthetic tests do not establish every live-provider acceptance case.
 
 ## Start developing
 
