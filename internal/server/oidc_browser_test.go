@@ -36,6 +36,7 @@ func TestOIDCBrowserFlow(t *testing.T) {
 	app := httptest.NewUnstartedServer(nil)
 	t.Cleanup(app.Close)
 	origin := "http://" + app.Listener.Addr().String()
+	idp.RegisterCallback(t, origin+"/auth/oidc/callback")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	provider, err := ownerlogin.NewProvider(ctx, ownerlogin.ProviderConfig{
