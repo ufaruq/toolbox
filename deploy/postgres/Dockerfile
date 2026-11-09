@@ -1,5 +1,5 @@
-# Disposable integration-store image; keep PostgreSQL's major version unchanged.
-FROM postgres:17.11-alpine3.24@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
+# Disposable PostgreSQL 18 fixture; Compose mounts the versioned data parent.
+FROM postgres:18.6-alpine3.24@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395
 # The official entrypoint uses gosu only to become postgres. Use Alpine's small
 # C helper instead of shipping gosu's obsolete Go standard library.
 RUN apk add --no-cache su-exec=0.3-r0 \
