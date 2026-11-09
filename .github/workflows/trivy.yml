@@ -50,7 +50,7 @@ jobs:
             aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
             fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 \
             --format sarif --output /reports/trivy.sarif /src
-      - uses: github/codeql-action/upload-sarif@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         if: always()
         with:
           sarif_file: ${{ runner.temp }}/trivy/trivy.sarif
