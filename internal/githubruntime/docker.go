@@ -74,7 +74,11 @@ func (s *dockerSession) Call(ctx context.Context, c githubpolicy.Call, check fun
 	out, e := s.client.CallToolChecked(ctx, s.binding, c.Tool, c.Arguments, check)
 	return out.Raw, e
 }
-func dockerLauncher(parent string) launcher {
+
+type gatewayEndpoint func(context.Context, *dockerSession) (string, error)
+
+func dockerLauncher(parent string) launcher { return dockerLauncherEndpoint(parent, nil) }
+func dockerLauncherEndpoint(parent string, resolve gatewayEndpoint) launcher {
 	return func(ctx context.Context, token, tool string) (session, error) {
 		var inventory []struct {
 			Name   string          `json:"name"`
@@ -130,6 +134,12 @@ func dockerLauncher(parent string) launcher {
 			return nil, e
 		}
 		endpoint := strings.TrimSpace(string(port))
+		if resolve != nil {
+			endpoint, e = resolve(ctx, s)
+			if e != nil {
+				return nil, ErrUnavailable
+			}
+		}
 		if _, _, e = net.SplitHostPort(endpoint); e != nil {
 			return nil, ErrUnavailable
 		}

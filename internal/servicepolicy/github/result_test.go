@@ -27,3 +27,18 @@ func TestFileProjection(t *testing.T) {
 		t.Fatalf("%s %v", out, e)
 	}
 }
+
+func TestPinnedPullRequestCreateNormalizesNumber(t *testing.T) {
+	raw := json.RawMessage(`{"content":[{"type":"text","text":"{\"id\":\"123456789\",\"url\":\"https://github.com/owner/repo/pull/36\"}"}]}`)
+	out, e := ProjectResultForRepository("prs.create", raw, "owner", "repo")
+	if e != nil || !strings.Contains(string(out), `"number":36`) || strings.Contains(string(out), "https:") {
+		t.Fatalf("missing safe normalized number: %s %v", out, e)
+	}
+	for _, u := range []string{"https://github.com/other/repo/pull/36", "https://github.com/owner/repo/issues/36", "https://evil.invalid/owner/repo/pull/36", "https://github.com/owner/repo/pull/36?token=secret", "https://user@github.com/owner/repo/pull/36", "https://github.com/owner/repo/pull/036"} {
+		text, _ := json.Marshal(map[string]string{"id": "123", "url": u})
+		envelope, _ := json.Marshal(map[string]any{"content": []any{map[string]string{"type": "text", "text": string(text)}}})
+		if _, e := ProjectResultForRepository("prs.create", envelope, "owner", "repo"); e == nil {
+			t.Fatalf("accepted malformed/mismatched PR locator %s", u)
+		}
+	}
+}

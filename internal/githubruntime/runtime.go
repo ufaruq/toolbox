@@ -155,7 +155,7 @@ func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpol
 	if check(ctx) != nil || ctx.Err() != nil || r.identity(ctx, pre.Token, g) != nil {
 		return nil, failure(ErrDenied)
 	}
-	out, e := githubpolicy.ProjectResult(action, raw)
+	out, e := githubpolicy.ProjectResultForRepository(action, raw, g.Owner, g.Repository)
 	if e != nil || strings.Contains(string(out), credential.Token) || strings.Contains(string(out), pre.Token) {
 		return nil, failure(ErrUnavailable)
 	}

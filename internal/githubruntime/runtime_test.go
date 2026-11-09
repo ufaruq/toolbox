@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"github.com/ufaruq/toolbox/internal/githubapp"
 	githubpolicy "github.com/ufaruq/toolbox/internal/servicepolicy/github"
+	"net"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +60,25 @@ func TestDockerReviewedRuntimeStartup(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	s, e := dockerLauncher(privateTemp(t))(ctx, "fixture-not-a-provider-secret", "issue_read")
+	launch := dockerLauncher(privateTemp(t))
+	if os.Getenv("TOOLBOX_TEST_DOCKER_BRIDGE") == "1" {
+		launch = dockerLauncherEndpoint(privateTemp(t), func(ctx context.Context, s *dockerSession) (string, error) {
+			address, e := command(ctx, "inspect", "--format", fmt.Sprintf("{{(index .NetworkSettings.Networks %q).IPAddress}}", s.network), s.name)
+			if e != nil {
+				return "", e
+			}
+			ip := net.ParseIP(strings.TrimSpace(string(address)))
+			if ip == nil || !ip.IsPrivate() {
+				return "", ErrUnavailable
+			}
+			target := &url.URL{Scheme: "http", Host: net.JoinHostPort(ip.String(), "8811")}
+			proxy := httptest.NewServer(httputil.NewSingleHostReverseProxy(target))
+			t.Cleanup(proxy.Close)
+			u, _ := url.Parse(proxy.URL)
+			return u.Host, nil
+		})
+	}
+	s, e := launch(ctx, "fixture-not-a-provider-secret", "issue_read")
 	if e != nil {
 		t.Fatal(e)
 	}

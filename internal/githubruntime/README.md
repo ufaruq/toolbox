@@ -43,7 +43,10 @@ within the operation. File updates verify
 existing regular-file blob SHA and retain the upstream SHA condition. Multi-file
 writes rely on policy authority over complete replaceable subtrees and ancestors;
 the upstream push tool offers no expected-head condition and remains explicitly
-unconditional. No operation is retried. `ErrOutcomeUnknown` means a mutation was
+unconditional. The pinned create/update PR tools return minimal `id` and `url` text. Projection
+validates the exact HTTPS github.com owner/repository pull URL and emits only its
+positive canonical PR number, without returning or fetching the URL. Creation
+results without a valid number fail closed. No operation is retried. `ErrOutcomeUnknown` means a mutation was
 dispatched but its result cannot be released or confirmed.
 
 ## Release limits
@@ -62,3 +65,10 @@ Focused checks:
 make test TEST_PACKAGES='./internal/githubruntime ./internal/githubapp ./internal/mcpclient'
 TOOLBOX_TEST_DOCKER_MCP=1 make test TEST_PACKAGES=./internal/githubruntime TEST_RUN=TestDockerReviewedRuntimeStartup
 ```
+
+The Linux Docker acceptance fixture uses the existing private-bridge test mode to
+forward the inspected disposable gateway address through a test-only loopback
+proxy. Docker Desktop publishes host loopback ports outside the Linux runner's
+network namespace. This forwarding is internal to the test: `New` and the default
+production launcher keep fixed published loopback endpoints, with no operator URL
+or resolver configuration. Production state-directory checks remain unchanged.
