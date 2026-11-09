@@ -4,4 +4,6 @@ The workflow runs `semgrep scan --config p/ci --error --strict` without Semgrep 
 
 Seven exact redirect sites have reviewed, rule-specific `nosemgrep` explanations: one validates the configured origin and callback path; one uses a fixed relative fragment with an escaped ID; five are intentionally configurable synthetic identity-provider test redirects. Tests remain in scan scope. No file-wide security exclusions were added.
 
+Run `make semgrep-check` locally; it uses the same pinned container and flags as CI and saves SARIF under `work/semgrep` (override `SEMGREP_REPORT_DIR` for a different location). Docker and registry access are required.
+
 Local scans are recorded in the PR validation notes. This is pattern analysis, not proof of absence of vulnerabilities.

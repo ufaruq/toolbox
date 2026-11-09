@@ -608,6 +608,18 @@ func (h *pilotHarness) logContainer(name string) {
 	h.t.Logf("gateway diagnostic %s:\n%s", name, h.redact(string(out)))
 }
 func (h *pilotHarness) containerPort(name, port string) string {
+	// The isolated Linux runner can reach its Docker bridge directly. Docker
+	// Desktop's published localhost ports belong to the desktop host instead.
+	// The client still sees the existing loopback reverse proxy; only this
+	// test operator's private upstream address changes.
+	if os.Getenv("TOOLBOX_TEST_DOCKER_BRIDGE") == "1" {
+		address := h.docker("inspect", "--format", fmt.Sprintf("{{(index .NetworkSettings.Networks %q).IPAddress}}", h.network), name)
+		ip := net.ParseIP(address)
+		if ip == nil || !ip.IsPrivate() {
+			h.t.Fatalf("invalid private fixture bridge address %q", address)
+		}
+		return net.JoinHostPort(address, strings.TrimSuffix(port, "/tcp"))
+	}
 	value := h.docker("port", name, port)
 	if _, _, err := net.SplitHostPort(value); err != nil {
 		h.t.Fatalf("invalid published loopback port %q", value)

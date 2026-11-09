@@ -117,7 +117,7 @@ through reviewed administration rather than assuming a regenerated import update
    set -a
    . work/keycloak/private.env
    set +a
-   go run ./cmd/toolbox keycloak-config work/keycloak/realm.json
+   make keycloak-config
    ```
 
    The file contains client secrets, is created with mode `0600`, and cannot
@@ -180,7 +180,7 @@ through reviewed administration rather than assuming a regenerated import update
    . ./.env
    . work/keycloak/private.env
    set +a
-   go run ./cmd/toolbox keycloak-link
+   make keycloak-link
    ```
 
    This is a **dry-run**: no identity links or audits are written and the CLI
@@ -194,7 +194,7 @@ through reviewed administration rather than assuming a regenerated import update
 5. Once the dry-run reports the expected counts, apply:
 
    ```sh
-   go run ./cmd/toolbox keycloak-link --apply
+   make keycloak-link-apply
    ```
 
    The command re-verifies proof, checks current database ownership, and adds
@@ -220,11 +220,11 @@ export TOOLBOX_OIDC_CLIENT_SECRET="$TOOLBOX_KEYCLOAK_OWNER_CLIENT_SECRET"
 export TOOLBOX_MCP_ISSUER="$TOOLBOX_KEYCLOAK_ISSUER"
 export TOOLBOX_MCP_CLIENTS="$TOOLBOX_KEYCLOAK_MCP_CLIENTS"
 unset TOOLBOX_KEYCLOAK_ADMIN_CLIENT_SECRET
-TOOLBOX_MODE=workspace-local go run ./cmd/toolbox
+TOOLBOX_MODE=workspace-local make run-configured
 ```
 
-Use `TOOLBOX_MODE=oidc-local` for owner sign-in only. `make workspace` reloads
-`.env`, so use the explicit command above while keeping the original file for
+Use `TOOLBOX_MODE=oidc-local make run-configured` for owner sign-in only. `make workspace` reloads
+`.env`, so use `make run-configured` as above while keeping the original file for
 rollback. Old owner sessions need a fresh login after the issuer changes. An
 Okta-brokered login should show the same Toolbox owner and existing connections.
 
