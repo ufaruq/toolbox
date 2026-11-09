@@ -71,25 +71,6 @@ func authorizeAgent(st *domain.State, access agentAccess, tool string) error {
 	}
 	return nil
 }
-func (s *Server) resolveCaller(ctx context.Context, claims identity.Claims) (agentAccess, error) {
-	var access agentAccess
-	if s.Identity == nil || claims.Issuer != s.Identity.Issuer() || claims.UserID == "" || claims.ClientID == "" {
-		return access, domain.ErrDenied
-	}
-	if _, ok := s.Identity.Clients()[claims.ClientID]; !ok {
-		return access, domain.ErrDenied
-	}
-	e := s.Repository.Transact(ctx, func(st *domain.State) error {
-		for _, p := range st.CallerProfiles {
-			if p.Issuer == s.identityOwnerIssuer() && p.UserID == claims.UserID && p.ClientID == claims.ClientID {
-				access = agentAccess{AgentID: p.AgentID, CallerProfileID: p.ID, TokenExpiresAt: claims.ExpiresAt}
-				return authorizeAgent(st, access, "")
-			}
-		}
-		return domain.ErrDenied
-	})
-	return access, e
-}
 func grantAccessCheck(st *domain.State, access agentAccess, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
 	if e := authorizeAgent(st, access, domain.Tool); e != nil {
 		return domain.Grant{}, e

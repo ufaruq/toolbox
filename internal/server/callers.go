@@ -21,6 +21,7 @@ func (s *Server) ownerRoutes() {
 		}
 		jsonOut(w, 200, map[string]bool{"fixture": s.Fixture, "identity_enabled": s.Identity != nil, "google_available": available})
 	})
+	s.mux.HandleFunc("POST /v1/callers/pending/{id}/{decision}", s.decideCallerCandidate)
 	s.mux.HandleFunc("GET /v1/callers", s.callers)
 	s.mux.HandleFunc("POST /v1/callers", s.createCaller)
 	s.mux.HandleFunc("POST /v1/callers/{id}/name", s.renameCaller)
@@ -33,11 +34,17 @@ func (s *Server) callers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	profiles := []map[string]any{}
+	candidates := []map[string]any{}
 	clients := map[string]string{}
 	if s.Identity != nil {
 		clients = s.Identity.Clients()
 	}
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
+		for _, c := range st.CallerCandidates {
+			if c.OwnerID == owner.UserID && c.Status != "approved" {
+				candidates = append(candidates, candidateView(c))
+			}
+		}
 		for _, p := range st.CallerProfiles {
 			if p.OwnerID == owner.UserID {
 				p.Tools = append([]string{}, p.Tools...)
@@ -50,7 +57,7 @@ func (s *Server) callers(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "DEPENDENCY_UNAVAILABLE")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"callers": profiles, "clients": clients, "owner_issuer": s.identityOwnerIssuer()})
+	jsonOut(w, 200, map[string]any{"callers": profiles, "pending_callers": candidates, "dynamic_onboarding": s.dynamicOnboarding(), "clients": clients, "owner_issuer": s.identityOwnerIssuer()})
 }
 
 type callerInput struct {
@@ -210,7 +217,7 @@ func (s *Server) enableCaller(w http.ResponseWriter, r *http.Request) {
 		if !ok || p.OwnerID != owner.UserID || s.Identity == nil {
 			return domain.ErrDenied
 		}
-		if _, ok := s.Identity.Clients()[p.ClientID]; !ok {
+		if !s.clientAdmitted(st, p) {
 			return domain.ErrDenied
 		}
 		invalidateCaller(st, p)

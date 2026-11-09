@@ -51,14 +51,18 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 		challenge()
 		return
 	}
-	claims, err := s.Identity.VerifyAccess(r.Context(), parts[1])
+	verify := s.Identity.VerifyAccess
+	if dynamic, ok := s.Identity.(onboardingVerifier); ok && dynamic.DynamicClientOnboarding() {
+		verify = dynamic.VerifyOnboardingAccess
+	}
+	claims, err := verify(r.Context(), parts[1])
 	if err != nil {
 		challenge()
 		return
 	}
 	access, err := s.resolveCaller(r.Context(), claims)
 	if err != nil {
-		fail(w, 403, "CALLER_NOT_APPROVED")
+		operationFailure(w, err)
 		return
 	}
 	if !s.allowed("mcp:"+access.AgentID, 120) {
