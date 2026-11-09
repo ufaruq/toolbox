@@ -77,6 +77,12 @@ flows verify the signed ID token, nonce, expiry and exact scopes. Both negative
 flows must be rejected by Google; a generic client/configuration failure cannot
 pass. Reused codes are rejected before the exchange.
 
+Use Chromium for this loopback check. The browser-binding cookie is `Secure`,
+`HttpOnly`, host-only and `SameSite=Lax`, with a 30-minute lifetime. The tested
+Chromium flow supports secure cookies on loopback HTTP; browsers without that
+exception cannot run this HTTP-only checker. Do not remove `Secure` to work
+around browser incompatibility.
+
 The checker does not create a Toolbox connection or write provider credentials
 to disk. It holds known tokens for revocation and revokes them at completion or
 normal shutdown. **Use the dedicated test client:** revocation can remove the

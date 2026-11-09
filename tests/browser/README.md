@@ -23,7 +23,9 @@ tab storage is cleared after sign-in; unsafe destinations are rejected.
 All external network calls are intercepted or rejected. Screenshots mask the
 tab-only agent credential. `TestProbeBrowserFlow` verifies that the local Google
 client-check form can navigate to a controlled Google consent destination under
-its actual CSP and referrer policy. It does not contact Google or validate PKCE.
+its actual CSP and referrer policy, retain its Secure/HttpOnly/SameSite binding
+cookie on loopback, and complete a bound synthetic callback. It does not contact
+Google or validate PKCE.
 
 The real-client checker is the separate interactive `make google-pkce-check`
 command. See [Workspace setup](../../docs/workspace-demo.md) for console settings,

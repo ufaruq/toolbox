@@ -29,4 +29,8 @@ func TestProbeBrowserFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("synthetic probe navigation failed: %s", out)
 	}
+	ts.Close() // Wait for HTTP handlers before inspecting the synthetic probe.
+	if probe.started != 1 || probe.completed != 1 {
+		t.Fatal("browser did not retain the secure probe binding through start and callback")
+	}
 }
