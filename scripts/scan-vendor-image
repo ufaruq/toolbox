@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Scan the immutable image used by acceptance and retain its CycloneDX SBOM.
+set -euo pipefail
+if [[ $# != 2 || ! $1 =~ ^sha256:[a-f0-9]{64}$ ]]; then
+  echo 'Usage: scripts/scan-vendor-image sha256:<local-image-id> report-directory' >&2
+  exit 2
+fi
+mkdir -p "$2"
+reports=$(cd "$2" && pwd -P)
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+printf '%s\n' "$1" > "$reports/image-id.txt"
+docker save -o "$scratch/image.tar" "$1"
+scanner=(docker run --rm -v "$scratch:/input:ro" -v "$reports:/reports"
+  -v toolbox-trivy-cache:/root/.cache/trivy
+  aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb)
+# The SBOM contains every detected package. The following scan enforces the gate.
+"${scanner[@]}" image --input /input/image.tar --format cyclonedx --output /reports/sbom.cdx.json
+"${scanner[@]}" image --input /input/image.tar --scanners vuln --severity HIGH,CRITICAL \
+  --exit-code 1 --format json --output /reports/vulnerabilities.json

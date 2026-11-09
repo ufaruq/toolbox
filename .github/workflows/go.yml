@@ -16,8 +16,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Pull pinned Keycloak image
-        run: docker pull quay.io/keycloak/keycloak@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
       - name: Keycloak broker, verified migration and MCP acceptance
         shell: bash
         run: make keycloak-check 2>&1 | tee /tmp/toolbox-keycloak-e2e.log

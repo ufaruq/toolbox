@@ -22,7 +22,7 @@ run-configured: ## Start using exported settings without reloading .env
 	go run ./cmd/toolbox
 
 deps: ## Start disposable PostgreSQL/OpenBao and configure CAS
-	$(COMPOSE) up -d --wait
+	$(COMPOSE) up --build -d --wait
 	$(COMPOSE) exec -T openbao bao write secret/config cas_required=true max_versions=3
 
 deps-test: deps ## Create the disposable integration-test database if absent
@@ -143,7 +143,7 @@ mcp-gateway-check: ## Run real Docker MCP isolation (pinned images required)
 	TOOLBOX_TEST_DOCKER_MCP=1 go test -race -count=1 ./internal/mcpclient -run '^TestDockerGatewayOwnerIsolation$$' -v -timeout=9m
 
 keycloak-check: ## Run real Keycloak acceptance with controlled upstream identities
-	TOOLBOX_TEST_KEYCLOAK=1 go test -race -count=1 ./internal/app -run '^TestKeycloakBrokerFlow$$' -v -timeout=9m
+	TOOLBOX_TEST_KEYCLOAK_IMAGE="$$(scripts/build-vendor-image keycloak)" TOOLBOX_TEST_KEYCLOAK=1 go test -race -count=1 ./internal/app -run '^TestKeycloakBrokerFlow$$' -v -timeout=9m
 
 test-artifacts: ## Reproduce/fix Linux artifact permissions using RUNNER_IMAGE
 	@test -n "$(RUNNER_IMAGE)" || (echo 'Set RUNNER_IMAGE to the built acceptance image, or use make test-all.'; exit 1)

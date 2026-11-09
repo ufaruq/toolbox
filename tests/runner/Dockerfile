@@ -13,3 +13,7 @@ COPY tests/browser/requirements.txt /tmp/browser-requirements.txt
 # the pinned base image has an older preinstalled Chromium.
 RUN python3 -m pip install --no-cache-dir -r /tmp/browser-requirements.txt \
     && python3 -m playwright install --with-deps chromium
+# This disposable acceptance runner controls sibling Docker fixtures and restores
+# host artifact ownership. Root is intentional here, never in runtime images.
+# trivy:ignore:AVD-DS-0002
+USER root

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Print only an immutable local image ID; build progress goes to stderr.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+case "${1:-}" in
+  postgres|openbao|keycloak) component=$1 ;;
+  *) echo 'Usage: scripts/build-vendor-image postgres|openbao|keycloak' >&2; exit 2 ;;
+esac
+image=$(docker build --quiet "$root/deploy/$component")
+docker image inspect --format '{{.Id}}' "$image"
