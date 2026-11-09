@@ -179,3 +179,5 @@ repository support. Deployment enablement is an explicit later operation.
   OIDC registration, initial/registration tokens, and registration policy controls.
 - [MCP authorization and client registration](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization):
   authorization-server discovery and supported client-registration mechanisms.
+
+Implementation and accepted native-policy adjustments are recorded in [verification](../../dynamic-client-onboarding-verification.md).

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** Use superpowers:subagent-driven-development to implement this plan task-by-task. One writer in this worktree at a time; independent reviews are read-only.
 
+**Status:** Implemented and verified at `21452fa`; see [verification](../../dynamic-client-onboarding-verification.md).
+
 **Goal:** Dynamically registered Keycloak clients become owner-scoped Pending requests, then gain only explicitly dashboard-approved permissions.
 
 **Architecture:** Retain the approved CallerProfile invariant and add a separate candidate table. Separate fully verified token identity from client admission; only owner-session mutations can promote a candidate. Opt-in Keycloak realm policies support anonymous OIDC registration without adding an OAuth server to Toolbox.
