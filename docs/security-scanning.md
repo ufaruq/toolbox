@@ -53,6 +53,16 @@ checks embedded metadata and runs Keycloak's Quarkus build. Scans identify the
 actual replacement library. Native Java deserialization is the prerequisite for
 the Guava advisory; package presence alone does not prove Toolbox exploitation.
 
+OpenBao downloads its release archive with HTTPS-only `curl`, fails on HTTP
+errors, and retries transient download failures within a bounded window. If the
+release URL fails, it downloads the same pinned release asset ID through GitHub's
+official asset API. Neither path uses credentials. It checks
+the pinned SHA-256 before extracting anything; a mismatch still fails the build.
+This avoids remote Docker `ADD` reporting an HTTP error body as a digest mismatch.
+The `source` build target allows fresh-download verification without compiling
+OpenBao: `docker build --no-cache --target source deploy/openbao`. Never replace a
+checksum with a failed download's digest to make a build pass.
+
 OpenBao's image build tests the patched Okta signer, verifies its JWT claims and
 key ID, and tests rejection of private JWK parameters before RSA parsing
 (CVE-2026-116587). Both the source dependency patch and upstream checksums are
@@ -68,7 +78,8 @@ scripts/scan-vendor-image "$image" work/security/keycloak
 make test-all
 ```
 
-The build helper prints an immutable local image ID. The scan helper exports
+The build helper prints an immutable local image ID on stdout and preserves plain
+build progress on stderr, including the HTTP error if a source download fails. The scan helper exports
 that exact image and writes `image-id.txt`, `sbom.cdx.json` (all detected packages)
 and `vulnerabilities.json` (HIGH/CRITICAL findings). It fails on scan errors or
 findings, including those without an available fix. No advisory ignores or VEX

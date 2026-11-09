@@ -39,6 +39,7 @@ type Server struct {
 	claims           map[string]any
 	discovery        map[string]any
 	redirects        map[string]string
+	callbackURIs     map[string]url.URL
 	tokenResponse    *tokenResponse
 	signingAlgorithm string
 	invalidSignature bool
@@ -80,6 +81,7 @@ func New(t testing.TB) *Server {
 		claims:           make(map[string]any),
 		discovery:        make(map[string]any),
 		redirects:        make(map[string]string),
+		callbackURIs:     make(map[string]url.URL),
 		signingAlgorithm: "RS256",
 	}
 	s.httpServer = httptest.NewTLSServer(http.HandlerFunc(s.serveHTTP))
@@ -173,6 +175,20 @@ func (s *Server) SetRedirect(path, target string) {
 	} else {
 		s.redirects[path] = target
 	}
+}
+
+// RegisterCallback allows an exact callback URL supplied by trusted test setup.
+// HTTP authorization requests cannot add callbacks. Registration must precede
+// browser sign-in; an empty allowlist denies all HTTP authorization requests.
+func (s *Server) RegisterCallback(t testing.TB, raw string) {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Fragment != "" || strings.ContainsAny(raw, "\\\r\n") {
+		t.Fatal("invalid synthetic callback URL")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.callbackURIs[raw] = *u
 }
 
 // BlockExchange pauses token responses after the request has been counted. The
@@ -294,8 +310,12 @@ func (s *Server) serveAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.Form
-	redirectURI, err := url.Parse(q.Get("redirect_uri"))
-	if err != nil || redirectURI.Host == "" || (redirectURI.Scheme != "http" && redirectURI.Scheme != "https") ||
+	// Select the trusted configured URL, never the request-provided URL. Copy
+	// it so per-request code/state parameters cannot mutate the allowlist.
+	s.mu.Lock()
+	redirectURI, allowed := s.callbackURIs[q.Get("redirect_uri")]
+	s.mu.Unlock()
+	if !allowed ||
 		q.Get("client_id") != s.ClientID || q.Get("response_type") != "code" ||
 		q.Get("scope") != "openid" || q.Get("state") == "" || q.Get("nonce") == "" ||
 		q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" {
@@ -325,7 +345,7 @@ func (s *Server) serveAuthorize(w http.ResponseWriter, r *http.Request) {
 	callback.Set("code", code)
 	callback.Set("state", q.Get("state"))
 	redirectURI.RawQuery = callback.Encode()
-	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Test-only identity provider intentionally accepts synthetic client callback URLs.
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Destination is selected from trusted exact-match callbackURIs; request state is URL-encoded query data only. TestAuthorizeExactRegisteredCallback covers destination and state injection.
 	http.Redirect(w, r, redirectURI.String(), http.StatusFound)
 }
 

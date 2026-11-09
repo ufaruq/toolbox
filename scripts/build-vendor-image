@@ -6,5 +6,9 @@ case "${1:-}" in
   postgres|openbao|keycloak) component=$1 ;;
   *) echo 'Usage: scripts/build-vendor-image postgres|openbao|keycloak' >&2; exit 2 ;;
 esac
-image=$(docker build --quiet "$root/deploy/$component")
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+# Preserve the failing RUN output (including HTTP status) in CI logs.
+docker build --progress=plain --iidfile "$scratch/image-id" "$root/deploy/$component" >&2
+image=$(cat "$scratch/image-id")
 docker image inspect --format '{{.Id}}' "$image"

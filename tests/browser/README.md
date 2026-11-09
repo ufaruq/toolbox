@@ -74,6 +74,15 @@ make oidc-browser-check
 
 `TOOLBOX_TEST_OIDC_BROWSER=1` explicitly enables this optional browser check. `TOOLBOX_TEST_PYTHON` selects the exact Python binary containing the pinned requirements; it is optional when the harness can find an appropriate `python3`. `TOOLBOX_BROWSER_EXECUTABLE` optionally selects an installed Chromium. Leave it unset to use Playwright's matching browser. Without the browser opt-in the harness skips; ordinary Go protocol tests continue to run without Python. Record skips as skips.
 
+Both OIDC and Workspace Go harnesses register their exact callback URL with the
+synthetic OIDC provider before sign-in. Its HTTP authorization endpoint rejects
+unregistered callbacks on GET and POST; scheme/host checks alone are insufficient.
+The callback allowlist is configured by trusted test setup, never by browser input.
+A line-specific Semgrep annotation documents this validated destination: the rule
+does not model the exact allowlist and flags request state even when URL-encoded
+only into the query. Regression tests cover callback mismatches and hostile state
+values without suppressing CodeQL or excluding the fixture from either scan.
+
 The Go harness supplies the two allowed origins and a pin for the fake provider certificate's SPKI. Browser requests outside the Toolbox and synthetic TLS-provider origins are blocked. Chromium's certificate exception is limited to that fake certificate's SPKI; application provider TLS verification remains enabled. Do not point this synthetic runner at an Okta tenant or pass real credentials to it.
 
 The runner avoids browser traces, query/network logs, cookies, raw callback URLs and provider secrets. Any saved screenshots or result metadata must remain sanitized synthetic evidence. This flow proves local browser behavior against the fake provider. **Real Okta acceptance remains unrun** until a separately configured app has an observed real browser login and Toolbox logout; see [Okta setup](../../docs/okta-setup.md).

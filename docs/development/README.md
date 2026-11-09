@@ -64,6 +64,21 @@ PostgreSQL, OpenBao and Keycloak use the reviewed [vendor image recipes](../secu
 
 The pre-push hook archives the commit being pushed and validates that snapshot. Dirty files and untracked secrets are excluded. Non-HEAD pushes are rejected: check out the intended commit and push separately. Deletes do not introduce code and do not run the suite. A commit without the gate script is rejected after hook installation.
 
+Before pushing, compare the diff with the current workflow files and run the
+applicable local equivalents on the final contents. `make test-all` is necessary
+but does not include every independent CI scanner: run `make semgrep-check`,
+`make vuln-check` for Go/dependency changes, and the pinned Trivy source scan from
+`.github/workflows/trivy.yml` for Docker/configuration changes. Image download or
+recipe changes additionally require an uncached download/build-stage check;
+locally cached layers cannot establish that a fresh hosted runner can build them.
+Record genuinely CI-only checks separately. See [agent instructions](../../AGENTS.md)
+for the required verification and handoff rules.
+
+After pushing, monitor every applicable check for the exact PR head through
+completion. Inspect failures and fix or establish the external blocker; a local
+green gate is not a green PR. Do not declare completion/readiness with pending,
+failed or unexpectedly skipped checks, and never merge without required CI passing.
+
 A failing or unavailable test blocks the push. Fix the failure and commit before retrying; do not use `--no-verify`. Hooks cannot enforce every remote client: configure a GitHub branch ruleset requiring the full acceptance check and applicable security checks, with controlled bypass permissions. A tracked `AGENTS.md` communicates expectations but is not a security boundary.
 
 ## Troubleshooting and evidence

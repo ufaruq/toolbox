@@ -35,6 +35,7 @@ func TestWorkspaceBrowserFlow(t *testing.T) {
 	ts := httptest.NewUnstartedServer(nil)
 	t.Cleanup(ts.Close)
 	origin := "http://" + ts.Listener.Addr().String()
+	idp.RegisterCallback(t, origin+"/auth/oidc/callback")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	repo, secrets := store.NewMemory(), tokens.NewMemorySecretStore()
