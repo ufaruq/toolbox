@@ -43,6 +43,9 @@ func New(c Config) (*Runtime, error) {
 	if c.OwnerID == "" || c.InstallationID <= 0 || c.StateDirectory == "" {
 		return nil, ErrDenied
 	}
+	if validateStateDirectory(c.StateDirectory) != nil {
+		return nil, ErrDenied
+	}
 	issuer, e := githubapp.New(c.AppID, c.PrivateKey)
 	if e != nil {
 		return nil, ErrDenied
@@ -78,6 +81,9 @@ func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpol
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	if validateStateDirectory(r.config.StateDirectory) != nil {
+		return nil, ErrDenied
+	}
 	if check == nil || installationID != r.config.InstallationID || g.OwnerID != r.config.OwnerID || githubpolicy.ValidateGrant(g) != nil {
 		return nil, ErrDenied
 	}
@@ -214,6 +220,16 @@ func (r *Runtime) preflight(ctx context.Context, token string, g githubpolicy.Gr
 		return call, ErrDenied
 	}
 	if action == "files.write" {
+		var files []struct{ Path string }
+		if json.Unmarshal(args["files"], &files) != nil || len(files) == 0 {
+			return call, ErrDenied
+		}
+		cache := map[string]gitTree{}
+		for _, file := range files {
+			if r.checkWritePath(ctx, token, g, commit.Tree.SHA, file.Path, cache) != nil {
+				return call, ErrDenied
+			}
+		}
 		return call, nil
 	}
 	tree := commit.Tree.SHA
@@ -271,3 +287,43 @@ type appIssuer interface {
 }
 
 var metadataSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+type gitTree struct {
+	Truncated bool
+	Tree      []struct{ Path, Mode, Type, SHA string }
+}
+
+func (r *Runtime) checkWritePath(ctx context.Context, token string, g githubpolicy.Grant, tree, path string, cache map[string]gitTree) error {
+	parts := strings.Split(path, "/")
+	for index, part := range parts {
+		result, ok := cache[tree]
+		if !ok {
+			if r.issuer.GetRepositoryMetadata(ctx, token, g.Owner, g.Repository, "/git/trees/"+tree, &result) != nil || result.Truncated {
+				return ErrDenied
+			}
+			cache[tree] = result
+		}
+		found := false
+		for _, entry := range result.Tree {
+			if entry.Path != part {
+				continue
+			}
+			found = true
+			if index == len(parts)-1 {
+				if entry.Type != "blob" || (entry.Mode != "100644" && entry.Mode != "100755") {
+					return ErrDenied
+				}
+			} else {
+				if entry.Type != "tree" || entry.Mode != "040000" || !metadataSHA.MatchString(entry.SHA) {
+					return ErrDenied
+				}
+				tree = entry.SHA
+			}
+			break
+		}
+		if !found {
+			return nil
+		}
+	}
+	return nil
+}

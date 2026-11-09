@@ -98,7 +98,7 @@ func dockerLauncher(parent string) launcher {
 		}
 		suffix := hex.EncodeToString(nonce)
 		bearer := "gateway-" + suffix
-		if e := os.MkdirAll(parent, 0700); e != nil {
+		if e := validateStateDirectory(parent); e != nil {
 			return nil, ErrUnavailable
 		}
 		dir, e := os.MkdirTemp(parent, "operation-")

@@ -7,13 +7,14 @@ import (
 	"github.com/ufaruq/toolbox/internal/githubapp"
 	githubpolicy "github.com/ufaruq/toolbox/internal/servicepolicy/github"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestDeniedPolicyNeverLaunches(t *testing.T) {
-	r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1}, launch: func(context.Context, string, string) (session, error) {
+	r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1, StateDirectory: privateTemp(t)}, launch: func(context.Context, string, string) (session, error) {
 		t.Fatal("denied policy launched gateway")
 		return nil, nil
 	}}
@@ -55,7 +56,7 @@ func TestDockerReviewedRuntimeStartup(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	s, e := dockerLauncher(t.TempDir())(ctx, "fixture-not-a-provider-secret", "issue_read")
+	s, e := dockerLauncher(privateTemp(t))(ctx, "fixture-not-a-provider-secret", "issue_read")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -113,7 +114,7 @@ func (f *fakeIssuer) GetRepositoryMetadata(_ context.Context, _, _, _, suffix st
 }
 func TestSymlinkPreflightDeniesAndRevokes(t *testing.T) {
 	f := &fakeIssuer{symlink: true}
-	r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1}, issuer: f, launch: func(context.Context, string, string) (session, error) {
+	r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1, StateDirectory: privateTemp(t)}, issuer: f, launch: func(context.Context, string, string) (session, error) {
 		t.Fatal("symlink reached gateway")
 		return nil, nil
 	}}
@@ -168,7 +169,7 @@ func TestResultProjectionAndCanceledCleanup(t *testing.T) {
 			if cancelDuring {
 				s.cancel = cancel
 			}
-			r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1}, issuer: f, launch: func(context.Context, string, string) (session, error) { return s, nil }}
+			r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1, StateDirectory: privateTemp(t)}, issuer: f, launch: func(context.Context, string, string) (session, error) { return s, nil }}
 			g := githubpolicy.Grant{OwnerID: "owner", AgentID: "agent", ConnectionID: "c", Epoch: 1, RepositoryID: 2, Owner: "owner", Repository: "repo", Actions: []string{"files.read"}, Paths: []string{"safe.txt"}, Branches: []string{"main"}, ExpiresAt: time.Now().Add(time.Hour)}
 			out, e := r.Execute(ctx, 1, g, "files.read", json.RawMessage(`{"branch":"main","path":"safe.txt"}`), func(ctx context.Context) error { return ctx.Err() })
 			if f.revokes != 2 || !s.closed {
@@ -189,11 +190,107 @@ func TestCleanupFailureSuppressesResult(t *testing.T) {
 	for _, tokenFailure := range []bool{false, true} {
 		f := &fakeIssuer{revokeError: tokenFailure}
 		s := &fakeSession{closeError: !tokenFailure}
-		r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1}, issuer: f, launch: func(context.Context, string, string) (session, error) { return s, nil }}
+		r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1, StateDirectory: privateTemp(t)}, issuer: f, launch: func(context.Context, string, string) (session, error) { return s, nil }}
 		g := githubpolicy.Grant{OwnerID: "owner", AgentID: "agent", ConnectionID: "c", Epoch: 1, RepositoryID: 2, Owner: "owner", Repository: "repo", Actions: []string{"files.read"}, Paths: []string{"safe.txt"}, Branches: []string{"main"}, ExpiresAt: time.Now().Add(time.Hour)}
 		out, e := r.Execute(context.Background(), 1, g, "files.read", json.RawMessage(`{"branch":"main","path":"safe.txt"}`), func(context.Context) error { return nil })
 		if out != nil || e != ErrUnavailable {
 			t.Fatalf("cleanup failure returned success: %v", e)
 		}
+	}
+}
+
+func privateTemp(t *testing.T) string {
+	t.Helper()
+	p, e := filepath.EvalSymlinks(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Chmod(p, 0700); e != nil {
+		t.Fatal(e)
+	}
+	return p
+}
+func TestStateDirectoryRejectsUnsafePaths(t *testing.T) {
+	base := privateTemp(t)
+	shared := filepath.Join(base, "shared")
+	os.Mkdir(shared, 0770)
+	os.Chmod(shared, 0770)
+	link := filepath.Join(base, "link")
+	os.Symlink(base, link)
+	file := filepath.Join(base, "file")
+	os.WriteFile(file, []byte("x"), 0600)
+	for _, p := range []string{"relative", "/", shared, filepath.Join(shared, "private"), link, filepath.Join(link, "child"), file} {
+		if e := validateStateDirectory(p); e == nil {
+			t.Errorf("accepted unsafe directory %q", p)
+		}
+	}
+	if e := validateStateDirectory(filepath.Join(base, "private")); e != nil {
+		t.Fatal(e)
+	}
+}
+
+type treeIssuer struct {
+	fakeIssuer
+	treeJSON  string
+	treeReads int
+	nested    bool
+	ancestor  bool
+}
+
+func (f *treeIssuer) GetRepositoryMetadata(ctx context.Context, token, owner, repo, suffix string, out any) error {
+	if strings.Contains(suffix, "/git/trees/") {
+		f.treeReads++
+		if f.nested && strings.HasSuffix(suffix, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
+			mode, kind := "040000", "tree"
+			if f.ancestor {
+				mode, kind = "100644", "blob"
+			}
+			return json.Unmarshal([]byte(fmt.Sprintf(`{"tree":[{"path":"docs","mode":%q,"type":%q,"sha":"cccccccccccccccccccccccccccccccccccccccc"}]}`, mode, kind)), out)
+		}
+		return json.Unmarshal([]byte(f.treeJSON), out)
+	}
+	return f.fakeIssuer.GetRepositoryMetadata(ctx, token, owner, repo, suffix, out)
+}
+func TestMultiFileTreePreflight(t *testing.T) {
+	for name, tree := range map[string]string{"directory": `{"tree":[{"path":"safe.txt","type":"tree","mode":"040000","sha":"cccccccccccccccccccccccccccccccccccccccc"}]}`, "symlink": `{"tree":[{"path":"safe.txt","type":"blob","mode":"120000"}]}`, "submodule": `{"tree":[{"path":"safe.txt","type":"commit","mode":"160000"}]}`, "blob ancestor": `{"tree":[{"path":"safe.txt","type":"blob","mode":"100644"}]}`} {
+		t.Run(name, func(t *testing.T) {
+			f := &treeIssuer{treeJSON: tree, nested: true, ancestor: name == "blob ancestor"}
+			r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1, StateDirectory: privateTemp(t)}, issuer: f, launch: func(context.Context, string, string) (session, error) {
+				t.Fatal("unsafe tree launched")
+				return nil, nil
+			}}
+			g := githubpolicy.Grant{OwnerID: "owner", AgentID: "agent", ConnectionID: "c", Epoch: 1, RepositoryID: 2, Owner: "owner", Repository: "repo", Actions: []string{"files.write"}, Paths: []string{"docs", "docs/"}, Branches: []string{"main"}, AllowUnconditionalWrites: true, ExpiresAt: time.Now().Add(time.Hour)}
+			path := "docs/safe.txt"
+			if name == "blob ancestor" {
+				path += "/new.txt"
+			}
+			raw := json.RawMessage(fmt.Sprintf(`{"branch":"main","message":"change","files":[{"path":%q,"content":"new"}]}`, path))
+			_, e := r.Execute(context.Background(), 1, g, "files.write", raw, func(context.Context) error { return nil })
+			if e != ErrDenied || len(f.issues) != 1 || f.treeReads < 1 {
+				t.Fatalf("preflight=%v issued=%d reads=%d", e, len(f.issues), f.treeReads)
+			}
+		})
+	}
+	f := &treeIssuer{treeJSON: `{"tree":[]}`}
+	r := &Runtime{issuer: f}
+	g := githubpolicy.Grant{RepositoryID: 2, Owner: "owner", Repository: "repo"}
+	_, e := r.preflight(context.Background(), "token", g, "files.write", githubpolicy.Call{Arguments: json.RawMessage(`{"branch":"main","files":[{"path":"new/a.txt"},{"path":"new/b.txt"}]}`)})
+	if e != nil || f.treeReads != 1 {
+		t.Fatalf("missing new paths/cache: %v reads=%d", e, f.treeReads)
+	}
+}
+
+func TestUnsafeStateRejectedBeforeCredential(t *testing.T) {
+	path := privateTemp(t)
+	os.Chmod(path, 0770)
+	f := &fakeIssuer{}
+	r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1, StateDirectory: path}, issuer: f, launch: func(context.Context, string, string) (session, error) {
+		t.Fatal("unsafe state launched")
+		return nil, nil
+	}}
+	g := githubpolicy.Grant{OwnerID: "owner", AgentID: "agent", ConnectionID: "c", Epoch: 1, RepositoryID: 2, Owner: "owner", Repository: "repo", Actions: []string{"files.read"}, Paths: []string{"safe.txt"}, Branches: []string{"main"}, ExpiresAt: time.Now().Add(time.Hour)}
+	_, e := r.Execute(context.Background(), 1, g, "files.read", json.RawMessage(`{"branch":"main","path":"safe.txt"}`), func(context.Context) error { return nil })
+	if e != ErrDenied || len(f.issues) != 0 {
+		t.Fatal("unsafe state issued credential")
 	}
 }

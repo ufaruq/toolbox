@@ -6,6 +6,13 @@ metadata-only installation token; that token is never sent to MCP. Operation
 credentials always select exactly one trusted repository ID and the policy action's
 permission set. A separate read token supplies metadata preflight.
 
+StateDirectory must be an absolute clean path to a service-owned real 0700
+directory. Existing unsafe permissions, symlinks and untrusted ancestry are
+rejected; they are never silently repaired. Ancestors must be owned by the service
+user or root and not writable by other principals, except root-owned sticky
+temporary directories whose sticky protection prevents replacement of owned
+children. The runtime checks this before credentials and again before launch.
+
 Each operation runs inside a 20 second context, creates a disposable private state
 directory, Docker bridge and gateway, uses one explicit 0600 installation secret
 file, and removes its own containers/network/state afterward. Cleanup failure suppresses
@@ -29,7 +36,10 @@ Metadata preflight checks repository numeric ID and exact owner/name before and
 after execution; PR reads and writes require same-repository head/base and approved
 refs/revision. File reads walk Git tree modes and ancestors, reject symlinks and
 submodules, and pin the MCP read to the resolved commit SHA. Multi-file writes require an existing exact target branch and valid commit/tree
-metadata before launch. File updates verify
+metadata before launch. They also inspect every submitted path and ancestor at
+that tree, rejecting existing directories, symlinks, submodules and non-tree
+ancestors while allowing missing paths for new files. Tree reads are cached
+within the operation. File updates verify
 existing regular-file blob SHA and retain the upstream SHA condition. Multi-file
 writes rely on policy authority over complete replaceable subtrees and ancestors;
 the upstream push tool offers no expected-head condition and remains explicitly
