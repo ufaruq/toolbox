@@ -1,12 +1,13 @@
 # Keep the upstream distribution and licenses; replace only its runtime and Guava.
 FROM quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b AS upstream
-FROM eclipse-temurin:21-jre-alpine@sha256:ac05c3c42b7c2f1a52c9bd52f01041fa1958231b15ebeae7420429cbc5baf474
+# Keycloak supports Java 25 LTS; short-lived Java 24 is not a supported target.
+FROM eclipse-temurin:25-jre-alpine@sha256:e1898fd6a11fc965a994d8ace186fd3585aeb636cf8f05f47a723fcfee0b0918
 
 COPY --from=upstream --chown=1000:0 /opt/keycloak /opt/keycloak
 # Quarkus records this path in its application model. Keep the path, but retain
 # the new JAR's unmodified manifest and Maven metadata (33.7.2-jre).
 ADD --checksum=sha256:b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c --chown=1000:0 --chmod=0644 https://repo.maven.apache.org/maven2/com/google/guava/guava/33.7.2-jre/guava-33.7.2-jre.jar /opt/keycloak/lib/lib/main/com.google.guava.guava-33.6.0-jre.jar
-RUN apk --no-network del gnupg \
+RUN ! apk --no-network info -e gnupg \
     && unzip -p /opt/keycloak/lib/lib/main/com.google.guava.guava-33.6.0-jre.jar META-INF/maven/com.google.guava/guava/pom.properties | grep -Fx 'version=33.7.2-jre' \
     && ! apk --no-network info -e sqlite-libs \
     && chmod -R g=u /opt/keycloak
