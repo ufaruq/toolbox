@@ -299,3 +299,146 @@ func TestDynamicCallerConcurrentDecisionsAndExpiry(t *testing.T) {
 		t.Fatalf("expired/rejected client reset: %d %s", w.Code, w.Body)
 	}
 }
+
+// The first body read happens after requireOwner authenticated the cookie.
+type candidateDecisionBody struct {
+	beforeRead func()
+	body       *strings.Reader
+}
+
+func (r *candidateDecisionBody) Read(p []byte) (int, error) {
+	if r.beforeRead != nil {
+		fn := r.beforeRead
+		r.beforeRead = nil
+		fn()
+	}
+	return r.body.Read(p)
+}
+func (r *candidateDecisionBody) Close() error { return nil }
+func TestCandidateDecisionRechecksSessionAtCommit(t *testing.T) {
+	for _, op := range []string{"approve", "reject", "reopen"} {
+		for _, revoke := range []string{"logout", "expiry"} {
+			t.Run(op+"/"+revoke, func(t *testing.T) {
+				s, repo, _ := mcpFixture(t)
+				s.Identity = onboardingIdentity{enabled: true}
+				pendingMCP(s, "new-client")
+				id := candidateID(t, s)
+				cookie, csrf := ownerCookie(t, s, "owner")
+				if op == "reopen" {
+					if w := ownerPost(s, "/v1/callers/pending/"+id+"/reject", `{}`, cookie, csrf); w.Code != 200 {
+						t.Fatal(w.Code)
+					}
+				}
+				payload := `{}`
+				if op == "approve" {
+					payload = `{"label":"Delayed approval","tools":[],"duration_seconds":3600}`
+				}
+				r := httptest.NewRequest("POST", "/v1/callers/pending/"+id+"/"+op, nil)
+				r.AddCookie(cookie)
+				r.Header.Set("Origin", s.Origin)
+				r.Header.Set("Content-Type", "application/json")
+				r.Header.Set("X-CSRF-Token", csrf)
+				r.Body = &candidateDecisionBody{body: strings.NewReader(payload), beforeRead: func() {
+					if err := repo.Transact(context.Background(), func(st *domain.State) error {
+						for key, session := range st.Sessions {
+							if revoke == "logout" {
+								delete(st.Sessions, key)
+							} else {
+								session.ExpiresAt = st.Now
+								st.Sessions[key] = session
+							}
+						}
+						return nil
+					}); err != nil {
+						t.Fatal(err)
+					}
+				}}
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, r)
+				if w.Code != 403 {
+					t.Fatalf("decision survived %s: %d %s", revoke, w.Code, w.Body)
+				}
+				if err := repo.Transact(context.Background(), func(st *domain.State) error {
+					want := "pending"
+					if op == "reopen" {
+						want = "rejected"
+					}
+					if st.CallerCandidates[id].Status != want || len(st.Agents) != 2 || len(st.CallerProfiles) != 2 {
+						t.Fatal("revoked session changed candidate privileges")
+					}
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
+type staticOnboardingIdentity struct{ onboardingIdentity }
+
+func (staticOnboardingIdentity) Clients() map[string]string {
+	return map[string]string{"new-client": "Explicit static admission"}
+}
+func TestDynamicCredentialRespectsAdmissionRollback(t *testing.T) {
+	s, repo, _ := mcpFixture(t)
+	s.Identity = onboardingIdentity{enabled: true}
+	pendingMCP(s, "new-client")
+	id := candidateID(t, s)
+	cookie, csrf := ownerCookie(t, s, "owner")
+	w := ownerPost(s, "/v1/callers/pending/"+id+"/approve", `{"label":"Local client","tools":["`+domain.Tool+`"],"duration_seconds":3600}`, cookie, csrf)
+	if w.Code != 201 {
+		t.Fatal(w.Body)
+	}
+	var profile map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &profile)
+	w = ownerPost(s, "/v1/agents/"+profile["agent_id"].(string)+"/credentials", `{}`, cookie, csrf)
+	if w.Code != 201 {
+		t.Fatal(w.Body)
+	}
+	var credential map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &credential)
+	if err := repo.Transact(context.Background(), func(st *domain.State) error {
+		g := st.Grants["grant"]
+		g.ID = "dynamic-grant"
+		g.AgentID = profile["agent_id"].(string)
+		st.Grants[g.ID] = g
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mint := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/v1/delegation-tokens", strings.NewReader(`{"grant_id":"dynamic-grant"}`))
+		r.Header.Set("Authorization", "Bearer "+credential["credential"])
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w
+	}
+	if w := mint(); w.Code != 200 {
+		t.Fatalf("enabled credential: %d", w.Code)
+	}
+	s.Identity = onboardingIdentity{enabled: false}
+	if w := mint(); w.Code != 401 {
+		t.Fatalf("dynamic credential survived rollback: %d", w.Code)
+	}
+	s.Identity = staticOnboardingIdentity{onboardingIdentity{enabled: false}}
+	if w := mint(); w.Code != 200 {
+		t.Fatalf("explicit static admission denied: %d", w.Code)
+	}
+	s.Identity = onboardingIdentity{enabled: true}
+	w = mint()
+	var minted map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &minted)
+	s.integration = invocationIntegration{read: func(ctx context.Context, authorize func(context.Context) error) (Document, error) {
+		if err := authorize(ctx); err != nil {
+			return Document{}, err
+		}
+		s.Identity = onboardingIdentity{enabled: false}
+		return Document{Content: "must not be released"}, nil
+	}}
+	result, err := s.invokeOperation(context.Background(), agentAccess{AgentID: profile["agent_id"].(string), CredentialID: credential["credential_id"]}, domain.Tool, "dynamic-grant", "doc-A", minted["delegation_token"])
+	if err == nil || result != nil {
+		t.Fatal("dynamic credential released data after admission rollback")
+	}
+}

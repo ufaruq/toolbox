@@ -28,13 +28,15 @@ func (s *Server) clientAdmitted(st *domain.State, p domain.CallerProfile) bool {
 	if _, ok := s.Identity.Clients()[p.ClientID]; ok {
 		return true
 	}
-	if s.dynamicOnboarding() {
-		for _, c := range st.CallerCandidates {
-			if c.Status == "approved" && c.OwnerID == p.OwnerID && c.Issuer == p.Issuer && c.UserID == p.UserID && c.ClientID == p.ClientID {
-				return true
-			}
+	return s.dynamicOnboarding() && approvedCandidateForProfile(st, p)
+}
+func approvedCandidateForProfile(st *domain.State, p domain.CallerProfile) bool {
+	for _, c := range st.CallerCandidates {
+		if c.Status == "approved" && c.OwnerID == p.OwnerID && c.Issuer == p.Issuer && c.UserID == p.UserID && c.ClientID == p.ClientID {
+			return true
 		}
 	}
+
 	return false
 }
 func (s *Server) resolveCaller(ctx context.Context, claims identity.Claims) (agentAccess, error) {
@@ -55,7 +57,7 @@ func (s *Server) resolveCaller(ctx context.Context, claims identity.Claims) (age
 					return denied
 				}
 				access = agentAccess{AgentID: p.AgentID, CallerProfileID: p.ID, TokenExpiresAt: claims.ExpiresAt}
-				if authorizeAgent(st, access, "") != nil {
+				if s.authorizeAgent(st, access, "") != nil {
 					return denied
 				}
 				return nil
@@ -141,6 +143,10 @@ func (s *Server) decideCallerCandidate(w http.ResponseWriter, r *http.Request) {
 	var result map[string]any
 	err := s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		c, ok := st.CallerCandidates[r.PathValue("id")]
+		session, live := st.Sessions[owner.ID]
+		if !live || session.UserID != owner.UserID || !st.Now.Before(session.ExpiresAt) || !security.Equal(session.CSRFHash, owner.CSRFHash) || (s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, owner.ID)) {
+			return domain.ErrDenied
+		}
 		if !ok || c.OwnerID != owner.UserID || st.Users[owner.UserID].Status != "active" {
 			return domain.ErrDenied
 		}

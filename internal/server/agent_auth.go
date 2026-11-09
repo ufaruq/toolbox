@@ -47,7 +47,7 @@ func profileActive(st *domain.State, p domain.CallerProfile, tool string) bool {
 	u, ok := domain.ResolveIdentity(st, p.Issuer, p.UserID)
 	return ok && u.ID == p.OwnerID && p.Status == "active" && st.Now.Before(p.ExpiresAt) && a.Status == "active" && a.OwnerID == p.OwnerID && u.Status == "active" && (tool == "" || domain.HasScope(p.Tools, tool))
 }
-func authorizeAgent(st *domain.State, access agentAccess, tool string) error {
+func (s *Server) authorizeAgent(st *domain.State, access agentAccess, tool string) error {
 	a := st.Agents[access.AgentID]
 	if a.ID == "" || a.Status != "active" || st.Users[a.OwnerID].Status != "active" {
 		return domain.ErrDenied
@@ -63,7 +63,7 @@ func authorizeAgent(st *domain.State, access agentAccess, tool string) error {
 		}
 	}
 	if p, ok := profileForAgent(st, a.ID); ok {
-		if !profileActive(st, p, tool) {
+		if !profileActive(st, p, tool) || (approvedCandidateForProfile(st, p) && !s.clientAdmitted(st, p)) {
 			return domain.ErrDenied
 		}
 	} else if access.CallerProfileID != "" {
@@ -71,8 +71,8 @@ func authorizeAgent(st *domain.State, access agentAccess, tool string) error {
 	}
 	return nil
 }
-func grantAccessCheck(st *domain.State, access agentAccess, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
-	if e := authorizeAgent(st, access, domain.Tool); e != nil {
+func (s *Server) grantAccessCheck(st *domain.State, access agentAccess, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
+	if e := s.authorizeAgent(st, access, domain.Tool); e != nil {
 		return domain.Grant{}, e
 	}
 	return grantRules(st, access.AgentID, grantID, fileID, c)

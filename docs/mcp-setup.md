@@ -160,6 +160,7 @@ automatically deleted. These limits are distinct from Keycloak registration limi
 
 To roll back, set `TOOLBOX_MCP_DYNAMIC_CLIENT_ONBOARDING=false` and restart
 Toolbox. Dynamically approved clients are denied unless their exact client IDs
-are explicitly included in `TOOLBOX_MCP_CLIENTS`. Saved owner decisions and
-profiles remain intact. Disabling Toolbox onboarding does not disable Keycloak's
+are explicitly included in `TOOLBOX_MCP_CLIENTS`. This also blocks owner-issued agent credentials attached to those dynamically
+approved profiles; standalone agents retain their own credential policy.
+Saved owner decisions and profiles remain intact. Disabling Toolbox onboarding does not disable Keycloak's
 registration endpoint; restrict that separately in Keycloak.

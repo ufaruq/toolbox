@@ -71,10 +71,10 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	canRead := false
 	err = s.Repository.Transact(r.Context(), func(st *domain.State) error {
-		if err := authorizeAgent(st, access, ""); err != nil {
+		if err := s.authorizeAgent(st, access, ""); err != nil {
 			return err
 		}
-		canRead = authorizeAgent(st, access, domain.Tool) == nil
+		canRead = s.authorizeAgent(st, access, domain.Tool) == nil
 		return nil
 	})
 	if err != nil {
