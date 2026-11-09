@@ -336,3 +336,93 @@ do not change the separate master-realm administration flow. Then test provider
 login and denial of local login and `kc_action=UPDATE_PASSWORD` before reopening
 access. Existing Toolbox sessions remain subject to the separately documented
 local revocation policy.
+
+## Optional dynamic client registration
+
+This opt-in supports **public OAuth clients** using authorization code + S256
+PKCE. Hosted ChatGPT/Claude integrations may require confidential registration
+or metadata this policy rejects; they are not established compatible by the
+local acceptance test. A display name is not vendor verification.
+
+Set these before generating a **new** private realm import:
+
+```sh
+export TOOLBOX_KEYCLOAK_DYNAMIC_CLIENT_REGISTRATION=true
+export TOOLBOX_KEYCLOAK_DYNAMIC_REGISTRATION_TRUSTED_HOSTS='["127.0.0.1","localhost","::1"]'
+```
+
+The host list is required, bounded to 32 exact hosts, and accepts no wildcard,
+URL, port, or path. Add an exact DNS host only when you trust callbacks there.
+Callbacks use HTTPS, except literal loopback HTTP. The supported callback grammar
+uses an explicit `/` path, ASCII letters/digits and `._~/-`, with optional query
+characters `._~=&-`. Wildcards, fragments, userinfo and percent escapes are
+rejected. Client metadata URLs (including logos, sector identifiers, remote keys,
+and logout URLs) are rejected. Registration is not restricted by the requester's
+source IP; the configured list constrains callback destinations.
+
+The generated realm includes an enabled **`toolbox-dcr-setup-required`** client
+policy. It blocks anonymous registration and registration-token updates until
+setup is complete. Keep it enabled during the following one-time administrator
+setup in Keycloak. This is Keycloak configuration, not a central Toolbox admin
+role or a client approval.
+
+1. Import the realm with registration still closed. In the Keycloak Admin
+   Console, select the Toolbox realm and open **Client scopes**.
+2. Change the realm default assignment of all scopes to **None** except
+   **basic → Default** and **mcp → Optional**. Remove the default/optional
+   assignments, not the scope definitions or their assignments on existing
+   clients. Existing built-in account/admin clients must keep their scopes.
+3. Verify that future clients inherit only `basic` and can request only `mcp`.
+   Under **Realm settings → Client policies**, disable only
+   **`toolbox-dcr-setup-required`**. Leave the other Toolbox policies enabled.
+4. Start Toolbox with `TOOLBOX_MCP_DYNAMIC_CLIENT_ONBOARDING=true`, the Keycloak
+   identity backend and exact issuer settings. Follow the
+   [owner approval flow](mcp-setup.md#owner-approval-for-new-keycloak-clients).
+
+Why the separate step: Keycloak 26.8.2 realm import **adds** default scope
+assignments rather than replacing them. Retaining its factory-generated scopes
+preserves normal built-in client behavior; the administrator step restricts
+future registrations. The setup gate prevents incomplete configuration from
+opening registration, including requests with no `scope` field. For an existing
+realm, startup import does not apply changes: install and review the policies
+through Keycloak administration with this gate enabled first.
+
+Clients discover `/realms/<realm>/clients-registrations/openid-connect` through
+OIDC metadata. Registration creates an OAuth client only. A signed user token
+must then match an existing active Toolbox owner to create a pending candidate.
+The owner must sign into Toolbox separately and approve that candidate. A shared
+SSO login can reduce login prompts but cannot replace either approval.
+
+Native policies apply to creation and registration-token updates: public client
+only, S256, no password/implicit grants, no full scope or applicant-supplied
+protocol mappers, consent required, only `basic`/`openid`/`mcp` scopes, and a
+128-client realm quota. Both anonymous and authenticated registration chains
+retain restrictions. Device/CIBA and other unsupported grant settings are denied;
+MCP scopes also have a code/refresh-only runtime policy. The legacy default
+registration endpoint is covered by the same restrictions and tested against
+mapper injection and PKCE downgrade; applications should use OIDC registration.
+
+Pinned native limitations are explicit:
+
+- The quota counts **all** realm clients and is a count-before-create check,
+  not an atomic cap under concurrent registration. It is not a rate limiter.
+  Keep this local setup private; externally exposing it requires separately
+  configured edge rate limiting and operational quota monitoring.
+- Public client metadata may request service accounts at creation, but public
+  clients cannot obtain client-credentials tokens. Registration-token updates
+  cannot enable service accounts. Toolbox independently rejects service tokens.
+- A pairwise subject request can create Keycloak's derived-subject mapper. Its
+  different subject does not match the owner's identity, so Toolbox denies it
+  without a candidate. Do not use pairwise subjects for this onboarding flow.
+- Keycloak returns HTTP 500 for a public client requesting UMA authorization
+  services. Acceptance checks that the failed creation is rolled back. Toolbox
+  configures no UMA resource server and does not support UMA access.
+
+These behaviors are tested against the pinned image, including unchanged static
+MCP access and real owner/document approvals with synthetic upstream providers.
+They do not establish live Google/Okta or hosted-client compatibility. No live
+realm is modified by generating the configuration or running repository tests.
+
+Implementation references: [Keycloak registration policies](https://www.keycloak.org/securing-apps/client-registration),
+[pinned realm import](https://github.com/keycloak/keycloak/blob/26.8.2/model/storage-private/src/main/java/org/keycloak/storage/datastore/DefaultExportImportManager.java),
+[pinned registration lifecycle](https://github.com/keycloak/keycloak/blob/26.8.2/services/src/main/java/org/keycloak/services/clientregistration/AbstractClientRegistrationProvider.java).

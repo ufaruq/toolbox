@@ -21,6 +21,7 @@ func (s *Server) ownerRoutes() {
 		}
 		jsonOut(w, 200, map[string]bool{"fixture": s.Fixture, "identity_enabled": s.Identity != nil, "google_available": available})
 	})
+	s.mux.HandleFunc("POST /v1/callers/pending/{id}/{decision}", s.decideCallerCandidate)
 	s.mux.HandleFunc("GET /v1/callers", s.callers)
 	s.mux.HandleFunc("POST /v1/callers", s.createCaller)
 	s.mux.HandleFunc("POST /v1/callers/{id}/name", s.renameCaller)
@@ -33,11 +34,17 @@ func (s *Server) callers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	profiles := []map[string]any{}
+	candidates := []map[string]any{}
 	clients := map[string]string{}
 	if s.Identity != nil {
 		clients = s.Identity.Clients()
 	}
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
+		for _, c := range st.CallerCandidates {
+			if c.OwnerID == owner.UserID && c.Status != "approved" {
+				candidates = append(candidates, candidateView(c))
+			}
+		}
 		for _, p := range st.CallerProfiles {
 			if p.OwnerID == owner.UserID {
 				p.Tools = append([]string{}, p.Tools...)
@@ -50,7 +57,7 @@ func (s *Server) callers(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "DEPENDENCY_UNAVAILABLE")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"callers": profiles, "clients": clients, "owner_issuer": s.identityOwnerIssuer()})
+	jsonOut(w, 200, map[string]any{"callers": profiles, "pending_callers": candidates, "dynamic_onboarding": s.dynamicOnboarding(), "clients": clients, "owner_issuer": s.identityOwnerIssuer()})
 }
 
 type callerInput struct {
@@ -125,6 +132,10 @@ func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 	}
 	var profile domain.CallerProfile
 	e := s.Repository.Transact(r.Context(), func(st *domain.State) error {
+		session, live := st.Sessions[owner.ID]
+		if !live || session.UserID != owner.UserID || !st.Now.Before(session.ExpiresAt) || !security.Equal(session.CSRFHash, owner.CSRFHash) || (s.OwnerLogin != nil && !s.OwnerLogin.SessionBound(st, owner.ID)) {
+			return domain.ErrDenied
+		}
 		u := st.Users[owner.UserID]
 		binding, ok := domain.IdentityForOwner(st, owner.UserID, s.identityOwnerIssuer())
 		if u.Status != "active" || !ok {
@@ -133,6 +144,18 @@ func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 		for _, p := range st.CallerProfiles {
 			if p.Issuer == binding.Issuer && p.UserID == binding.Subject && p.ClientID == in.ClientID {
 				return domain.ErrDenied
+			}
+		}
+		// A configured client may have connected before its owner approved it.
+		// Consume that pending decision with the profile, including after rollback
+		// of dynamic onboarding. Rejected decisions still require explicit reopen.
+		for id, c := range st.CallerCandidates {
+			if c.Issuer == binding.Issuer && c.UserID == binding.Subject && c.ClientID == in.ClientID {
+				if c.OwnerID != u.ID || c.Status != "pending" {
+					return domain.ErrDenied
+				}
+				c.Status, c.DecidedAt = "approved", st.Now
+				st.CallerCandidates[id] = c
 			}
 		}
 		a := domain.Agent{ID: security.ID(), OwnerID: u.ID, Name: in.Label, Status: "active"}
@@ -210,7 +233,7 @@ func (s *Server) enableCaller(w http.ResponseWriter, r *http.Request) {
 		if !ok || p.OwnerID != owner.UserID || s.Identity == nil {
 			return domain.ErrDenied
 		}
-		if _, ok := s.Identity.Clients()[p.ClientID]; !ok {
+		if !s.clientAdmitted(st, p) {
 			return domain.ErrDenied
 		}
 		invalidateCaller(st, p)

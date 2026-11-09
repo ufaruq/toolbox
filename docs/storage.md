@@ -39,6 +39,16 @@ Before a larger deployment, replace full snapshots with scoped, indexed queries 
 
 The migration creates separate `users`, `agents`, `credentials`, `sessions`, `connections`, `resources`, `grants`, `delegation_requests`, `oauth_transactions`, `cleanup_outbox`, and `audit_events` tables. `toolbox_migrations` records the exact checksum of each applied migration. Never edit an applied migration; add a new one.
 
+`caller_candidates` stores verified issuer/subject/client tuples independently of
+approved `caller_profiles`. Candidates bind to the owner's primary identity or a
+verified identity alias. Identity and first-seen time are immutable; pending rows
+have no decision time, and rejected/approved rows require a decision at or after
+first seen. Rejected rows can reopen as pending for explicit human review.
+Approved candidates retain their exact profile and agent binding, including when
+the profile is disabled or expires. A pending or rejected tuple cannot coexist
+with an approved profile. These records grant no permissions; owner authorization
+and caller admission remain service responsibilities.
+
 Each entity has a JSONB payload containing its complete typed domain record. Stored generated columns expose keys and relevant relational fields without allowing payload/key divergence. Payload key allowlists reject accidental new fields such as `AccessToken`; changing the domain model requires a corresponding migration. Resources and approval requests additionally carry an owner key derived by the adapter from their connection or agent.
 
 Database constraints include:

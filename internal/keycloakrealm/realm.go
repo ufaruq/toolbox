@@ -19,6 +19,8 @@ import (
 // explicit redirect URLs for exactly those clients. An upstream provider is
 // enabled only when all of its fields are supplied.
 type Config struct {
+	DynamicClientRegistration                              bool
+	DynamicRegistrationTrustedHosts                        []string
 	Realm, OwnerClientID, OwnerClientSecret, Origin        string
 	OktaIssuer, OktaClientID, OktaClientSecret             string
 	GoogleClientID, GoogleClientSecret, GoogleHostedDomain string
@@ -122,6 +124,9 @@ func Render(cfg Config) ([]byte, error) {
 		realm.IdentityProviders = append(realm.IdentityProviders, provider)
 		realm.IdentityProviderMappers = append(realm.IdentityProviderMappers, usernameMapper("google"))
 	}
+	if cfg.DynamicClientRegistration {
+		configureRegistration(&realm, cfg)
+	}
 	data, err := json.MarshalIndent(realm, "", "  ")
 	if err != nil {
 		return nil, errors.New("cannot encode Keycloak realm import")
@@ -134,6 +139,9 @@ const firstBrokerFlow = "toolbox-first-broker-login"
 var realmName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 func validate(cfg Config) error {
+	if err := validateRegistration(cfg); err != nil {
+		return err
+	}
 	if !realmName.MatchString(cfg.Realm) || cfg.Realm == "master" {
 		return errors.New("invalid Keycloak realm name")
 	}
@@ -268,25 +276,29 @@ func usernameMapper(alias string) providerMapper {
 // core/.../representations/idm, services/.../broker/oidc,
 // services/.../social/google and services/.../protocol/oidc/mappers.
 type realmImport struct {
-	BrowserFlow                 string                 `json:"browserFlow"`
-	RequiredActions             []requiredActionImport `json:"requiredActions"`
-	Realm                       string                 `json:"realm"`
-	Enabled                     bool                   `json:"enabled"`
-	SSLRequired                 string                 `json:"sslRequired"`
-	DefaultSignatureAlgorithm   string                 `json:"defaultSignatureAlgorithm"`
-	FirstBrokerLoginFlow        string                 `json:"firstBrokerLoginFlow"`
-	RegistrationAllowed         bool                   `json:"registrationAllowed"`
-	RegistrationEmailAsUsername bool                   `json:"registrationEmailAsUsername"`
-	DuplicateEmailsAllowed      bool                   `json:"duplicateEmailsAllowed"`
-	LoginWithEmailAllowed       bool                   `json:"loginWithEmailAllowed"`
-	ResetPasswordAllowed        bool                   `json:"resetPasswordAllowed"`
-	EditUsernameAllowed         bool                   `json:"editUsernameAllowed"`
-	Attributes                  map[string]string      `json:"attributes"`
-	Clients                     []clientImport         `json:"clients"`
-	ClientScopes                []scopeImport          `json:"clientScopes"`
-	IdentityProviders           []providerImport       `json:"identityProviders"`
-	IdentityProviderMappers     []providerMapper       `json:"identityProviderMappers"`
-	AuthenticationFlows         []flowImport           `json:"authenticationFlows"`
+	Components                  map[string][]registrationComponent `json:"components,omitempty"`
+	ClientProfiles              map[string]any                     `json:"clientProfiles,omitempty"`
+	ClientPolicies              map[string]any                     `json:"clientPolicies,omitempty"`
+	DefaultOptionalClientScopes []string                           `json:"defaultOptionalClientScopes,omitempty"`
+	BrowserFlow                 string                             `json:"browserFlow"`
+	RequiredActions             []requiredActionImport             `json:"requiredActions"`
+	Realm                       string                             `json:"realm"`
+	Enabled                     bool                               `json:"enabled"`
+	SSLRequired                 string                             `json:"sslRequired"`
+	DefaultSignatureAlgorithm   string                             `json:"defaultSignatureAlgorithm"`
+	FirstBrokerLoginFlow        string                             `json:"firstBrokerLoginFlow"`
+	RegistrationAllowed         bool                               `json:"registrationAllowed"`
+	RegistrationEmailAsUsername bool                               `json:"registrationEmailAsUsername"`
+	DuplicateEmailsAllowed      bool                               `json:"duplicateEmailsAllowed"`
+	LoginWithEmailAllowed       bool                               `json:"loginWithEmailAllowed"`
+	ResetPasswordAllowed        bool                               `json:"resetPasswordAllowed"`
+	EditUsernameAllowed         bool                               `json:"editUsernameAllowed"`
+	Attributes                  map[string]string                  `json:"attributes"`
+	Clients                     []clientImport                     `json:"clients"`
+	ClientScopes                []scopeImport                      `json:"clientScopes"`
+	IdentityProviders           []providerImport                   `json:"identityProviders"`
+	IdentityProviderMappers     []providerMapper                   `json:"identityProviderMappers"`
+	AuthenticationFlows         []flowImport                       `json:"authenticationFlows"`
 }
 
 type clientImport struct {

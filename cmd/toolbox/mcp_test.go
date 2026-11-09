@@ -60,3 +60,23 @@ func TestUnknownIdentityBackendRejected(t *testing.T) {
 		t.Fatal("unknown backend silently disabled MCP")
 	}
 }
+
+func TestDynamicMCPConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		provider, flag, issuer, clients string
+		valid                           bool
+	}{
+		{"keycloak", "true", "https://login.example/realms/toolbox", "", true},
+		{"keycloak", "true", "https://login.example/realms/toolbox", "{}", true},
+		{"keycloak", "false", "https://login.example/realms/toolbox", "{}", false},
+		{"okta", "true", "https://tenant.okta.example/oauth2/default", "{}", false},
+		{"keycloak", "yes", "https://login.example/realms/toolbox", "{}", false},
+		{"keycloak", "true", "", "", false},
+	} {
+		values := map[string]string{"TOOLBOX_IDENTITY_PROVIDER": tc.provider, "TOOLBOX_MCP_ISSUER": tc.issuer, "TOOLBOX_MCP_CLIENTS": tc.clients, "TOOLBOX_MCP_DYNAMIC_CLIENT_ONBOARDING": tc.flag}
+		cfg, err := loadMCPConfig(func(k string) string { return values[k] }, "https://login.example/realms/toolbox", "owner-client", "https://toolbox.example")
+		if tc.valid && (err != nil || cfg == nil || !cfg.DynamicClientOnboarding) || !tc.valid && err == nil {
+			t.Fatalf("%+v: %+v %v", tc, cfg, err)
+		}
+	}
+}

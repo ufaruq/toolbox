@@ -15,6 +15,7 @@ import (
 
 	"github.com/ufaruq/toolbox/internal/app"
 	"github.com/ufaruq/toolbox/internal/connectors/gdrive"
+	"github.com/ufaruq/toolbox/internal/identity"
 	"github.com/ufaruq/toolbox/internal/oauth"
 	"github.com/ufaruq/toolbox/internal/ownerlogin"
 	"github.com/ufaruq/toolbox/internal/security"
@@ -59,7 +60,7 @@ func TestWorkspaceBrowserFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, err := server.New(server.Config{Repository: repo, Origin: origin, Signer: signer, Pepper: []byte(strings.Repeat("c", 32)), SessionPepper: sessionPepper, OwnerLogin: login, Identity: workspaceMCPIdentity{ownerIssuer: idp.Issuer, subject: "workspace-owner"}, WorkspaceLocal: true, Picker: server.PickerConfig{APIKey: "synthetic-picker-key", ProjectNumber: "123456"}}, integration)
+	api, err := server.New(server.Config{Repository: repo, Origin: origin, Signer: signer, Pepper: []byte(strings.Repeat("c", 32)), SessionPepper: sessionPepper, OwnerLogin: login, Identity: workspaceOnboardingIdentity{workspaceMCPIdentity{ownerIssuer: idp.Issuer, subject: "workspace-owner"}}, WorkspaceLocal: true, Picker: server.PickerConfig{APIKey: "synthetic-picker-key", ProjectNumber: "123456"}}, integration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,4 +92,15 @@ func TestWorkspaceBrowserFlow(t *testing.T) {
 	} else {
 		t.Log(strings.TrimSpace(string(out)))
 	}
+}
+
+// Synthetic verifier only for the browser fixture; production verifies signed JWTs.
+type workspaceOnboardingIdentity struct{ workspaceMCPIdentity }
+
+func (workspaceOnboardingIdentity) DynamicClientOnboarding() bool { return true }
+func (i workspaceOnboardingIdentity) VerifyOnboardingAccess(ctx context.Context, raw string) (identity.Claims, error) {
+	if raw != "browser-pending" && raw != "browser-delayed" {
+		return i.VerifyAccess(ctx, raw)
+	}
+	return identity.Claims{Issuer: i.Issuer(), UserID: i.subject, ClientID: raw, ExpiresAt: time.Now().Add(time.Hour)}, nil
 }

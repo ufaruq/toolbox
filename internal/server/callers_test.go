@@ -106,7 +106,7 @@ func TestCallerSeparatesClientsAndRejectsCrossOwner(t *testing.T) {
 		t.Fatal("cross owner caller authenticated")
 	}
 	e = repo.Transact(ctx, func(st *domain.State) error {
-		if authorizeAgent(st, agentAccess{AgentID: "agent"}, domain.Tool) == nil {
+		if s.authorizeAgent(st, agentAccess{AgentID: "agent"}, domain.Tool) == nil {
 			t.Fatal("empty credential bypass")
 		}
 		return nil

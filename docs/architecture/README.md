@@ -37,3 +37,11 @@ PostgreSQL stores application records and audit state. OpenBao holds provider cr
 New tools should define narrow actions and resource identifiers, preserve live authorization at dispatch, bound provider responses, and add allow/deny/revoke coverage. New identity providers must preserve stable owner identity without trusting user-controlled identity claims. New runtime modes must explicitly define secrets, network exposure, recovery and acceptance requirements.
 
 [Original design artifacts](../design/README.md) explain the broader proposal. [Roadmap](../ROADMAP.md) records future production and connector work; those proposals are not current capabilities.
+
+Opt-in [dynamic client onboarding](../mcp-setup.md#owner-approval-for-new-keycloak-clients)
+separates verified token identity from admission. A `CallerCandidate` records a
+pending/rejected/approved decision for one owner and issuer/subject/client tuple;
+it carries no credentials or permissions. Owner-session approval atomically
+creates its Agent and CallerProfile. Existing profile ceilings and per-document
+grants remain authoritative at dispatch and release. Keycloak registration,
+Toolbox client approval, and document approval are distinct operations.

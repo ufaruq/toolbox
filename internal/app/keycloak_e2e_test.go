@@ -63,7 +63,7 @@ func TestKeycloakBrokerFlow(t *testing.T) {
 	origin := "http://" + h.ts.Listener.Addr().String()
 	const realm, ownerClient, callerClient = "toolbox-e2e", "toolbox-owner", "toolbox-mcp"
 	infra := keycloaktest.Start(t, realm, func(e keycloaktest.Endpoints, secrets keycloaktest.Credentials) ([]byte, error) {
-		raw, err := keycloakrealm.Render(keycloakrealm.Config{Realm: realm, OwnerClientID: ownerClient, OwnerClientSecret: secrets.Owner, Origin: origin, OktaIssuer: e.OktaIssuer, OktaClientID: "upstream-okta", OktaClientSecret: secrets.Okta, GoogleClientID: "upstream-google", GoogleClientSecret: secrets.Google, GoogleHostedDomain: "example.test", MCPClients: map[string]string{callerClient: "Controlled MCP"}, MCPRedirectURIs: map[string][]string{callerClient: {origin + "/keycloak-test/callback"}}})
+		raw, err := keycloakrealm.Render(keycloakrealm.Config{Realm: realm, OwnerClientID: ownerClient, OwnerClientSecret: secrets.Owner, Origin: origin, OktaIssuer: e.OktaIssuer, OktaClientID: "upstream-okta", OktaClientSecret: secrets.Okta, GoogleClientID: "upstream-google", GoogleClientSecret: secrets.Google, GoogleHostedDomain: "example.test", DynamicClientRegistration: true, DynamicRegistrationTrustedHosts: []string{"127.0.0.1", "localhost", "::1"}, MCPClients: map[string]string{callerClient: "Controlled MCP"}, MCPRedirectURIs: map[string][]string{callerClient: {origin + "/keycloak-test/callback"}}})
 		if err != nil {
 			return nil, err
 		}
@@ -202,6 +202,7 @@ func TestKeycloakBrokerFlow(t *testing.T) {
 	h.call("POST", "/v1/callers/"+profile["id"].(string)+"/disable", map[string]any{}, "", "", 200)
 	keycloakMCPDenied(t, ctx, h, infra, accessToken)
 	t.Log("real Keycloak tokens: fresh caller approval, SDK request/read, wrong-resource denial, grant revocation and caller disable passed")
+	keycloakDynamicOnboarding(t, ctx, h, infra, origin, ownerClient, callerClient)
 	// Repeat owner login resolves the same alias. A new browser authenticating
 	// the Google-shaped upstream has the same email but a separate realm sub.
 	keycloakOwnerLogin(t, h, "okta", false)
@@ -499,7 +500,30 @@ func keycloakTokens(t *testing.T, infra *keycloaktest.Harness, origin, clientID,
 	if err != nil {
 		t.Fatal("authorize MCP client through real Keycloak broker")
 	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	response.Body.Close()
+	if readErr != nil {
+		t.Fatal("read broker authorization response")
+	}
+	if response.StatusCode == 200 && bytes.Contains(body, []byte(`name="accept"`)) {
+		action := regexp.MustCompile(`<form[^>]*action="([^"]+)"`).FindSubmatch(body)
+		if len(action) != 2 {
+			t.Fatal("missing broker consent form")
+		}
+		consentPath, parseErr := url.Parse(html.UnescapeString(string(action[1])))
+		if parseErr != nil {
+			t.Fatal("invalid broker consent action")
+		}
+		consentURL := response.Request.URL.ResolveReference(consentPath)
+		if consentURL.Scheme+"://"+consentURL.Host != infra.Broker {
+			t.Fatal("unexpected consent destination")
+		}
+		response, err = browser.PostForm(consentURL.String(), url.Values{"accept": {"Yes"}})
+		if err != nil {
+			t.Fatal("submit explicit broker consent")
+		}
+		response.Body.Close()
+	}
 	callback, err := response.Location()
 	if err != nil || callback.Scheme+"://"+callback.Host+callback.Path != redirect || callback.Query().Get("state") != state || callback.Query().Get("code") == "" || callback.Query().Get("error") != "" {
 		t.Fatalf("real broker MCP authorization failed (provider=%s status=%d final-host=%s final-path=%s)", provider, response.StatusCode, response.Request.URL.Host, response.Request.URL.Path)
