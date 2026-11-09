@@ -115,7 +115,15 @@ func runGitHubLive(getenv func(string) string, write bool, out io.Writer) (err e
 	if content != "synthetic acceptance A\n" || sha == "" {
 		return errors.New("multi-file write verification failed")
 	}
-	fmt.Fprintln(out, "PASS: multi-file commit and exact-path readback")
+	second, e := call("files.read", map[string]any{"branch": branch, "path": ".toolbox-acceptance/probe-b.txt"})
+	if e != nil {
+		return e
+	}
+	var secondContent string
+	if json.Unmarshal(second["content"], &secondContent) != nil || secondContent != "synthetic acceptance B\n" {
+		return errors.New("second committed file verification failed")
+	}
+	fmt.Fprintln(out, "PASS: multi-file commit and both exact-path readbacks")
 	if _, e = call("files.update", map[string]any{"branch": branch, "path": path, "sha": sha, "content": "synthetic acceptance updated\n", "message": "Test Toolbox MCP conditional file update"}); e != nil {
 		return e
 	}
@@ -152,6 +160,14 @@ func runGitHubLive(getenv func(string) string, write bool, out io.Writer) (err e
 	if len(readResult["number"]) == 0 {
 		return errors.New("PR read result invalid")
 	}
-	fmt.Fprintln(out, "PASS: draft PR creation, read and close; no merge performed")
+	closed, e := call("prs.read", map[string]any{"pull_number": number})
+	if e != nil {
+		return e
+	}
+	var state string
+	if json.Unmarshal(closed["state"], &state) != nil || state != "closed" {
+		return errors.New("acceptance PR closure not confirmed")
+	}
+	fmt.Fprintln(out, "PASS: draft PR creation, read, close and closed-state verification; no merge performed")
 	return nil
 }
