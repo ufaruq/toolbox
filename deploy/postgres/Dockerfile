@@ -1,5 +1,5 @@
 # Disposable integration-store image; keep PostgreSQL's major version unchanged.
-FROM postgres:17.11-alpine3.24@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
+FROM postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
 # The official entrypoint uses gosu only to become postgres. Use Alpine's small
 # C helper instead of shipping gosu's obsolete Go standard library.
 RUN apk add --no-cache su-exec=0.3-r0 \
