@@ -28,9 +28,15 @@ def main():
         context.route('**/*',allow)
         try:
             page.goto(origin+'/')
+            stage='secure browser binding'
+            cookies=[cookie for cookie in context.cookies(origin) if cookie['name']=='toolbox_google_probe']
+            assert len(cookies)==1 and cookies[0]['secure'] and cookies[0]['httpOnly'] and cookies[0]['sameSite']=='Lax'
             stage='start form'
             page.get_by_role('button',name='Continue with Google').click()
             expect(page.locator('#synthetic-consent')).to_be_visible()
+            stage='bound callback'
+            response=page.goto(origin+'/oauth/callback?state=one-use&code=synthetic-code')
+            assert response.status==200 and page.url==origin+'/'
         except Exception:
             print('FAIL: probe form could not reach controlled Google consent destination; stage='+stage+'; synthetic response statuses='+str(events))
             return 1

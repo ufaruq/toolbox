@@ -63,7 +63,7 @@ func newProbeHandler(origin string, p pkceProbe) http.Handler {
 			// it in Chromium; same-origin preserves it without sending it to Google.
 			w.Header().Set("Referrer-Policy", "same-origin")
 			if cookie == nil || len(cookie.Value) != 43 {
-				http.SetCookie(w, &http.Cookie{Name: "toolbox_google_probe", Value: security.Random(), Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 1800})
+				http.SetCookie(w, &http.Cookie{Name: "toolbox_google_probe", Value: security.Random(), Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 1800})
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_ = probePage.Execute(w, p.Status())

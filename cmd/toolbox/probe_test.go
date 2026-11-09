@@ -40,6 +40,9 @@ func TestProbeHTTPBindsBrowserAndOriginAndCleansCallbackURL(t *testing.T) {
 		t.Fatal("probe did not establish private browser binding")
 	}
 	cookie := page.Result().Cookies()[0]
+	if !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" || cookie.MaxAge != 1800 || cookie.Domain != "" {
+		t.Fatal("probe binding cookie must be Secure, HttpOnly, host-only, SameSite=Lax and short-lived")
+	}
 	for _, origin := range []string{"", "https://evil.test"} {
 		if w := call("POST", "/probe/start", origin, cookie); w.Code != 403 || p.started != 0 {
 			t.Fatal("cross-origin probe started")
