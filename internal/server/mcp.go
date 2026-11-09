@@ -137,6 +137,7 @@ func toolResult(value any, err error) (*mcp.CallToolResult, any, error) {
 }
 func (s *Server) mcpCatalog(requestCtx context.Context, access agentAccess, canRead bool) *mcp.Server {
 	catalog := mcp.NewServer(&mcp.Implementation{Name: "toolbox", Version: "1.0.0"}, nil)
+	s.githubMCPCatalog(catalog, requestCtx, access)
 	if !canRead {
 		return catalog
 	}

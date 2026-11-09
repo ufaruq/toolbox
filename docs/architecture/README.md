@@ -16,7 +16,8 @@
 | `internal/connectors/gdrive` | Fixed metadata/export plans and bounded document reads. |
 | `internal/tokens` | OpenBao CAS, refresh coordination and generation-aware cleanup. |
 | `internal/store` | Memory/PostgreSQL records, transactions, grants and audit. |
-| `internal/mcpclient` | Operator-pinned outbound MCP Gateway isolation pilot. |
+| `internal/mcpclient` | Pinned outbound MCP protocol, schema and credential-context boundary. |
+| `internal/githubapp`, `internal/servicepolicy/github` | Short-lived GitHub installation credentials and fixed capability policies. |
 
 ## Identity and access flow
 
@@ -27,6 +28,12 @@
 5. Revocation, expiry and disconnect must prevent subsequent reads. Returned document text remains untrusted data.
 
 Inbound MCP authentication and outbound MCP provider calls are different boundaries. See [MCP setup](../mcp-setup.md) and the [outbound pilot](../mcp-gateway-pilot.md).
+
+[GitHub access](../github-connector.md) uses separate repository connections,
+requests and grants. Installation selections only make repositories available
+to their configured owner; grants bind an authenticated agent to exact actions,
+branches, paths, revisions and expiry. The inbound MCP tool ceiling and owner
+repository approval are separate checks.
 
 ## Persistence and concurrency
 

@@ -74,6 +74,11 @@ func walk(d *json.Decoder) error {
 	return e
 }
 func shape(v any, t reflect.Type) bool {
+	// Raw subdocuments are validated by the recursive duplicate-key walk and
+	// later by their operation-specific schema. Do not relax the outer shape.
+	if t == reflect.TypeOf(json.RawMessage{}) {
+		return v != nil
+	}
 	if t.Kind() == reflect.Pointer {
 		return shape(v, t.Elem())
 	}

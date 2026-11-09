@@ -54,8 +54,9 @@ type Binding struct {
 }
 
 type Tool struct {
-	Name        string
-	InputSchema json.RawMessage
+	Name               string
+	InputSchema        json.RawMessage
+	AllowTextResources bool
 }
 
 // Gateway belongs to exactly one isolated credential context. BearerToken is a
@@ -75,6 +76,7 @@ type Config struct {
 }
 
 type Result struct {
+	Raw               json.RawMessage
 	Text              string
 	StructuredContent json.RawMessage
 }
@@ -146,7 +148,7 @@ func New(config Config) (*Client, error) {
 				return nil, ErrConfiguration
 			}
 			r.schemas[t.Name], r.digests[t.Name] = resolved, digest
-			r.gateway.Tools[i] = Tool{Name: t.Name, InputSchema: append(json.RawMessage(nil), t.InputSchema...)}
+			r.gateway.Tools[i] = Tool{Name: t.Name, InputSchema: append(json.RawMessage(nil), t.InputSchema...), AllowTextResources: t.AllowTextResources}
 		}
 		c.bindings[g.Binding.ID] = r
 	}
@@ -439,7 +441,7 @@ func (c *Client) ListTools(ctx context.Context, b Binding) ([]Tool, error) {
 	}
 	tools := make([]Tool, len(r.gateway.Tools))
 	for i, t := range r.gateway.Tools {
-		tools[i] = Tool{Name: t.Name, InputSchema: append(json.RawMessage(nil), t.InputSchema...)}
+		tools[i] = Tool{Name: t.Name, InputSchema: append(json.RawMessage(nil), t.InputSchema...), AllowTextResources: t.AllowTextResources}
 	}
 	_ = s.Close()
 	if ctx.Err() != nil || c.ctx.Err() != nil {
@@ -449,6 +451,11 @@ func (c *Client) ListTools(ctx context.Context, b Binding) ([]Tool, error) {
 }
 
 func (c *Client) CallTool(ctx context.Context, b Binding, name string, args json.RawMessage) (Result, error) {
+	return c.CallToolChecked(ctx, b, name, args, nil)
+}
+
+// CallToolChecked performs the final live authorization check after inventory.
+func (c *Client) CallToolChecked(ctx context.Context, b Binding, name string, args json.RawMessage, check func(context.Context) error) (Result, error) {
 	r, err := c.lookup(b)
 	if err != nil {
 		return Result{}, err
@@ -479,6 +486,11 @@ func (c *Client) CallTool(ctx context.Context, b Binding, name string, args json
 	if err = c.inventory(ctx, s, r); err != nil {
 		return Result{}, err
 	}
+	if check != nil {
+		if check(ctx) != nil {
+			return Result{}, ErrBinding
+		}
+	}
 	result, err := s.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
 		return Result{}, c.failure(ctx, err)
@@ -508,14 +520,34 @@ func (c *Client) CallTool(ctx context.Context, b Binding, name string, args json
 	for i, content := range result.Content {
 		t, ok := content.(*mcp.TextContent)
 		if !ok {
-			return Result{}, ErrUnsupportedContent
+			allow := false
+			for _, tool := range r.gateway.Tools {
+				if tool.Name == name {
+					allow = tool.AllowTextResources
+				}
+			}
+			if !allow {
+				return Result{}, ErrUnsupportedContent
+			}
+			var resource struct {
+				Type     string `json:"type"`
+				Resource struct {
+					Text *string `json:"text"`
+					Blob string  `json:"blob"`
+				} `json:"resource"`
+			}
+			b, _ := json.Marshal(content)
+			if json.Unmarshal(b, &resource) != nil || resource.Type != "resource" || resource.Resource.Text == nil || resource.Resource.Blob != "" {
+				return Result{}, ErrUnsupportedContent
+			}
+			continue
 		}
 		if i > 0 {
 			text.WriteByte('\n')
 		}
 		text.WriteString(t.Text)
 	}
-	out := Result{Text: text.String()}
+	out := Result{Text: text.String(), Raw: append(json.RawMessage(nil), encoded...)}
 	if result.StructuredContent != nil {
 		out.StructuredContent, err = json.Marshal(result.StructuredContent)
 		if err != nil {

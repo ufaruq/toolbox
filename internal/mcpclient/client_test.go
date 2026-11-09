@@ -29,6 +29,7 @@ type fixture struct {
 	large    bool
 	callback bool
 	failHTTP bool
+	resource bool
 }
 
 func newFixture(t *testing.T, token, identity string, schema json.RawMessage, setup func(*fixture)) *fixture {
@@ -58,6 +59,9 @@ func newFixture(t *testing.T, token, identity string, schema json.RawMessage, se
 				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "callback unexpectedly accepted"}}}, nil, nil
 			}
 			return nil, nil, err
+		}
+		if f.resource {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.EmbeddedResource{Resource: &mcp.ResourceContents{URI: "https://untrusted.invalid/no-fetch", Text: "bounded text"}}}}, nil, nil
 		}
 		value := identity + ":" + fmt.Sprint(a["value"])
 		if f.large {
@@ -295,5 +299,30 @@ func TestClientCanonicalEndpointDispatch(t *testing.T) {
 	result, err := c.CallTool(context.Background(), g.Binding, "read", json.RawMessage(`{"value":"ok"}`))
 	if err != nil || result.Text != "owner-a:ok" || f.calls.Load() != 1 {
 		t.Fatalf("canonical endpoint dispatch: output=%q error=%v calls=%d", result.Text, err, f.calls.Load())
+	}
+}
+
+func TestFinalAuthorizationAfterInventory(t *testing.T) {
+	f := newFixture(t, "gateway-owner-private-token", "owner", testSchema, nil)
+	g := gateway(f, "owner")
+	c := newTestClient(t, g)
+	_, err := c.CallToolChecked(context.Background(), g.Binding, "read", json.RawMessage(`{"value":"x"}`), func(context.Context) error { return errors.New("revoked") })
+	if err != ErrBinding || f.calls.Load() != 0 {
+		t.Fatalf("authorization did not prevent dispatch: %v", err)
+	}
+}
+
+func TestEmbeddedResourceRequiresReviewedOptIn(t *testing.T) {
+	f := newFixture(t, "gateway-owner-private-token", "owner", testSchema, func(f *fixture) { f.resource = true })
+	g := gateway(f, "owner")
+	c := newTestClient(t, g)
+	if _, e := c.CallTool(context.Background(), g.Binding, "read", json.RawMessage(`{"value":"x"}`)); e != ErrUnsupportedContent {
+		t.Fatal(e)
+	}
+	g.Tools[0].AllowTextResources = true
+	c2 := newTestClient(t, g)
+	out, e := c2.CallTool(context.Background(), g.Binding, "read", json.RawMessage(`{"value":"x"}`))
+	if e != nil || !strings.Contains(string(out.Raw), "bounded text") {
+		t.Fatalf("opt-in failed: %v", e)
 	}
 }
