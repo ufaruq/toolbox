@@ -316,3 +316,57 @@ func TestUnsafeStateRejectedBeforeCredential(t *testing.T) {
 		t.Fatal("unsafe state issued credential")
 	}
 }
+
+type issueClassificationIssuer struct {
+	fakeIssuer
+	metadata    string
+	metadataErr error
+}
+
+func (f *issueClassificationIssuer) GetRepositoryMetadata(ctx context.Context, token, owner, repo, suffix string, out any) error {
+	if strings.HasPrefix(suffix, "/issues/") {
+		if f.metadataErr != nil {
+			return f.metadataErr
+		}
+		return json.Unmarshal([]byte(f.metadata), out)
+	}
+	return f.fakeIssuer.GetRepositoryMetadata(ctx, token, owner, repo, suffix, out)
+}
+
+type issueResultSession struct{ closed bool }
+
+func (s *issueResultSession) Close() error { s.closed = true; return nil }
+func (s *issueResultSession) Call(ctx context.Context, _ githubpolicy.Call, check func(context.Context) error) (json.RawMessage, error) {
+	if e := check(ctx); e != nil {
+		return nil, e
+	}
+	return json.RawMessage(`{"content":[{"type":"text","text":"{\"id\":777,\"number\":7,\"title\":\"ordinary issue\",\"body\":\"approved issue text\"}"}]}`), nil
+}
+func TestIssueOnlyGrantRejectsPullRequestsBeforeDispatch(t *testing.T) {
+	ordinary := `{"id":777,"number":7,"url":"https://api.github.com/repos/owner/repo/issues/7","repository_url":"https://api.github.com/repos/owner/repo"}`
+	for name, metadata := range map[string]string{"ordinary": ordinary, "unapproved PR": strings.TrimSuffix(ordinary, "}") + `,"pull_request":{"url":"https://api.github.com/repos/owner/repo/pulls/7"}}`, "fork PR": strings.TrimSuffix(ordinary, "}") + `,"pull_request":{"url":"https://api.github.com/repos/owner/repo/pulls/7","head":{"repo":{"id":999}}}}`, "unknown null PR": strings.TrimSuffix(ordinary, "}") + `,"pull_request":null}`, "missing classification metadata": `{}`, "wrong issue number": strings.Replace(ordinary, `"number":7`, `"number":8`, 1), "invalid issue ID": strings.Replace(ordinary, `"id":777`, `"id":0`, 1), "wrong issue locator": strings.Replace(ordinary, "/issues/7", "/issues/8", 1), "other repo": strings.ReplaceAll(ordinary, "/owner/repo", "/owner/other"), "metadata failure": "failure"} {
+		t.Run(name, func(t *testing.T) {
+			f := &issueClassificationIssuer{metadata: metadata}
+			if metadata == "failure" {
+				f.metadataErr = ErrUnavailable
+			}
+			launched := 0
+			s := &issueResultSession{}
+			r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1, StateDirectory: privateTemp(t)}, issuer: f, launch: func(context.Context, string, string) (session, error) { launched++; return s, nil }}
+			g := githubpolicy.Grant{OwnerID: "owner", AgentID: "agent", ConnectionID: "connection", Epoch: 1, RepositoryID: 2, Owner: "owner", Repository: "repo", Actions: []string{"issues.read"}, ExpiresAt: time.Now().Add(time.Hour)}
+			out, e := r.Execute(context.Background(), 1, g, "issues.read", json.RawMessage(`{"issue_number":7}`), func(context.Context) error { return nil })
+			if name == "ordinary" {
+				if e != nil || launched != 1 || len(f.issues) != 2 || !s.closed || !strings.Contains(string(out), "approved issue text") {
+					t.Fatalf("ordinary issue failed: %v launch=%d issue=%d", e, launched, len(f.issues))
+				}
+				for _, p := range f.issues {
+					if len(p) != 2 || p["metadata"] != "read" || p["issues"] != "read" {
+						t.Fatalf("unexpected permission scope: %v", p)
+					}
+				}
+			} else if e != ErrDenied || out != nil || launched != 0 || len(f.issues) != 1 || f.revokes != 1 {
+				t.Fatalf("issue classification did not deny pre-dispatch: err=%v launch=%d issued=%d revoked=%d", e, launched, len(f.issues), f.revokes)
+			}
+		})
+	}
+}

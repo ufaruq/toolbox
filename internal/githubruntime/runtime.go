@@ -9,6 +9,7 @@ import (
 	githubpolicy "github.com/ufaruq/toolbox/internal/servicepolicy/github"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -104,6 +105,9 @@ func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpol
 	if action == "files.read" || action == "files.update" || action == "files.write" {
 		prePermissions["contents"] = "read"
 	}
+	if action == "issues.read" {
+		prePermissions["issues"] = "read"
+	}
 	if strings.HasPrefix(action, "prs.") {
 		prePermissions["pull_requests"] = "read"
 	}
@@ -182,6 +186,27 @@ func (r *Runtime) preflight(ctx context.Context, token string, g githubpolicy.Gr
 	}
 	var args map[string]json.RawMessage
 	json.Unmarshal(call.Arguments, &args)
+	if action == "issues.read" {
+		var number int64
+		if json.Unmarshal(args["issue_number"], &number) != nil || number <= 0 {
+			return call, ErrDenied
+		}
+		var issue struct {
+			ID            int64           `json:"id"`
+			Number        int64           `json:"number"`
+			URL           string          `json:"url"`
+			RepositoryURL string          `json:"repository_url"`
+			PullRequest   json.RawMessage `json:"pull_request"`
+		}
+		repositoryURL := "https://api.github.com/repos/" + g.Owner + "/" + g.Repository
+		numberString := strconv.FormatInt(number, 10)
+		// GitHub's Issues API also returns PRs. An absent pull_request field is
+		// its documented regular-issue discriminator; null/present is unknown/PR.
+		if r.issuer.GetRepositoryMetadata(ctx, token, g.Owner, g.Repository, "/issues/"+numberString, &issue) != nil || issue.ID <= 0 || issue.Number != number || issue.URL != repositoryURL+"/issues/"+numberString || issue.RepositoryURL != repositoryURL || len(issue.PullRequest) != 0 {
+			return call, ErrDenied
+		}
+	}
+
 	if _, ok := args["pullNumber"]; ok {
 		var n int64
 		json.Unmarshal(args["pullNumber"], &n)

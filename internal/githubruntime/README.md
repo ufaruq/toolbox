@@ -34,7 +34,12 @@ resource URIs and provider metadata.
 
 Metadata preflight checks repository numeric ID and exact owner/name before and
 after execution; PR reads and writes require same-repository head/base and approved
-refs/revision. File reads walk Git tree modes and ancestors, reject symlinks and
+refs/revision. Issue-only reads first fetch trusted REST issue metadata using a
+separate issues-read preflight token. They require a positive issue ID, the exact
+requested number and repository/issue API locators, and absence of the REST
+`pull_request` discriminator. PR objects (including fork PRs), unknown or failed
+classification are denied before the operation credential or gateway is created.
+The execution token retains only metadata-read and issues-read permissions. File reads walk Git tree modes and ancestors, reject symlinks and
 submodules, and pin the MCP read to the resolved commit SHA. Multi-file writes require an existing exact target branch and valid commit/tree
 metadata before launch. They also inspect every submitted path and ancestor at
 that tree, rejecting existing directories, symlinks, submodules and non-tree
