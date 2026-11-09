@@ -14,6 +14,30 @@ The full test gate includes race detection, real disposable storage, synthetic b
 
 Inspect the checked-out [.github/workflows](../../.github/workflows) for the scanners actually configured in that revision. Repository settings, workflow files, and required branch checks are separate controls. Dependency scanning detects known advisories; static analysis looks for code weaknesses; secret scanners detect supported credential patterns; dynamic web scans exercise reachable running routes. None replaces authorization and account-linking tests. Do not silence unfixed container findings merely to make a gate green: record the affected package, vendor image, available fix and disposition.
 
+## CodeQL configuration
+
+The [CodeQL advanced workflow](../../.github/workflows/codeql.yml) scans Go,
+JavaScript/TypeScript, Python and GitHub Actions with `security-extended` queries.
+It runs for pull requests targeting `main`, pushes to `main`, weekly on Tuesday
+at 14:45 UTC, and manual dispatch. Go uses the toolchain in `go.mod` and an
+explicit `go build ./...` after CodeQL initialization; the other languages do
+not require a build. Each language runs independently with a 30-minute timeout.
+Actions are pinned to immutable commits and updated through Dependabot.
+
+Use repository **Settings → Advanced Security → CodeQL analysis** to select
+advanced setup when adopting this workflow. Default setup must be disabled:
+GitHub rejects advanced-workflow uploads while default setup is enabled, even
+when extraction and queries succeed. If logs report this conflict, correct the
+repository setting before rerunning the failed jobs. The workflow's name alone
+does not change that setting. Avoid running a second advanced workflow with the
+same language categories.
+
+Check all four `Analyze (...)` jobs and their upload processing results before
+claiming CodeQL passed. Pull-request results do not establish a baseline for
+`main`; verify the first post-merge run as well. Configure the applicable CodeQL
+checks in the branch ruleset if they must block merging. These scans do not
+replace the full acceptance gate or live-provider validation.
+
 ## Live evidence and release limits
 
 - [Keycloak verification](../keycloak-verification.md)

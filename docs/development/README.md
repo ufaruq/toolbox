@@ -61,6 +61,10 @@ A failing or unavailable test blocks the push. Fix the failure and commit before
 
 ## Troubleshooting and evidence
 
+CodeQL runs in GitHub Actions with a separate job for each supported language.
+See [CodeQL configuration and troubleshooting](../security/README.md#codeql-configuration)
+for the explicit Go build, repository setup requirements and upload checks.
+
 - Docker unavailable: start the engine and rerun; this is not a passing result.
 - Browser failure: inspect the printed evidence directory and stage, avoiding raw logs containing credentials. See [browser tests](../../tests/browser/README.md).
 - Local pass but CI failure: compare exact revision, enabled suites, platform and artifacts; reproduce the failed assertion before changing it.
