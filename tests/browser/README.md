@@ -77,3 +77,14 @@ make oidc-browser-check
 The Go harness supplies the two allowed origins and a pin for the fake provider certificate's SPKI. Browser requests outside the Toolbox and synthetic TLS-provider origins are blocked. Chromium's certificate exception is limited to that fake certificate's SPKI; application provider TLS verification remains enabled. Do not point this synthetic runner at an Okta tenant or pass real credentials to it.
 
 The runner avoids browser traces, query/network logs, cookies, raw callback URLs and provider secrets. Any saved screenshots or result metadata must remain sanitized synthetic evidence. This flow proves local browser behavior against the fake provider. **Real Okta acceptance remains unrun** until a separately configured app has an observed real browser login and Toolbox logout; see [Okta setup](../../docs/okta-setup.md).
+
+## Synthetic GitHub owner flow
+
+`make github-browser-check` starts Toolbox with a controlled GitHub provider and
+runs the real `/github` page in Chromium. It connects a repository, requests a
+scope as an authenticated agent, reviews and approves it as the owner, invokes
+the allowed read, revokes it and verifies denial. It checks untrusted agent names
+render as text and the narrow layout does not overflow. This proves owner UI and
+application authorization behavior, not a live GitHub API operation. It uses the
+same pinned browser dependencies and `TOOLBOX_TEST_WORKSPACE_BROWSER=1` gate;
+`make test-all` requires this suite to pass.

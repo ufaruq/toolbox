@@ -4,8 +4,8 @@ import sys
 from pathlib import Path
 
 required = {
-    'TestWorkspaceBrowserFlow', 'TestProbeBrowserFlow', 'TestOIDCBrowserFlow',
-    'TestKeycloakBrokerFlow', 'TestDockerGatewayOwnerIsolation',
+    'TestWorkspaceBrowserFlow', 'TestProbeBrowserFlow', 'TestOIDCBrowserFlow', 'TestGitHubBrowserFlow',
+    'TestKeycloakBrokerFlow', 'TestDockerGatewayOwnerIsolation', 'TestDockerReviewedRuntimeStartup',
 }
 passed = set()
 skipped = []
@@ -23,4 +23,4 @@ for line in Path(sys.argv[1]).read_text().splitlines():
 missing = sorted(required - passed)
 if skipped or failed or missing:
     raise SystemExit(f'Incomplete test gate: skipped={skipped}, failed={failed}, missing={missing}')
-print(f'{len(passed)} tests/subtests passed; no skips; all five opt-in acceptance suites ran.')
+print(f'{len(passed)} tests/subtests passed; no skips; all required opt-in acceptance suites ran.')

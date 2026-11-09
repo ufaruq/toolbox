@@ -8,6 +8,16 @@ Owner identity, provider consent, MCP caller identity, agent identity and docume
 
 The [Keycloak security review](../keycloak-security-review.md) covers broker and migration risks and evidence. Realm configuration changes do not automatically harden existing deployed realms: follow the [Keycloak setup and cutover instructions](../keycloak-setup.md).
 
+GitHub installation access is a separate ceiling. Owner connections, caller tool
+approval and immutable repository/action/branch/path/revision grants are all
+required. The App key stays with the operator; downstream contexts receive
+short-lived installation tokens for one repository. Read operations do not get
+write permissions. Discovery uses an independently revoked metadata-only token.
+See [GitHub authorization and race limits](../github-connector.md); upstream
+locator changes, unconditional multi-file writes and PR retargeting are not made
+atomic by preflight checks. Unknown mutation outcomes require inspection before
+retrying. Docker Engine and its operator are trusted service components.
+
 ## Automated coverage
 
 The full test gate includes race detection, real disposable storage, synthetic browser flows, and real Keycloak/MCP containers with controlled upstream identities. See [development](../development/README.md). These tests complement code review; passing tests do not establish absence of vulnerabilities.

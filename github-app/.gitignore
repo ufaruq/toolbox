@@ -1,0 +1,7 @@
+# Downloaded App keys and local registration credentials are never source files.
+*.pem
+*.key
+.env*
+credentials*.json
+
+.private/

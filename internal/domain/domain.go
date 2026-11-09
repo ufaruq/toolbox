@@ -89,26 +89,29 @@ type Cleanup struct {
 // State is a transaction snapshot. Never retain its maps or pointers after Transact.
 // Provider tokens, OAuth codes and PKCE verifiers never belong in this structure.
 type State struct {
-	CallerCandidates map[string]CallerCandidate
-	CallerProfiles   map[string]CallerProfile
-	IdentityAliases  map[string]IdentityAlias
-	Now              time.Time
-	Users            map[string]User
-	Agents           map[string]Agent
-	Credentials      map[string]Credential
-	Sessions         map[string]Session
-	Connections      map[string]Connection
-	Resources        map[string]Resource
-	Requests         map[string]Request
-	Grants           map[string]Grant
-	OAuth            map[string]OAuthTransaction
-	OwnerLogins      map[string]OwnerLoginTransaction
-	Audits           []Audit
-	Cleanup          map[string]Cleanup
+	CallerCandidates  map[string]CallerCandidate
+	GitHubConnections map[string]GitHubConnection
+	GitHubRequests    map[string]GitHubRequest
+	GitHubGrants      map[string]GitHubGrant
+	CallerProfiles    map[string]CallerProfile
+	IdentityAliases   map[string]IdentityAlias
+	Now               time.Time
+	Users             map[string]User
+	Agents            map[string]Agent
+	Credentials       map[string]Credential
+	Sessions          map[string]Session
+	Connections       map[string]Connection
+	Resources         map[string]Resource
+	Requests          map[string]Request
+	Grants            map[string]Grant
+	OAuth             map[string]OAuthTransaction
+	OwnerLogins       map[string]OwnerLoginTransaction
+	Audits            []Audit
+	Cleanup           map[string]Cleanup
 }
 
 func NewState() *State {
-	return &State{CallerCandidates: map[string]CallerCandidate{}, IdentityAliases: map[string]IdentityAlias{}, CallerProfiles: map[string]CallerProfile{}, Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
+	return &State{CallerCandidates: map[string]CallerCandidate{}, GitHubConnections: map[string]GitHubConnection{}, GitHubRequests: map[string]GitHubRequest{}, GitHubGrants: map[string]GitHubGrant{}, IdentityAliases: map[string]IdentityAlias{}, CallerProfiles: map[string]CallerProfile{}, Users: map[string]User{}, Agents: map[string]Agent{}, Credentials: map[string]Credential{}, Sessions: map[string]Session{}, Connections: map[string]Connection{}, Resources: map[string]Resource{}, Requests: map[string]Request{}, Grants: map[string]Grant{}, OAuth: map[string]OAuthTransaction{}, OwnerLogins: map[string]OwnerLoginTransaction{}, Cleanup: map[string]Cleanup{}}
 }
 func ResourceKey(connectionID, fileID string) string { return connectionID + ":" + fileID }
 func HasScope(scopes []string, scope string) bool {

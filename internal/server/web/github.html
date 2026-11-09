@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Toolbox · GitHub</title><link rel="stylesheet" href="/github.css"><script src="/github.js" defer></script></head>
+<body><main>
+<nav aria-label="Connectors"><a class="wordmark" href="/">Toolbox<span> / GitHub</span></a><a href="/">Workspace</a></nav>
+<header><p class="eyebrow">YOUR REPOSITORIES. YOUR PERMISSIONS.</p><h1>Give an agent a task.<br>Keep control of the code.</h1><p>Connect a repository, review what an agent needs, and approve only that access.</p></header>
+<p id="status" role="status" aria-live="polite">Loading your session…</p>
+<section id="signed-out" class="panel" hidden><h2>Sign in to Toolbox</h2><p>Use your owner account to manage repositories and approve requests.</p><a href="/">Open sign-in</a></section>
+<div id="github" hidden>
+<section class="panel connector"><p class="step">01 / CONNECT</p><h2>Your GitHub repositories</h2><p class="hint">These repositories are available to your installed GitHub App. Connecting one does not grant an agent access.</p><label for="repository">Available repository</label><select id="repository"></select><button id="connect">Connect repository</button><div id="connections"></div></section>
+<section class="panel"><p class="step">02 / REVIEW</p><h2>Requests for access</h2><p class="hint">An agent requests actions, branches, paths and an expiry through MCP. Review the full scope before approving.</p><div id="requests"></div><div id="review" hidden><h3 id="review-title"></h3><dl id="review-details"></dl><p id="write-notice" class="policy-note" hidden>Multi-file writes can overwrite concurrent changes and replace directories within the approved scope. Approve this only when the agent should control that scope.</p><p id="pr-notice" class="policy-note" hidden>PR operations can affect the whole pull request, including files outside file-operation paths. Branch restrictions are checked before dispatch; concurrent external retargeting cannot be locked by Toolbox.</p><button id="approve" disabled>Approve this scope</button><button id="deny" class="quiet danger" disabled>Deny request</button></div></section>
+<section class="panel"><p class="step">03 / MANAGE</p><h2>Active and past grants</h2><p class="hint">Revocation blocks further operations. It cannot undo changes already made on GitHub.</p><div id="grants"></div></section>
+<p class="hint">Enable GitHub for your MCP caller in <a href="/">Workspace → Agent clients</a>. The caller still needs a repository grant for every operation.</p>
+</div><footer>GitHub App / Scoped repository access / Owner approval</footer>
+</main></body></html>

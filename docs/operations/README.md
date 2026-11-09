@@ -11,6 +11,7 @@ The supported executable modes are local and loopback-bound. These guides do not
 | Google API credentials and optional corporate account policy | [Google setup](../google-setup.md) |
 | Real Google consent, Picker and document flow | [Workspace demo](../workspace-demo.md) |
 | Inbound MCP caller configuration | [MCP setup](../mcp-setup.md) |
+| GitHub App and scoped repository connector | [Runtime and approval setup](../github-connector.md) · [App registration](../../github-app/README.md) |
 | Outbound Docker MCP isolation pilot | [Gateway pilot](../mcp-gateway-pilot.md) |
 | PostgreSQL/OpenBao guarantees and tests | [Storage](../storage.md) |
 

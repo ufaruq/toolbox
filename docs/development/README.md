@@ -33,6 +33,9 @@ Run `make run` for the in-memory synthetic demo, or `make dev` for disposable lo
 | Install pinned browser dependencies | `make browser-install` |
 | Synthetic OIDC / Workspace browsers | `make oidc-browser-check` / `make workspace-browser-check` |
 | Running fixture / delayed-review browsers | `make browser-fixture-check` / `make browser-review-check` |
+| Explicit live GitHub read / test-branch writes | `make github-live-check` / `make github-live-write-check` |
+| Pinned GitHub gateway startup / schema / cleanup | `make github-docker-check` |
+| GitHub authorization / browser flow | `make github-check` / `make github-browser-check` |
 | All browser flows | `make browser-check` |
 | Real Keycloak / MCP gateway acceptance | `make keycloak-check` / `make mcp-gateway-check` |
 | Install local push gate | `make install-hooks` |
@@ -45,13 +48,13 @@ Run `make run` for the in-memory synthetic demo, or `make dev` for disposable lo
 
 `make browser-install` creates `work/browser-venv`; override `BROWSER_VENV` if needed. Browser checks use its Python by default. An existing installation can be selected with `BROWSER_PYTHON=/absolute/path/to/python3` (or `BROWSER_PYTHON=python3` in the acceptance image). `make browser-check` needs a fresh synthetic fixture running at `http://127.0.0.1:18080`: start it separately with `TOOLBOX_ADDR=127.0.0.1:18080 make run`. It runs fixture approval before delayed-review scenarios. Synthetic OIDC/Workspace targets create their own servers. See [browser coverage](../../tests/browser/README.md).
 
-Internal runner targets are also discoverable: `make test-json` runs every Go package serially and emits JSON; `make test-results-check TEST_RESULTS=/path/to/results.json` validates coverage; `make test-artifacts RUNNER_IMAGE=<built-image-id>` verifies Linux artifact permissions. The complete runner calls these targets and restores artifact ownership to the invoking host user on success or failure, without making private evidence world-readable.
+Internal runner targets are also discoverable: `make test-json` runs every Go package serially and emits JSON; `make test-results-check TEST_RESULTS=/path/to/results.json` validates coverage; `make test-artifacts RUNNER_IMAGE=<built-image-id>` verifies Linux scratch and artifact permissions. Before testing, the container takes ownership of its disposable scratch mount's top directory so private runtime state has trusted ancestry even when the host uses a different UID. The complete runner restores scratch and artifact ownership to the invoking host user on success or failure, without making private evidence world-readable.
 
 ## Test workflow
 
 Use `make test TEST_PACKAGES=./internal/store TEST_RUN=TestMemoryRepository` for targeted checks during editing. `make check` is a quick baseline, not complete acceptance: unset integration environments cause some tests to skip.
 
-Run `make test-all` for full validation. The runner builds a pinned Linux image with Go, Chromium/Playwright and Docker CLI; starts unique PostgreSQL/OpenBao fixtures on a dedicated Docker bridge without published storage ports; enables all gated Go suites; runs race detection, formatting, vet and build; and runs standalone fixture/review-race browsers. It rejects skipped tests and requires the five named browser/Keycloak/MCP acceptance suites to pass.
+Run `make test-all` for full validation. The runner builds a pinned Linux image with Go, Chromium/Playwright and Docker CLI; starts unique PostgreSQL/OpenBao fixtures on a dedicated Docker bridge without published storage ports; enables all gated Go suites; runs race detection, formatting, vet and build; and runs standalone fixture/review-race browsers. It rejects skipped tests and requires the named browser/Keycloak/MCP acceptance suites, including the pinned GitHub runtime startup to pass.
 
 The runner needs image download access and Docker socket access. It runs trusted repository test code with control of the local Docker engine. Do not run untrusted contributions on a machine with sensitive Docker workloads. It uses only its own disposable resources, does not source `.env`, and does not use personal provider credentials. Evidence stays in the printed temporary directory after cleanup. Initial image downloads and builds can take several minutes.
 
@@ -79,3 +82,7 @@ for the explicit Go build, repository setup requirements and upload checks.
 Keep one authoritative explanation per topic. The root README gives the overview and navigation; focused READMEs explain current architecture, development, security and operations. Setup guides retain exact provider-specific steps. Verification reports record revision, date, commands and limitations. Label historical checkpoints; never silently turn old evidence into a current passing claim.
 
 Update documentation in the same change as behavior. Run `make docs-check` to check local documentation targets. Add nested `AGENTS.md` files only when a subtree has genuinely different rules; avoid contradictory duplicate instructions.
+
+### GitHub App registration
+
+`make github-app-setup` prints a prefilled registration URL without reading secrets or creating an App. Follow [GitHub App setup](../../github-app/README.md) to register and install it; see [GitHub access](../github-connector.md) for the owner approval flow and current runtime limits.
