@@ -5,11 +5,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 # Fail on HTTP errors and retry transient release-download failures. Remote ADD
 # can report an HTTP error response as a checksum mismatch. Never accept a new
 # digest automatically: verify the pinned release bytes before extraction.
-RUN curl --fail --location --proto '=https' --proto-redir '=https' \
-    --retry 5 --retry-max-time 180 --connect-timeout 20 --max-time 120 \
-    --output /tmp/source.tar.xz \
-    https://github.com/openbao/openbao/releases/download/v2.7.2/openbao-dist-v2.7.2.tar.xz \
-    && echo 'f50ac5b150e780728b0f8c5c1533e6542576ff3834f9a89d6c9921e6759f0109  /tmp/source.tar.xz' | sha256sum --check --strict
+RUN set -eu; \
+    if ! curl --fail --location --proto '=https' --proto-redir '=https' \
+        --retry 5 --retry-max-time 180 --connect-timeout 20 --max-time 120 \
+        --output /tmp/source.tar.xz \
+        https://github.com/openbao/openbao/releases/download/v2.7.2/openbao-dist-v2.7.2.tar.xz; then \
+        rm -f /tmp/source.tar.xz; \
+        curl --fail --location --proto '=https' --proto-redir '=https' \
+            --retry 5 --retry-max-time 180 --connect-timeout 20 --max-time 120 \
+            --header 'Accept: application/octet-stream' --output /tmp/source.tar.xz \
+            https://api.github.com/repos/openbao/openbao/releases/assets/679266503; \
+    fi; \
+    echo 'f50ac5b150e780728b0f8c5c1533e6542576ff3834f9a89d6c9921e6759f0109  /tmp/source.tar.xz' | sha256sum --check --strict
 
 FROM source AS build
 RUN tar -xJf /tmp/source.tar.xz --strip-components=1 && rm /tmp/source.tar.xz

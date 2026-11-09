@@ -54,7 +54,9 @@ actual replacement library. Native Java deserialization is the prerequisite for
 the Guava advisory; package presence alone does not prove Toolbox exploitation.
 
 OpenBao downloads its release archive with HTTPS-only `curl`, fails on HTTP
-errors, and retries transient download failures within a bounded window. It checks
+errors, and retries transient download failures within a bounded window. If the
+release URL fails, it downloads the same pinned release asset ID through GitHub's
+official asset API. Neither path uses credentials. It checks
 the pinned SHA-256 before extracting anything; a mismatch still fails the build.
 This avoids remote Docker `ADD` reporting an HTTP error body as a digest mismatch.
 The `source` build target allows fresh-download verification without compiling
@@ -76,7 +78,8 @@ scripts/scan-vendor-image "$image" work/security/keycloak
 make test-all
 ```
 
-The build helper prints an immutable local image ID. The scan helper exports
+The build helper prints an immutable local image ID on stdout and preserves plain
+build progress on stderr, including the HTTP error if a source download fails. The scan helper exports
 that exact image and writes `image-id.txt`, `sbom.cdx.json` (all detected packages)
 and `vulnerabilities.json` (HIGH/CRITICAL findings). It fails on scan errors or
 findings, including those without an available fix. No advisory ignores or VEX
