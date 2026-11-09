@@ -44,7 +44,7 @@ sumdb checksums. Build contexts contain only each component's recipe and patches
 | --- | --- |
 | PostgreSQL 17.11 | [Recipe](../deploy/postgres/Dockerfile): pinned Alpine base, su-exec replaces the obsolete Go-based gosu binary; non-root UID/GID 70 and disposable owned tmpfs. No persistent database migration. |
 | OpenBao 2.7.2+toolbox.1 | [Recipe](../deploy/openbao/Dockerfile): checksum-verified upstream source distribution including the release UI; CAP 0.15.0, JOSE v4.1.6, x/net 0.62.0; narrow [Okta SDK patch](../deploy/openbao/okta-jose-v4.patch) moves its signing code from JOSE v3 to v4. The final binary must not link JOSE v3. Upstream runtime, entrypoint and licenses are retained. |
-| Keycloak 26.8.2 | [Recipe](../deploy/keycloak/Dockerfile): upstream distribution and licenses, pinned Temurin Java 21 Alpine runtime, checksum-verified Guava 33.7.2-jre. Remove unused GPG tools and their SQLite dependency. Assert affected CA roots are absent from the Java truststore. |
+| Keycloak 26.8.2 | [Recipe](../deploy/keycloak/Dockerfile): upstream distribution and licenses, pinned Temurin Java 25 LTS Alpine runtime, checksum-verified Guava 33.7.2-jre. Assert unused GPG tools and their SQLite dependency are absent from the Java 25 base. Assert affected CA roots are absent from the Java truststore. |
 
 Keycloak's replacement Guava JAR retains its original **classpath filename**,
 which Quarkus persists in its application model. Its contents, manifest and Maven

@@ -30,8 +30,8 @@ from the Google login settings below.
 
 Toolbox's tests use Keycloak **26.8.2** from the reviewed
 [patched image recipe](../deploy/keycloak/Dockerfile). It preserves the upstream
-distribution, updates Guava, and uses a pinned Temurin Java 21 runtime without
-the unused GPG/SQLite packages. Build it locally and use the returned immutable ID:
+distribution, updates Guava, and uses a pinned Temurin Java 25 LTS runtime without
+the unused GPG/SQLite packages. Java 25 LTS is a [supported Keycloak runtime](https://www.keycloak.org/server/supported-configurations); the short-lived Java 24 release is not used. This fixture does not enable or validate FIPS mode. Build it locally and use the returned immutable ID:
 
 ```sh
 scripts/build-vendor-image keycloak
