@@ -88,6 +88,11 @@ func validate(old, s *domain.State) error {
 		}
 	}
 	oldProfileBindings := map[[3]string]domain.CallerProfile{}
+	for id, candidate := range old.CallerCandidates {
+		if _, exists := s.CallerCandidates[id]; candidate.Status == "approved" && !exists {
+			return invalid("approved caller candidate deleted")
+		}
+	}
 	for _, profile := range old.CallerProfiles {
 		oldProfileBindings[[3]string{profile.Issuer, profile.UserID, profile.ClientID}] = profile
 	}

@@ -324,3 +324,109 @@ func TestMemoryApprovedCandidateCannotRebindAgent(t *testing.T) {
 func TestPostgresApprovedCandidateCannotRebindAgent(t *testing.T) {
 	exerciseApprovedCandidateBinding(t, testPostgres(t))
 }
+
+func seedApprovedCallerCandidate(t *testing.T, r domain.Repository) {
+	t.Helper()
+	seed(t, r)
+	if err := r.Transact(context.Background(), func(s *domain.State) error {
+		c := candidateRecord(s.Now)
+		c["Status"], c["DecidedAt"] = "approved", s.Now
+		putCandidate(t, s, "c1", c)
+		s.CallerProfiles["p1"] = domain.CallerProfile{ID: "p1", OwnerID: "u1", AgentID: "a1", Issuer: "https://issuer.example", UserID: "u1", ClientID: "new-client", Status: "active", ApprovedAt: s.Now, ExpiresAt: s.Now.Add(time.Hour)}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func exerciseApprovedCandidateRetention(t *testing.T, newRepository func(*testing.T) domain.Repository) {
+	for _, mode := range []string{"candidate only", "candidate and profile", "replace candidate profile and agent"} {
+		t.Run(mode, func(t *testing.T) {
+			r := newRepository(t)
+			seedApprovedCallerCandidate(t, r)
+			err := r.Transact(context.Background(), func(s *domain.State) error {
+				c, p := s.CallerCandidates["c1"], s.CallerProfiles["p1"]
+				delete(s.CallerCandidates, c.ID)
+				if mode != "candidate only" {
+					delete(s.CallerProfiles, p.ID)
+				}
+				if mode == "replace candidate profile and agent" {
+					c.ID, p.ID, p.AgentID = "c2", "p2", "a3"
+					s.CallerCandidates[c.ID], s.CallerProfiles[p.ID] = c, p
+					s.Agents["a3"] = domain.Agent{ID: "a3", OwnerID: "u1", Status: "active"}
+				}
+				return nil
+			})
+			if !errors.Is(err, ErrInvariant) {
+				t.Fatalf("approved candidate removal accepted (%s): %v", mode, err)
+			}
+			if err := r.Transact(context.Background(), func(s *domain.State) error {
+				if s.CallerCandidates["c1"].Status != "approved" || s.CallerProfiles["p1"].AgentID != "a1" || len(s.CallerCandidates) != 1 || len(s.CallerProfiles) != 1 {
+					t.Error("rejected removal did not preserve original approval binding")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestMemoryApprovedCandidateCannotBeRemoved(t *testing.T) {
+	exerciseApprovedCandidateRetention(t, func(*testing.T) domain.Repository { return NewMemory() })
+}
+
+func TestPostgresApprovedCandidateCannotBeRemoved(t *testing.T) {
+	exerciseApprovedCandidateRetention(t, func(t *testing.T) domain.Repository { return testPostgres(t) })
+}
+
+func TestPostgresApprovedCandidateSQLCannotBeRemoved(t *testing.T) {
+	for _, mode := range []string{"candidate only", "candidate and profile", "replace candidate profile and agent"} {
+		t.Run(mode, func(t *testing.T) {
+			p := testPostgres(t)
+			seedApprovedCallerCandidate(t, p)
+			ctx := context.Background()
+			var candidate, profile, agent []byte
+			if err := p.Transact(ctx, func(s *domain.State) error {
+				c, cp := s.CallerCandidates["c1"], s.CallerProfiles["p1"]
+				c.ID, cp.ID, cp.AgentID = "c2", "p2", "a3"
+				candidate, _ = json.Marshal(c)
+				profile, _ = json.Marshal(cp)
+				agent, _ = json.Marshal(domain.Agent{ID: "a3", OwnerID: "u1", Status: "active"})
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			tx, err := p.pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			_, err = tx.Exec(ctx, "DELETE FROM caller_candidates WHERE id='c1'")
+			if err == nil && mode != "candidate only" {
+				_, err = tx.Exec(ctx, "DELETE FROM caller_profiles WHERE id='p1'")
+			}
+			if err == nil && mode == "replace candidate profile and agent" {
+				for _, insert := range []struct {
+					query   string
+					payload []byte
+				}{
+					{"INSERT INTO agents(payload) VALUES($1)", agent},
+					{"INSERT INTO caller_profiles(payload) VALUES($1)", profile},
+					{"INSERT INTO caller_candidates(payload) VALUES($1)", candidate},
+				} {
+					if _, err = tx.Exec(ctx, insert.query, insert.payload); err != nil {
+						break
+					}
+				}
+			}
+			if err == nil {
+				err = tx.Commit(ctx)
+			}
+			var pe *pgconn.PgError
+			if !errors.As(err, &pe) || pe.Code != "23514" {
+				t.Fatalf("expected SQL approved-candidate retention rejection (%s): %v", mode, err)
+			}
+		})
+	}
+}

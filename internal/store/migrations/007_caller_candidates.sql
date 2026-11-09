@@ -27,6 +27,12 @@ CREATE TABLE caller_candidates (
 
 CREATE FUNCTION toolbox_protect_caller_candidate() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.status = 'approved' THEN
+      RAISE EXCEPTION 'approved caller candidate cannot be deleted' USING ERRCODE = '23514';
+    END IF;
+    RETURN OLD;
+  END IF;
   IF (NEW.payload->'ID', NEW.payload->'OwnerID', NEW.payload->'Issuer', NEW.payload->'UserID', NEW.payload->'ClientID', NEW.payload->'FirstSeenAt')
     IS DISTINCT FROM
     (OLD.payload->'ID', OLD.payload->'OwnerID', OLD.payload->'Issuer', OLD.payload->'UserID', OLD.payload->'ClientID', OLD.payload->'FirstSeenAt') THEN
@@ -40,7 +46,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-CREATE TRIGGER caller_candidate_immutable BEFORE UPDATE ON caller_candidates
+CREATE TRIGGER caller_candidate_immutable BEFORE UPDATE OR DELETE ON caller_candidates
   FOR EACH ROW EXECUTE FUNCTION toolbox_protect_caller_candidate();
 
 -- Deferred checks permit atomic profile creation + candidate consumption in
