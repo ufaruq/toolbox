@@ -22,3 +22,13 @@ Inspect the checked-out [.github/workflows](../../.github/workflows) for the sca
 - [Browser evidence gallery](../e2e-evidence/README.md)
 
 These reports are scoped to their recorded revisions and scenarios. Production deployment, broader live-provider acceptance and operational recovery must satisfy the [roadmap](../ROADMAP.md). Keep credentials out of source, screenshots, logs and PR discussions; use synthetic accounts for repeatable automated tests.
+
+Dynamic Keycloak onboarding is disabled by default. Its explicit verifier
+accepts an eligible unknown client identity only after full signature, issuer,
+audience, user-session and scope validation; ordinary static verification retains
+its allowlist. Pending candidates cannot execute tools or approve themselves.
+Owner decisions require the existing browser session, Origin, CSRF and ownership
+checks. Approved candidate/profile bindings cannot be deleted and rebound, in
+memory or SQL. See [MCP onboarding](../mcp-setup.md#owner-approval-for-new-keycloak-clients)
+for limits and rollback, and [Keycloak setup](../keycloak-setup.md#optional-dynamic-client-registration)
+for the administrator setup gate and pinned native-policy limitations.

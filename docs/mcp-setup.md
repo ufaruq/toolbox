@@ -117,3 +117,49 @@ Live per-document revocation, disabled-client denial, disconnect/provider cleanu
 and second-client isolation still need their results recorded before claiming
 the entire acceptance matrix passed. Automated coverage of those cases is not
 a substitute for an unperformed live check. Neither PR has been merged.
+
+## Owner approval for new Keycloak clients
+
+Dynamic onboarding is optional and disabled by default. Each signed-in Toolbox
+owner controls only their own client registrations. There is no central Toolbox
+administrator role. A client login proves an identity; it does not approve the
+client or grant document access.
+
+After the restricted Keycloak registration setup in [Keycloak setup](keycloak-setup.md),
+set `TOOLBOX_MCP_DYNAMIC_CLIENT_ONBOARDING=true` alongside
+`TOOLBOX_IDENTITY_PROVIDER=keycloak` and the existing exact MCP issuer/audience
+settings. `TOOLBOX_MCP_CLIENTS` may be empty or `{}` in this mode. The flag accepts
+only `true` or `false`; direct Okta does not support it.
+
+1. Sign into the Toolbox dashboard once so the account exists (or migrate its
+   verified identity alias). Toolbox never creates owners from MCP tokens or
+   matches them by email.
+2. Let the public OAuth client register with Keycloak and sign in using
+   authorization code, S256 PKCE and `openid mcp`.
+3. Its first MCP request returns HTTP 403 `CALLER_PENDING_APPROVAL`. Open the
+   Toolbox dashboard separately, then **Agent clients · MCP permissions**.
+4. Review the exact client ID and issuer, choose a name, tools and expiry, and
+   approve the pending client. Names do not establish vendor identity.
+5. Approve each requested document separately. Client approval alone cannot
+   read any document.
+
+Rejecting a candidate keeps it rejected across reconnects. **Reopen review** is
+an explicit owner action. Approved clients use the existing disable, rename,
+permission update and expiry controls; disabling revokes document grants and
+cancels pending requests. Each `(issuer, subject, client ID)` has its own approval.
+Two installations sharing the same OAuth client ID share that owner's approval;
+use separate registrations to manage them independently.
+
+Only a valid owner browser session can decide a candidate, with the existing
+Origin and CSRF checks. MCP bearer tokens cannot call the management API. Limits
+are 64 retained candidates per owner, 4096 globally, and 10 new candidates per
+minute per owner per Toolbox process. Retries of an existing candidate do not
+consume another slot. Capacity/rate exhaustion returns 429; a repository outage
+returns 503. Rejected and approved decisions count toward capacity and are not
+automatically deleted. These limits are distinct from Keycloak registration limits.
+
+To roll back, set `TOOLBOX_MCP_DYNAMIC_CLIENT_ONBOARDING=false` and restart
+Toolbox. Dynamically approved clients are denied unless their exact client IDs
+are explicitly included in `TOOLBOX_MCP_CLIENTS`. Saved owner decisions and
+profiles remain intact. Disabling Toolbox onboarding does not disable Keycloak's
+registration endpoint; restrict that separately in Keycloak.
