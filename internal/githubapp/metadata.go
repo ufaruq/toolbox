@@ -44,7 +44,7 @@ func (i *Issuer) metadata(ctx context.Context, token, path string, out any) erro
 
 // Repositories uses an independently revoked metadata-only discovery token.
 // This control-plane credential must never be used for operation execution.
-func (i *Issuer) Repositories(ctx context.Context, installationID int64) ([]Repository, error) {
+func (i *Issuer) Repositories(ctx context.Context, installationID int64) (result []Repository, resultErr error) {
 	if installationID <= 0 {
 		return nil, ErrConfiguration
 	}
@@ -87,7 +87,10 @@ func (i *Issuer) Repositories(ctx context.Context, installationID int64) ([]Repo
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
-		_ = i.Revoke(cleanup, token)
+		if i.Revoke(cleanup, token) != nil {
+			result = nil
+			resultErr = ErrUnavailable
+		}
 	}()
 	var p map[string]string
 	var selection string

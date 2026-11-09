@@ -37,20 +37,39 @@ func command(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 func (s *dockerSession) Close() error {
+	failed := false
 	if s.client != nil {
-		s.client.Close()
+		if s.client.Close() != nil {
+			failed = true
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ids, _ := command(ctx, "network", "inspect", "--format", "{{range $id, $container := .Containers}}{{$id}} {{end}}", s.network)
-	for _, id := range strings.Fields(string(ids)) {
-		command(ctx, "rm", "--force", id)
+	ids, e := command(ctx, "network", "inspect", "--format", "{{range $id, $container := .Containers}}{{$id}} {{end}}", s.network)
+	if e != nil {
+		failed = true
 	}
-	command(ctx, "rm", "--force", s.name)
-	command(ctx, "network", "rm", s.network)
-	os.RemoveAll(s.dir)
+	for _, id := range strings.Fields(string(ids)) {
+		if _, e = command(ctx, "rm", "--force", id); e != nil {
+			failed = true
+		}
+	}
+	// Gateway may already have been removed as a network member.
+	if !strings.Contains(string(ids), s.name) {
+		command(ctx, "rm", "--force", s.name)
+	}
+	if _, e = command(ctx, "network", "rm", s.network); e != nil {
+		failed = true
+	}
+	if os.RemoveAll(s.dir) != nil {
+		failed = true
+	}
+	if failed {
+		return ErrUnavailable
+	}
 	return nil
 }
+
 func (s *dockerSession) Call(ctx context.Context, c githubpolicy.Call, check func(context.Context) error) (json.RawMessage, error) {
 	out, e := s.client.CallToolChecked(ctx, s.binding, c.Tool, c.Arguments, check)
 	return out.Raw, e

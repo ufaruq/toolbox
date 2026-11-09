@@ -65,10 +65,11 @@ func TestDockerReviewedRuntimeStartup(t *testing.T) {
 }
 
 type fakeIssuer struct {
-	revokes int
-	issues  []map[string]string
-	symlink bool
-	fork    bool
+	revokes     int
+	issues      []map[string]string
+	symlink     bool
+	revokeError bool
+	fork        bool
 }
 
 func (f *fakeIssuer) Issue(_ context.Context, _, _ int64, p map[string]string) (githubapp.Credential, error) {
@@ -80,6 +81,9 @@ func (f *fakeIssuer) Revoke(ctx context.Context, _ string) error {
 		panic("canceled cleanup")
 	}
 	f.revokes++
+	if f.revokeError {
+		return ErrUnavailable
+	}
 	return nil
 }
 func (f *fakeIssuer) Repositories(context.Context, int64) ([]githubapp.Repository, error) {
@@ -89,7 +93,7 @@ func (f *fakeIssuer) GetRepositoryMetadata(_ context.Context, _, _, _, suffix st
 	raw := `{"id":2,"name":"repo","owner":{"login":"owner"}}`
 	switch {
 	case strings.Contains(suffix, "/git/ref/"):
-		raw = `{"object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
+		raw = `{"ref":"refs/heads/main","object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
 	case strings.Contains(suffix, "/git/commits/"):
 		raw = `{"tree":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}`
 	case strings.Contains(suffix, "/git/trees/"):
@@ -129,12 +133,19 @@ func TestCrossRepositoryPRDenied(t *testing.T) {
 }
 
 type fakeSession struct {
-	closed bool
-	cancel context.CancelFunc
-	fail   bool
+	closed     bool
+	cancel     context.CancelFunc
+	closeError bool
+	fail       bool
 }
 
-func (s *fakeSession) Close() error { s.closed = true; return nil }
+func (s *fakeSession) Close() error {
+	s.closed = true
+	if s.closeError {
+		return ErrUnavailable
+	}
+	return nil
+}
 func (s *fakeSession) Call(ctx context.Context, _ githubpolicy.Call, check func(context.Context) error) (json.RawMessage, error) {
 	if check(ctx) != nil {
 		return nil, ErrDenied
@@ -171,5 +182,18 @@ func TestResultProjectionAndCanceledCleanup(t *testing.T) {
 				t.Fatalf("unsafe projection: %v", e)
 			}
 		})
+	}
+}
+
+func TestCleanupFailureSuppressesResult(t *testing.T) {
+	for _, tokenFailure := range []bool{false, true} {
+		f := &fakeIssuer{revokeError: tokenFailure}
+		s := &fakeSession{closeError: !tokenFailure}
+		r := &Runtime{config: Config{OwnerID: "owner", InstallationID: 1}, issuer: f, launch: func(context.Context, string, string) (session, error) { return s, nil }}
+		g := githubpolicy.Grant{OwnerID: "owner", AgentID: "agent", ConnectionID: "c", Epoch: 1, RepositoryID: 2, Owner: "owner", Repository: "repo", Actions: []string{"files.read"}, Paths: []string{"safe.txt"}, Branches: []string{"main"}, ExpiresAt: time.Now().Add(time.Hour)}
+		out, e := r.Execute(context.Background(), 1, g, "files.read", json.RawMessage(`{"branch":"main","path":"safe.txt"}`), func(context.Context) error { return nil })
+		if out != nil || e != ErrUnavailable {
+			t.Fatalf("cleanup failure returned success: %v", e)
+		}
 	}
 }

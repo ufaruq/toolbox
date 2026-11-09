@@ -8,6 +8,7 @@ import (
 	"github.com/ufaruq/toolbox/internal/githubapp"
 	githubpolicy "github.com/ufaruq/toolbox/internal/servicepolicy/github"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -64,7 +65,17 @@ func (r *Runtime) Repositories(ctx context.Context, ownerID string) ([]Repositor
 	return out, nil
 }
 func (r *Runtime) Close() error { return nil }
-func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpolicy.Grant, action string, args json.RawMessage, check func(context.Context) error) (json.RawMessage, error) {
+func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpolicy.Grant, action string, args json.RawMessage, check func(context.Context) error) (result json.RawMessage, resultErr error) {
+	dispatched := false
+	cleanupFailure := func(e error) {
+		if e != nil {
+			result = nil
+			resultErr = ErrUnavailable
+			if dispatched && action != "files.read" && action != "prs.read" && action != "issues.read" {
+				resultErr = ErrOutcomeUnknown
+			}
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	if check == nil || installationID != r.config.InstallationID || g.OwnerID != r.config.OwnerID || githubpolicy.ValidateGrant(g) != nil {
@@ -83,7 +94,10 @@ func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpol
 	}
 	// Preflight has a separate read credential so mutation credentials retain the
 	// exact policy permission set, including merge's contents-only permission.
-	prePermissions := map[string]string{"contents": "read"}
+	prePermissions := map[string]string{"metadata": "read"}
+	if action == "files.read" || action == "files.update" || action == "files.write" {
+		prePermissions["contents"] = "read"
+	}
 	if strings.HasPrefix(action, "prs.") {
 		prePermissions["pull_requests"] = "read"
 	}
@@ -91,7 +105,7 @@ func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpol
 	if e != nil {
 		return nil, ErrUnavailable
 	}
-	defer r.revoke(ctx, pre.Token)
+	defer func() { cleanupFailure(r.revoke(ctx, pre.Token)) }()
 	call, e = r.preflight(ctx, pre.Token, g, action, call)
 	if e != nil {
 		return nil, ErrDenied
@@ -103,19 +117,18 @@ func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpol
 	if e != nil {
 		return nil, ErrUnavailable
 	}
-	defer r.revoke(ctx, credential.Token)
+	defer func() { cleanupFailure(r.revoke(ctx, credential.Token)) }()
 	s, e := r.launch(ctx, credential.Token, call.Tool)
 	if e != nil {
 		return nil, ErrUnavailable
 	}
-	defer s.Close()
+	defer func() { cleanupFailure(s.Close()) }()
 	if check(ctx) != nil || r.identity(ctx, pre.Token, g) != nil {
 		return nil, ErrDenied
 	}
 	if check(ctx) != nil {
 		return nil, ErrDenied
 	}
-	dispatched := false
 	finalCheck := func(ctx context.Context) error {
 		if e := check(ctx); e != nil {
 			return e
@@ -145,10 +158,10 @@ func (r *Runtime) Execute(ctx context.Context, installationID int64, g githubpol
 	}
 	return out, nil
 }
-func (r *Runtime) revoke(ctx context.Context, token string) {
+func (r *Runtime) revoke(ctx context.Context, token string) error {
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	_ = r.issuer.Revoke(cleanup, token)
+	return r.issuer.Revoke(cleanup, token)
 }
 func (r *Runtime) identity(ctx context.Context, token string, g githubpolicy.Grant) error {
 	var repo githubapp.Repository
@@ -176,7 +189,7 @@ func (r *Runtime) preflight(ctx context.Context, token string, g githubpolicy.Gr
 			return call, ErrDenied
 		}
 	}
-	if action != "files.read" && action != "files.update" {
+	if action != "files.read" && action != "files.update" && action != "files.write" {
 		return call, nil
 	}
 	var branch, path string
@@ -186,13 +199,22 @@ func (r *Runtime) preflight(ctx context.Context, token string, g githubpolicy.Gr
 		branch = strings.TrimPrefix(branch, "refs/heads/")
 	}
 	json.Unmarshal(args["path"], &path)
-	var ref struct{ Object struct{ SHA string } }
-	if r.issuer.GetRepositoryMetadata(ctx, token, g.Owner, g.Repository, "/git/ref/heads/"+url.PathEscape(branch), &ref) != nil {
+	var ref struct {
+		Ref    string
+		Object struct {
+			SHA  string
+			Type string
+		}
+	}
+	if r.issuer.GetRepositoryMetadata(ctx, token, g.Owner, g.Repository, "/git/ref/heads/"+url.PathEscape(branch), &ref) != nil || !metadataSHA.MatchString(ref.Object.SHA) || ref.Object.Type != "commit" || ref.Ref != "refs/heads/"+branch {
 		return call, ErrDenied
 	}
 	var commit struct{ Tree struct{ SHA string } }
-	if r.issuer.GetRepositoryMetadata(ctx, token, g.Owner, g.Repository, "/git/commits/"+ref.Object.SHA, &commit) != nil {
+	if r.issuer.GetRepositoryMetadata(ctx, token, g.Owner, g.Repository, "/git/commits/"+ref.Object.SHA, &commit) != nil || !metadataSHA.MatchString(commit.Tree.SHA) {
 		return call, ErrDenied
+	}
+	if action == "files.write" {
+		return call, nil
 	}
 	tree := commit.Tree.SHA
 	parts := strings.Split(path, "/")
@@ -212,6 +234,9 @@ func (r *Runtime) preflight(ctx context.Context, token string, g githubpolicy.Gr
 			found = true
 			if index < len(parts)-1 {
 				if entry.Mode != "040000" || entry.Type != "tree" {
+					return call, ErrDenied
+				}
+				if !metadataSHA.MatchString(entry.SHA) {
 					return call, ErrDenied
 				}
 				tree = entry.SHA
@@ -244,3 +269,5 @@ type appIssuer interface {
 	Repositories(context.Context, int64) ([]githubapp.Repository, error)
 	GetRepositoryMetadata(context.Context, string, string, string, string, any) error
 }
+
+var metadataSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
