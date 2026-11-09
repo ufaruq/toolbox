@@ -47,3 +47,41 @@ checkpoint is not a full successful write-command claim.
 
 These operator checks do not exercise a live browser owner approval. Synthetic
 browser tests exercise that application authorization flow independently.
+
+## Corrected live command — `8737f8a`
+
+`make github-live-write-check` passed on the integrated runtime fix. It verified
+installation discovery, `README.md` read, public locator mismatch denial, a new
+dedicated branch, a two-file commit with **both** readbacks, conditional update
+and readback, and draft PR [#39](https://github.com/ufaruq/toolbox/pull/39) creation,
+read, closure and closed-state readback. Nothing was merged. The earlier stale
+command also created [#38](https://github.com/ufaruq/toolbox/pull/38); that draft was
+closed through the GitHub connector after identifying its branch, without retrying
+the same mutation. Synthetic acceptance branches are retained for inspection.
+
+The final branch security review identified that GitHub's Issues endpoint also
+returns PRs. That action requires an explicit preflight classification guard so
+issue-only grants cannot bypass PR-specific scope checks. The fix and final gate
+are recorded in the subsequent checkpoint.
+
+## Final review and acceptance
+
+On `8737f8a`, `make test-all` passed 1,187 tests/subtests with no skips, plus the
+standalone browser fixtures and review-race checks. This includes the corrected
+Linux Docker gateway test. Evidence: `/private/tmp/toolbox-test-evidence.onujdx`.
+A prior run during integration compiled a changing working tree and failed; it
+is not counted as a passing revision.
+
+The final review's issue/PR finding was fixed in `6e7649a`: issue reads require
+trusted issue metadata matching the requested number and repository, and reject
+any PR marker before issuing the operation token or dispatching MCP. Regressions
+cover ordinary issues, PR/fork markers, missing or mismatched metadata and provider
+failures. The four focused credential/runtime/policy/MCP packages passed with the
+race detector. The installed pre-push gate must still validate the exact final
+committed snapshot; its result is reported on the implementation PR.
+
+`make vuln-check` found no reachable Go vulnerabilities; it reported one advisory
+in a required module outside the imported/called code. `make semgrep-check` found
+zero findings in its configured rules. These scans do not establish absence of
+application vulnerabilities. Real PR review/merge and live owner-browser approval
+through to MCP remain untested; review/merge were not exercised against main.

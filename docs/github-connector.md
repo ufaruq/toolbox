@@ -112,6 +112,10 @@ and `src/`, plus explicit acknowledgement of unconditional writes. A permitted
 path can replace a directory and its descendants, so exact-file-only grants
 cannot authorize `push_files`. Workflow modifications are excluded.
 
+`issues.read` is for ordinary issues; PR objects returned by GitHub’s shared
+issue endpoint are rejected. Directory listings, commit/branch reads and arbitrary
+Git commands are not exposed by this ten-action connector.
+
 PR permissions apply to the PR, including its full diff; file-operation path
 limits do not limit PR contents. Fork PRs are excluded. Review/merge require an
 explicit approved head revision. Merge is a distinct action; approving creation
