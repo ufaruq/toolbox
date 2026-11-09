@@ -345,6 +345,7 @@ func (s *Server) serveAuthorize(w http.ResponseWriter, r *http.Request) {
 	callback.Set("code", code)
 	callback.Set("state", q.Get("state"))
 	redirectURI.RawQuery = callback.Encode()
+	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- Destination is selected from trusted exact-match callbackURIs; request state is URL-encoded query data only. TestAuthorizeExactRegisteredCallback covers destination and state injection.
 	http.Redirect(w, r, redirectURI.String(), http.StatusFound)
 }
 

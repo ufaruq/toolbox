@@ -67,7 +67,7 @@ func TestAuthorizeExactRegisteredCallback(t *testing.T) {
 		t.Fatalf("registered GET status=%d", got.Code)
 	}
 	// Repeated use must not retain the prior code/state in the configured URL.
-	for _, state := range []string{"first-state", "second-state"} {
+	for _, state := range []string{"first-state", "second-state", "https://attacker.example/", "//attacker.example/", "&redirect_uri=https://attacker.example/#fragment", "\r\nLocation: https://attacker.example/", `\\attacker.example\callback`} {
 		q := authorizationForm(s, callback)
 		q.Set("state", state)
 		response := authorizeRequest(s, http.MethodPost, q)
