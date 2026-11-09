@@ -41,6 +41,16 @@ func runKeycloakConfig(getenv func(string) string, path string) error {
 			return bad
 		}
 	}
+	flag := getenv("TOOLBOX_KEYCLOAK_DYNAMIC_CLIENT_REGISTRATION")
+	if flag != "" && flag != "true" && flag != "false" {
+		return bad
+	}
+	cfg.DynamicClientRegistration = flag == "true"
+	if raw := getenv("TOOLBOX_KEYCLOAK_DYNAMIC_REGISTRATION_TRUSTED_HOSTS"); raw != "" {
+		if len(raw) > 8192 || strict.Decode([]byte(raw), &cfg.DynamicRegistrationTrustedHosts) != nil {
+			return bad
+		}
+	}
 	data, err := keycloakrealm.Render(cfg)
 	if err != nil {
 		return bad

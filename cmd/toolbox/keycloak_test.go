@@ -61,3 +61,20 @@ func TestKeycloakLinkRejectsMissingCredentials(t *testing.T) {
 		t.Fatal("invalid migration config accepted or secret exposed")
 	}
 }
+
+func TestKeycloakDynamicRegistrationConfig(t *testing.T) {
+	for _, tc := range []struct {
+		flag, hosts string
+		valid       bool
+	}{
+		{"true", `["127.0.0.1"]`, true}, {"true", `[]`, false}, {"yes", `["127.0.0.1"]`, false}, {"false", `["127.0.0.1"]`, false}, {"true", `["*.example.com"]`, false},
+	} {
+		values := keycloakSettings()
+		values["TOOLBOX_KEYCLOAK_DYNAMIC_CLIENT_REGISTRATION"] = tc.flag
+		values["TOOLBOX_KEYCLOAK_DYNAMIC_REGISTRATION_TRUSTED_HOSTS"] = tc.hosts
+		err := runKeycloakConfig(func(k string) string { return values[k] }, filepath.Join(t.TempDir(), "realm.json"))
+		if (err == nil) != tc.valid {
+			t.Fatalf("dynamic config %s %s: %v", tc.flag, tc.hosts, err)
+		}
+	}
+}
