@@ -172,3 +172,7 @@ install-hooks: ## Install the push gate without replacing custom hooks
 .PHONY: run-configured
 
 .PHONY: semgrep-check
+
+.PHONY: github-app-setup
+github-app-setup: ## Print the prefilled GitHub App registration URL (no secrets)
+	$(PYTHON) github-app/registration_url.py

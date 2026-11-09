@@ -71,3 +71,7 @@ A failing or unavailable test blocks the push. Fix the failure and commit before
 Keep one authoritative explanation per topic. The root README gives the overview and navigation; focused READMEs explain current architecture, development, security and operations. Setup guides retain exact provider-specific steps. Verification reports record revision, date, commands and limitations. Label historical checkpoints; never silently turn old evidence into a current passing claim.
 
 Update documentation in the same change as behavior. Run `make docs-check` to check local documentation targets. Add nested `AGENTS.md` files only when a subtree has genuinely different rules; avoid contradictory duplicate instructions.
+
+### GitHub App registration
+
+`make github-app-setup` prints a prefilled registration URL without reading secrets or creating an App. Follow [GitHub App setup](../../github-app/README.md) to register and install it; the application connector is still under development.
