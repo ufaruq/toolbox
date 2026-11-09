@@ -110,7 +110,17 @@ func (s *Server) renameCaller(w http.ResponseWriter, r *http.Request) {
 }
 
 func validCallerTools(tools []string, duration int64) bool {
-	return tools != nil && len(tools) <= 1 && (len(tools) == 0 || tools[0] == domain.Tool) && duration >= 1 && duration <= 30*24*3600
+	if tools == nil || len(tools) > 2 || duration < 1 || duration > 30*24*3600 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, tool := range tools {
+		if seen[tool] || tool != domain.Tool && tool != domain.GitHubTool {
+			return false
+		}
+		seen[tool] = true
+	}
+	return true
 }
 func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 	owner, ok := s.requireOwner(w, r, true)
@@ -172,6 +182,19 @@ func (s *Server) createCaller(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 201, callerView(profile))
 }
 func invalidateCaller(st *domain.State, p domain.CallerProfile) {
+	for id, g := range st.GitHubGrants {
+		if g.AgentID == p.AgentID && g.RevokedAt == nil {
+			now := st.Now
+			g.RevokedAt = &now
+			st.GitHubGrants[id] = g
+		}
+	}
+	for id, q := range st.GitHubRequests {
+		if q.AgentID == p.AgentID && q.Status == "pending" {
+			q.Status = "denied"
+			st.GitHubRequests[id] = q
+		}
+	}
 	for id, g := range st.Grants {
 		if g.AgentID == p.AgentID && g.RevokedAt == nil {
 			now := st.Now

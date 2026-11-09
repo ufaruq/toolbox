@@ -1,0 +1,13 @@
+{
+  "name": "The AI Toolbox",
+  "url": "https://github.com/ufaruq/toolbox",
+  "description": "Scoped GitHub operations through Toolbox and Docker MCP Gateway.",
+  "public": "false",
+  "webhook_active": "false",
+  "contents": "write",
+  "pull_requests": "write",
+  "issues": "write",
+  "metadata": "read",
+  "actions": "read",
+  "checks": "read"
+}

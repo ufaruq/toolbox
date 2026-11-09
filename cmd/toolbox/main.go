@@ -34,6 +34,12 @@ func main() {
 }
 func run() error {
 	if len(os.Args) > 1 {
+		if len(os.Args) == 2 && os.Args[1] == "github-live-check" {
+			return runGitHubLive(os.Getenv, false, os.Stdout)
+		}
+		if len(os.Args) == 2 && os.Args[1] == "github-live-write-check" {
+			return runGitHubLive(os.Getenv, true, os.Stdout)
+		}
 		if len(os.Args) == 3 && os.Args[1] == "keycloak-config" {
 			return runKeycloakConfig(os.Getenv, os.Args[2])
 		}
@@ -189,6 +195,14 @@ func runOIDCLocal(cfg runtimeConfig) error {
 		serverConfig.OwnerOnly, serverConfig.WorkspaceLocal = false, true
 		serverConfig.SessionPepper, serverConfig.Pepper = cfg.pepper, cfg.workspace.credentialPepper
 		serverConfig.Picker = server.PickerConfig{APIKey: cfg.workspace.pickerAPIKey, ProjectNumber: cfg.workspace.projectNumber}
+		if cfg.github != nil {
+			github, e := newGitHubIntegration(cfg.github)
+			if e != nil {
+				return e
+			}
+			defer github.Runtime.Close()
+			serverConfig.GitHub = github
+		}
 		if cfg.mcp != nil {
 			discovery, cancel := context.WithTimeout(ctx, 15*time.Second)
 			serverConfig.Identity, err = identity.NewAccess(discovery, *cfg.mcp)

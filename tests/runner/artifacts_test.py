@@ -4,6 +4,16 @@ from pathlib import Path
 import subprocess
 import sys
 
+# Hosted Linux bind mounts retain the invoking runner's UID. The root test
+# process must own the private scratch ancestor before runtime state validation.
+scratch = Path('/scratch')
+scratch.chmod(0o700)
+os.chown(scratch, 1001, 1001)
+subprocess.run(['bash', 'tests/runner/prepare-scratch.sh'], check=True,
+               env=dict(os.environ, TMPDIR=str(scratch)))
+assert scratch.stat().st_uid == os.geteuid(), 'Scratch must belong to the test process'
+assert (scratch.stat().st_mode & 0o777) == 0o700, 'Scratch must remain private'
+
 # These are isolated tmpfs mounts in the regression container, never host paths.
 for directory in ('/evidence/oidc-run-fixture', '/scratch/root-owned'):
     Path(directory).mkdir(mode=0o700, parents=True)

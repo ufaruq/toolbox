@@ -12,6 +12,9 @@ func invalid(kind string) error { return fmt.Errorf("%w: %s", ErrInvariant, kind
 // validate is shared by both adapters. SQL constraints are a second boundary;
 // application policy must still authorize every mutation before this layer.
 func validate(old, s *domain.State) error {
+	if err := validateGitHub(old, s); err != nil {
+		return err
+	}
 	if s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.OwnerLogins == nil || s.Cleanup == nil {
 		return invalid("nil collection")
 	}

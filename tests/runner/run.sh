@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+bash tests/runner/prepare-scratch.sh
 export TOOLBOX_TEST_OIDC_BROWSER=1 TOOLBOX_TEST_WORKSPACE_BROWSER=1
 export TOOLBOX_TEST_KEYCLOAK=1 TOOLBOX_TEST_DOCKER_MCP=1 TOOLBOX_TEST_DOCKER_BRIDGE=1
 make test-tools docs-check fmt-check vet

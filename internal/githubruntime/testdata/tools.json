@@ -1,0 +1,724 @@
+[
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Create branch"
+    },
+    "description": "Create a new branch in a GitHub repository",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "Name for new branch"
+        },
+        "from_branch": {
+          "type": "string",
+          "description": "Source branch (defaults to repo default)"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner",
+          "x-mcp-header": "owner"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        }
+      },
+      "required": [
+        "owner",
+        "repo",
+        "branch"
+      ]
+    },
+    "name": "create_branch",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABTklEQVRIie2UPUvDUBSGn5PW2qnYwUXExWhNpY2CUKT+BB10E3R0dnbrppuKLgouHbr5X5qlKRIFB+cuguBHj4O05KYfNsVJ+m7n3Hue54ZcrhDKQqGQTX1YVwg7QIbx0gh8b7VTJMMrqS+5RtgD7oDX2GhhC6UcbhkCVLZVuX1sesex4YCdX6uAGgIrsicjlrTGgQ9KVPDnmQgmgongPwgkXNiOq8ADMAtkx4UGvtflJvus20ANeIlN/vW5/kkt8L3D2HD6P9dRgSI8dQcc9w1IR3acBE3vbFSp8ZMVnoFSqJ/unZDe3pAYXyDIJarn9opbDZrewaAh2y7Oy5S1r6h5QG2Xxbw3piDw6xe244oKyxFmC5ihc+tS1qaqngKJyAEBGmZvSGzHVYT790T7aPozsaFoFZGboFGvDJsbOYuOuxuuc7n1uaV8sRSH8Q1DUVLnYLty3gAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAAA+ElEQVRIie2WLU5DQRRGzwUEirQCQ9BsoSGtZQHgSFgIsg4JXQCGP8V2QCBIEATZkJDgOJi+MJnMo30TFHmfmzvzfeeKyZ2BROpQvVHfrddDmhkZ4BY4Ai6BD7prAowjIoq7i85nFcGNf6qa1tayM1vAvBZQUg74c/WAHtAD/gMgn6YCT8A2MKwOTaZpCfAF3AGvFdlLx7XqdUVw4186rgWeE8Nn4cU67QLNAS/ASG3qmwVPqdaqjWw9A86BK+CkzaTuAseFBse/AiLiQg1gLzs3Bwb8XIp94AxYL/Af2xordap6v/htHKhv6nTlgBUAh9l6Rx11yfgG8ne/zwh2OysAAAAASUVORK5CYII=",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Create or update file"
+    },
+    "description": "Create or update a single file in a GitHub repository. \nIf updating, you should provide the SHA of the file you want to update. Use this tool to create or update a file in a GitHub repository remotely; do not use it for local file operations.\n\nTo obtain the current blob SHA before updating, call the get_file_contents tool with the same owner, repo, and path, and set its ref parameter to this tool's branch value. The first text result reports the blob SHA for the requested path.\n\nSHA MUST be provided for existing file updates.\n",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "allow_symlink_write": {
+          "type": "boolean",
+          "description": "Set true to update a symbolic link itself; content must be its new target path.",
+          "default": false
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch to create/update the file in"
+        },
+        "content": {
+          "type": "string",
+          "description": "Content of the file, exactly as it should appear once written. Do not base64-encode it; this server does that before calling the REST API."
+        },
+        "message": {
+          "type": "string",
+          "description": "Commit message"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner (username or organization)",
+          "x-mcp-header": "owner"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path where to create/update the file"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        },
+        "sha": {
+          "type": "string",
+          "description": "The blob SHA of the file being replaced. Required if the file already exists. Retrieve it with get_file_contents using the same owner, repo, and path, with ref set to this tool's branch value."
+        }
+      },
+      "required": [
+        "owner",
+        "repo",
+        "path",
+        "content",
+        "message",
+        "branch"
+      ]
+    },
+    "name": "create_or_update_file",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABTklEQVRIie2UPUvDUBSGn5PW2qnYwUXExWhNpY2CUKT+BB10E3R0dnbrppuKLgouHbr5X5qlKRIFB+cuguBHj4O05KYfNsVJ+m7n3Hue54ZcrhDKQqGQTX1YVwg7QIbx0gh8b7VTJMMrqS+5RtgD7oDX2GhhC6UcbhkCVLZVuX1sesex4YCdX6uAGgIrsicjlrTGgQ9KVPDnmQgmgongPwgkXNiOq8ADMAtkx4UGvtflJvus20ANeIlN/vW5/kkt8L3D2HD6P9dRgSI8dQcc9w1IR3acBE3vbFSp8ZMVnoFSqJ/unZDe3pAYXyDIJarn9opbDZrewaAh2y7Oy5S1r6h5QG2Xxbw3piDw6xe244oKyxFmC5ihc+tS1qaqngKJyAEBGmZvSGzHVYT790T7aPozsaFoFZGboFGvDJsbOYuOuxuuc7n1uaV8sRSH8Q1DUVLnYLty3gAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAAA+ElEQVRIie2WLU5DQRRGzwUEirQCQ9BsoSGtZQHgSFgIsg4JXQCGP8V2QCBIEATZkJDgOJi+MJnMo30TFHmfmzvzfeeKyZ2BROpQvVHfrddDmhkZ4BY4Ai6BD7prAowjIoq7i85nFcGNf6qa1tayM1vAvBZQUg74c/WAHtAD/gMgn6YCT8A2MKwOTaZpCfAF3AGvFdlLx7XqdUVw4186rgWeE8Nn4cU67QLNAS/ASG3qmwVPqdaqjWw9A86BK+CkzaTuAseFBse/AiLiQg1gLzs3Bwb8XIp94AxYL/Af2xordap6v/htHKhv6nTlgBUAh9l6Rx11yfgG8ne/zwh2OysAAAAASUVORK5CYII=",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "_meta": {
+      "ui": {
+        "resourceUri": "ui://github-mcp-server/pr-write",
+        "visibility": [
+          "model",
+          "app"
+        ]
+      }
+    },
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Open new pull request"
+    },
+    "description": "Create a new pull request in a GitHub repository.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "string",
+          "description": "Branch to merge into"
+        },
+        "body": {
+          "type": "string",
+          "description": "PR description"
+        },
+        "draft": {
+          "type": "boolean",
+          "description": "Create as draft PR"
+        },
+        "head": {
+          "type": "string",
+          "description": "Branch containing changes"
+        },
+        "maintainer_can_modify": {
+          "type": "boolean",
+          "description": "Allow maintainer edits"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner",
+          "x-mcp-header": "owner"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        },
+        "reviewers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "GitHub usernames or ORG/team-slug team reviewers to request reviews from"
+        },
+        "title": {
+          "type": "string",
+          "description": "PR title"
+        }
+      },
+      "required": [
+        "owner",
+        "repo",
+        "title",
+        "head",
+        "base"
+      ]
+    },
+    "name": "create_pull_request",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAACwUlEQVRIie2Vz28UZRjHP993pi0QIC3YahNjirtmd3bS3Q1eUHvQEPUiEv8A4kXjwRJ78MCFBLjBBRKCHowHE38cNCbGGx6IUoKiodtNpoNmTJp4oSJNQ3pw29l5POxus2wo3QTwxPc0887zfD7zvu9kXnjEUfdNrjj5vJOmMP4e9JrfR1G02tuQD8tvgpck0dxCPwK30ViqnJTcr4bOmfRlI/PrhUJ5313woDpDpu8ss7f6nYHrvDnGcYlPsoY/bKaXwHY3HWfvgmNnMX0zvMM7069A3c3pkEYWa7UVgFxQPSfs7SSeH3k2rEy5jMubMBoG1yQ+SBbm53of+gCybMkk/H8VAFdbZisZLAFsJ11oyL+BUURcwrjWAZixXeIwxs/5UuVAr0QAYRjubGR+HWy3mb6QCIBXQe8nce0jgIkwfMo3/xLG085x8I9ofkMyUa0O+w2rgS0mcf3lboEDiKJo1cvsIDDr4D1DhTb8407hYhTdTJW+AvrdMnuhG9Je1m9BBzbfjXbyQcXypeqJLQt7+0rVE/mgYr3j7l7FDzOPBY8FDx6vc1EolPeNjI5/Jpgw7Lm9o+Pry//c/K0PhnLFyrSMDxE79jwxvn9079gvt28vrUD7V1EoFHalbltd2C7DfS4sAF4DTSdx7cL96LliZVriPPADuL+geRh0Z8il5SiKVn2ATENvCCYw78U/b8xdBcgHlYuGHQXuK5A4ClxM4vnXW8Lqp5JdWWt6h4CvWnsgxgDSbRZ3Gg0tCJ7sY4nGwDZOt/WBZtzN9FswLgM2sGann5mcPDaw5pWEHQH7cUu86SdkR3LF6tfrA814MNVpwNrM1leUxPXrSKfMeHcwdctyNotY8c3NbMX3LJsB3ZHsymDqlkHvYHYyievXWxPpSj4o75eYIuPWZof+vRKG4c61pncIx6gZsx34/5L/ACy3ElqUYhuvAAAAAElFTkSuQmCC",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABn0lEQVRIie2Vvy5EURDGvyMUkhUU/pS2Q2clwvIKqL0Cm9ArrBcQShJPoLFR2YaIhIjQ7a7E39IiCgqVn8KsPY697E3oTHPumTPf990z986M9Mfm/A0wKGlMUlnSlnPuOQQAE5LOnXOFWErAIvBK1S6BZBAzZ2fzcckHjXwVaAXSwD2wWYN8A2iKK1ABt3m+ZeDRnseIthdgDxioxd1o662tfZIO7Lnf8xcklST1StqRdORxNEualHQIDDvnTmvdIGE5vwdWgLy93bQX0w0UgSdgKMC3AdfA7ndpSgKbduUbYBoI/7Ju4BiYrYFfAl4iBbxAgOyPgV9xWYDQ3xCXKK79C/wL/KJZoeW8QpsJCy0C54AMULaGmQu7sIAW4MpaxTKwbQU3U4dAxmLzwLpxXAIJP2jKgkY8Xx4o1SFwBmx7+7RxTUnVb9Bpa9HDFiR1/SRgWH+6FT3/h2qK6sBpB0aBB7yB880NcpaWtGHXjCsVBmb5PDIvgJ46BJKW84q9AguV87Adp/Q+9O8UMfQjRBKSxiV1SNp3zp3Ug/sVewPruexhKwhGXQAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": true,
+      "title": "Get file or directory contents"
+    },
+    "description": "Get the contents of a file or directory from a GitHub repository",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "type",
+              "name",
+              "path",
+              "size",
+              "sha",
+              "url",
+              "git_url",
+              "html_url",
+              "download_url"
+            ]
+          },
+          "description": "Subset of fields to return for each entry when the path is a directory. If omitted, all fields are returned. Ignored when the path is a single file. Use this to reduce response size when listing directories and you only need specific fields, e.g. just 'name' and 'type'."
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner (username or organization)",
+          "x-mcp-header": "owner"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to file/directory",
+          "default": "/"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Accepts optional git refs such as `refs/tags/{tag}`, `refs/heads/{branch}` or `refs/pull/{pr_number}/head`"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        },
+        "sha": {
+          "type": "string",
+          "description": "Accepts optional commit SHA. If specified, it will be used instead of ref"
+        }
+      },
+      "required": [
+        "owner",
+        "repo"
+      ]
+    },
+    "name": "get_file_contents",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABTklEQVRIie2UPUvDUBSGn5PW2qnYwUXExWhNpY2CUKT+BB10E3R0dnbrppuKLgouHbr5X5qlKRIFB+cuguBHj4O05KYfNsVJ+m7n3Hue54ZcrhDKQqGQTX1YVwg7QIbx0gh8b7VTJMMrqS+5RtgD7oDX2GhhC6UcbhkCVLZVuX1sesex4YCdX6uAGgIrsicjlrTGgQ9KVPDnmQgmgongPwgkXNiOq8ADMAtkx4UGvtflJvus20ANeIlN/vW5/kkt8L3D2HD6P9dRgSI8dQcc9w1IR3acBE3vbFSp8ZMVnoFSqJ/unZDe3pAYXyDIJarn9opbDZrewaAh2y7Oy5S1r6h5QG2Xxbw3piDw6xe244oKyxFmC5ihc+tS1qaqngKJyAEBGmZvSGzHVYT790T7aPozsaFoFZGboFGvDJsbOYuOuxuuc7n1uaV8sRSH8Q1DUVLnYLty3gAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAAA+ElEQVRIie2WLU5DQRRGzwUEirQCQ9BsoSGtZQHgSFgIsg4JXQCGP8V2QCBIEATZkJDgOJi+MJnMo30TFHmfmzvzfeeKyZ2BROpQvVHfrddDmhkZ4BY4Ai6BD7prAowjIoq7i85nFcGNf6qa1tayM1vAvBZQUg74c/WAHtAD/gMgn6YCT8A2MKwOTaZpCfAF3AGvFdlLx7XqdUVw4186rgWeE8Nn4cU67QLNAS/ASG3qmwVPqdaqjWw9A86BK+CkzaTuAseFBse/AiLiQg1gLzs3Bwb8XIp94AxYL/Af2xordap6v/htHKhv6nTlgBUAh9l6Rx11yfgG8ne/zwh2OysAAAAASUVORK5CYII=",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": true,
+      "title": "Get issue details"
+    },
+    "description": "Get information about a specific issue in a GitHub repository.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "issue_number": {
+          "type": "number",
+          "description": "The number of the issue"
+        },
+        "method": {
+          "type": "string",
+          "description": "The read operation to perform on a single issue.\nOptions are:\n1. get - Get issue details. Also returns best-effort hierarchy flags (`has_parent`, `has_children`); `parent` and `sub_issues_summary` are optional relationship summaries, and `closed_by_pull_requests` summarizes the pull requests configured to close the issue as `total_count` plus up to 5 `references`.\n2. get_comments - Get issue comments.\n3. get_sub_issues - Get sub-issues (children) of the issue.\n4. get_parent - Get the parent issue, if this issue is a sub-issue of another.\n5. get_labels - Get labels assigned to the issue.\n",
+          "enum": [
+            "get",
+            "get_comments",
+            "get_sub_issues",
+            "get_parent",
+            "get_labels"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "description": "The owner of the repository",
+          "x-mcp-header": "owner"
+        },
+        "page": {
+          "type": "number",
+          "description": "Page number for pagination (min 1)",
+          "minimum": 1
+        },
+        "perPage": {
+          "type": "number",
+          "description": "Results per page for pagination (min 1, max 100)",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "repo": {
+          "type": "string",
+          "description": "The name of the repository",
+          "x-mcp-header": "repo"
+        }
+      },
+      "required": [
+        "method",
+        "owner",
+        "repo",
+        "issue_number"
+      ]
+    },
+    "name": "issue_read",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAAC2UlEQVRIicWVMUyTaRjHf/+vVUpOJOdilOYoUvVreq2CDmLOwdlAS5xMbrrhBifjYG7QjYuJw108nZx1huLgYlw0QshxChUK2koxHHcuCmgsFfieG0or3kGPSoz/8X3f5/97nvfN8z7wmaVqm9FodFfR/EnMugy5giCAwYwgI9Ff9Hl9L9Lp1zUBgsGO+rqGwnlhF4CdwBSyAUwvS1G220zHBSFgHtmVxYWvfp2ZGSj8LyAcjgfZphTQZtAr7OdsZvSP9RIJR+LtQhcNusF+d1aUfPp05M8NAavmg8AOk3cmN56+s1Hpa7U/cviUYbcw3jgex9ZCKoBgsKM+0PDuAdBq2He5zOiTzZiXtc+NxRw598GeLRcWTuTz+UUAp3ygrqFwHmgzeWdqNQd4PpFOy/gedNQfaDz3UQXRaHRX0fNPGdzNZUZO12q+VuHIoV7g5Hu/1/IinX7tABTNnwR2SvRsxRzAzOsBGuuWfAkoX5FZFzCVHR95tFVAbiI9DEwj6wLwl5YVMTRYLTDsxjuRrgGYYz/kxkbvbXRWMOBB24cKYI9ks1X8hXQDaAaa5XG9WjImZgV71wI+m8qAv8y0t1pSmP0ITANTmHO2qqvRZDALlTdgHKyjWkx2YvQ2cHtTacMxYBhWK5DoF4TCkXj7Jg02VKsbOwI0Y+qvALZrOQXMC13cKkDSJWBuJUCqAhgbG3uF7IpBcn/k8KlPNQ+78U5QQuhy/vHjuQoAYPndwi9gw4bd2ufGYrWatxz8No50ExhaKsz9Vl6vAPL5/KKzoiTGG0fOg1oqCbvxTp/juw/M+zynu/yTwjoD58CBQ02ez/pAR4E+M69ntf3/o1Y3dqR050oAQz7P6Z6cfPRRw647MkOhUMAfaDyH+AloBKYNPRT292rQHoMOSp09J3TZlt5ezWazxX97VR3638RiX9ct+RImSyBcrDT0ETMyMp4ptRIgVX7QL6J/ALSUEwJ5rdg2AAAAAElFTkSuQmCC",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABxElEQVRIibWVvW4TURCFv0vlNEDcIHAkKAERJOIKSjoUArwBPwUFFaKIIngAJARCPIgdh4cgRBYt6ZIAEYEqdhpEw0fhCbkKa68dxyNtsfNzzpnZu3NhwpYGBdUqcA+4A1wEZiK0DawD74FWSml3JAJ1CngGLAIngU1gFfgZKWeAG8AFoAu8At6mlH6VtqTOqJ/UP2pDnRuQO6c27VlbrQ0Dvq121Fulag7q5qPmW18SdSqUd9Qrw4Jn9bNR21YrRQkvYixDKy/AuB3jWjocqKpdtXFU8AxrOTqZzp2PgvnaMRDUA+tB7mypG+OCZ3hbahPgRPguAR9LihaicEu9WcKxClzOi/fU1wPAk7rjgX0uEfNG3cs7mJjtE+wA5/olpZQEHgNf6K2NJyW4NeD7v7c4WptjSc0svlMjdzyM2fbdOyOA7x/T+7mzGj9H8xgIWuquevpw4HmsivkxwBdC/WJRsBKLqqPOHgH8aqybtcJlF0m1WLndUToJ5V31q9r3NOYk7Wh1Wa0PyK3HzA3l/4H3uzIrwFNgCThF7/x/AH5EylngOnAe6AAvgXcppd9DEWRE08DdeIou/RVgJaXUGYQzUfsL+zmwV7BtIq0AAAAASUVORK5CYII=",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Merge pull request"
+    },
+    "description": "Merge a pull request in a GitHub repository.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "commit_message": {
+          "type": "string",
+          "description": "Extra detail for merge commit"
+        },
+        "commit_title": {
+          "type": "string",
+          "description": "Title for merge commit"
+        },
+        "expectedHeadSha": {
+          "type": "string",
+          "description": "The expected SHA of the pull request's HEAD ref"
+        },
+        "merge_method": {
+          "type": "string",
+          "description": "Merge method",
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner",
+          "x-mcp-header": "owner"
+        },
+        "pullNumber": {
+          "type": "number",
+          "description": "Pull request number"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        }
+      },
+      "required": [
+        "owner",
+        "repo",
+        "pullNumber"
+      ]
+    },
+    "name": "merge_pull_request",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAACeElEQVRIibWVTUhUYRSGn/e74+iiQih1F9Vcmj9sptylUVBYkO4jcNeuJBdFKxe1CYQokGrRKjCEdtmqwEVmtqomQWeiUdc2EBUtUufe0yLHn1KLGXtX5zvn4zz3vd8f/Gfp90Qs0drmpA6MT1EveDo1NfV92wB+KnMdo39Nfs4L7eSHD5Nz1QJcJYglWtsw+iUehAuRRjO1g+0KHLerbb4OIHnHAC1FdW129s3XmUJuwnBDoOPbA7BwHsD7QWq1HKYN5msBRCpB1AueLoSROSkciSUyj5ClhE6BLtYC8CpBqVRabNrdMmIiJdQjuUbQ1WI+d78WwIbykxnzU9np7ejlNq2YxQ4ebNtTKyCyWcEgYl55EDj/a7ihFEtkLkr0As2YxjwL+9aem00dCEYNzvnJzLDvH27aaM5y80HEnKGHKGwPnEbT6fSOvzpAmrDQnkncpC7siiUzz2QqIPu25iOuGBorTufO/AJmH0v2ajHwuoHhrQHATOH9rQPJ7IjDLgs6kZ0F6it1AzArVcZLdUE+WnYgmv/uYFmz+dxH4NJGNT+RfYLCE7F4tn0pGkxHy94AmBm8/GfAVvIs7AukUTkbj5YdYIbZ9WJh8m1lzrrbNB4/tD+QuyPsdCibF26gmM/dY/NdRDqd3rEYeN04mswYL+ZXm68DxOPxnWXXMClsp+GGhCWBTtClYj53t1qXK78oVH2XYB/mHZ0pvHsN4Cczzw3rBaoGrJ6D5ZUvN1i+kjI0LWiptjmscbC88hZZCAf2trZeq1v0UsJ6wF7UAlhxUMxPvkW6AboQLbvPcjaO+BIx11cL4I9H308eOiLRQUhpOx79/66fNKzrOCYNDm0AAAAASUVORK5CYII=",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABjElEQVRIibWVPS/DURTGnysSC0HiZdWVrZ28JDaLT8BHaBsMdjqZJDXiAzC2LF5mX6GtATGiIsGARH+Gnj9X8a/kf3uWe3Py3Oc559xz75E6bK7VAWQkzUi6lXTonHsOpgYUgAZfdgmkQpFnjHwb6AemgDpQCiWwYlEPeL4i8JCEt8vb39g67vkmPH8yA3qt5nVgCzi1jLJBBEwkBZSAdxPKAj86LYQQQCU4cYvAKzDUSYF3YC+uRIAD8sA58ACU//VuTODE1n1g+A9c3jBH1tJ1a5TeCPNrdACSCpKeJG1IepN0LKkm6dGDrkqqOOdm7dyUpDNJi865PUnqjsvEObcJHEhaljQnaV5STwvszttXbR2J441KtB4LauLKVpZpYBDYte8mHUogZTWPrAGstTtQBl6AayDX7qHZD7AALMVGDvQBV5ZyETi2qHLtMvmXWRQAk57vBKgl4fV/0+jmq56vImk0icCnAWm7pB3riGngnlADx0TW+T4yL4CxJJy/Df20mkP/TqGHfifsA7INs3X5i3+yAAAAAElFTkSuQmCC",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": true,
+      "title": "Get details for a single pull request"
+    },
+    "description": "Get information on a specific pull request in GitHub repository.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "after": {
+          "type": "string",
+          "description": "Cursor for pagination, used only by the get_review_comments method. Pass the endCursor from the previous page's PageInfo to fetch the next page."
+        },
+        "method": {
+          "type": "string",
+          "description": "Action to specify what pull request data needs to be retrieved from GitHub. \nPossible options: \n 1. get - Get details of a specific pull request.\n 2. get_diff - Get the diff of a pull request.\n 3. get_status - Get combined commit status of a head commit in a pull request.\n 4. get_files - Get the list of files changed in a pull request. Use with pagination parameters to control the number of results returned.\n 5. get_commits - Get the list of commits on a pull request. Use with pagination parameters to control the number of results returned.\n 6. get_review_comments - Get review threads on a pull request. Each thread contains logically grouped review comments made on the same code location during pull request reviews. Returns thread metadata and comments with nullable current and original line-range coordinates (line, start_line, original_line, original_start_line). Current coordinates are omitted when unavailable, such as for outdated comments. Use cursor-based pagination (perPage, after) to control results.\n 7. get_reviews - Get the reviews on a pull request. When asked for review comments, use get_review_comments method. Use with pagination parameters to control the number of results returned.\n 8. get_comments - Get comments on a pull request. Use this if user doesn't specifically want review comments. Use with pagination parameters to control the number of results returned.\n 9. get_check_runs - Get check runs for the head commit of a pull request. Check runs are the individual CI/CD jobs and checks that run on the PR.\n",
+          "enum": [
+            "get",
+            "get_diff",
+            "get_status",
+            "get_files",
+            "get_commits",
+            "get_review_comments",
+            "get_reviews",
+            "get_comments",
+            "get_check_runs"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner",
+          "x-mcp-header": "owner"
+        },
+        "page": {
+          "type": "number",
+          "description": "Page number for pagination (min 1)",
+          "minimum": 1
+        },
+        "perPage": {
+          "type": "number",
+          "description": "Results per page for pagination (min 1, max 100)",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "pullNumber": {
+          "type": "number",
+          "description": "Pull request number"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        }
+      },
+      "required": [
+        "method",
+        "owner",
+        "repo",
+        "pullNumber"
+      ]
+    },
+    "name": "pull_request_read",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAACwUlEQVRIie2Vz28UZRjHP993pi0QIC3YahNjirtmd3bS3Q1eUHvQEPUiEv8A4kXjwRJ78MCFBLjBBRKCHowHE38cNCbGGx6IUoKiodtNpoNmTJp4oSJNQ3pw29l5POxus2wo3QTwxPc0887zfD7zvu9kXnjEUfdNrjj5vJOmMP4e9JrfR1G02tuQD8tvgpck0dxCPwK30ViqnJTcr4bOmfRlI/PrhUJ5313woDpDpu8ss7f6nYHrvDnGcYlPsoY/bKaXwHY3HWfvgmNnMX0zvMM7069A3c3pkEYWa7UVgFxQPSfs7SSeH3k2rEy5jMubMBoG1yQ+SBbm53of+gCybMkk/H8VAFdbZisZLAFsJ11oyL+BUURcwrjWAZixXeIwxs/5UuVAr0QAYRjubGR+HWy3mb6QCIBXQe8nce0jgIkwfMo3/xLG085x8I9ofkMyUa0O+w2rgS0mcf3lboEDiKJo1cvsIDDr4D1DhTb8407hYhTdTJW+AvrdMnuhG9Je1m9BBzbfjXbyQcXypeqJLQt7+0rVE/mgYr3j7l7FDzOPBY8FDx6vc1EolPeNjI5/Jpgw7Lm9o+Pry//c/K0PhnLFyrSMDxE79jwxvn9079gvt28vrUD7V1EoFHalbltd2C7DfS4sAF4DTSdx7cL96LliZVriPPADuL+geRh0Z8il5SiKVn2ATENvCCYw78U/b8xdBcgHlYuGHQXuK5A4ClxM4vnXW8Lqp5JdWWt6h4CvWnsgxgDSbRZ3Gg0tCJ7sY4nGwDZOt/WBZtzN9FswLgM2sGann5mcPDaw5pWEHQH7cUu86SdkR3LF6tfrA814MNVpwNrM1leUxPXrSKfMeHcwdctyNotY8c3NbMX3LJsB3ZHsymDqlkHvYHYyievXWxPpSj4o75eYIuPWZof+vRKG4c61pncIx6gZsx34/5L/ACy3ElqUYhuvAAAAAElFTkSuQmCC",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABn0lEQVRIie2Vvy5EURDGvyMUkhUU/pS2Q2clwvIKqL0Cm9ArrBcQShJPoLFR2YaIhIjQ7a7E39IiCgqVn8KsPY697E3oTHPumTPf990z986M9Mfm/A0wKGlMUlnSlnPuOQQAE5LOnXOFWErAIvBK1S6BZBAzZ2fzcckHjXwVaAXSwD2wWYN8A2iKK1ABt3m+ZeDRnseIthdgDxioxd1o662tfZIO7Lnf8xcklST1StqRdORxNEualHQIDDvnTmvdIGE5vwdWgLy93bQX0w0UgSdgKMC3AdfA7ndpSgKbduUbYBoI/7Ju4BiYrYFfAl4iBbxAgOyPgV9xWYDQ3xCXKK79C/wL/KJZoeW8QpsJCy0C54AMULaGmQu7sIAW4MpaxTKwbQU3U4dAxmLzwLpxXAIJP2jKgkY8Xx4o1SFwBmx7+7RxTUnVb9Bpa9HDFiR1/SRgWH+6FT3/h2qK6sBpB0aBB7yB880NcpaWtGHXjCsVBmb5PDIvgJ46BJKW84q9AguV87Adp/Q+9O8UMfQjRBKSxiV1SNp3zp3Ug/sVewPruexhKwhGXQAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Write operations (create, submit, delete) on pull request reviews"
+    },
+    "description": "Create and/or submit, delete review of a pull request.\n\nAvailable methods:\n- create: Create a new review of a pull request. If \"event\" parameter is provided, the review is submitted. If \"event\" is omitted, a pending review is created.\n- submit_pending: Submit an existing pending review of a pull request. This requires that a pending review exists for the current user on the specified pull request. The \"body\" and \"event\" parameters are used when submitting the review.\n- delete_pending: Delete an existing pending review of a pull request. This requires that a pending review exists for the current user on the specified pull request.\n- resolve_thread: Resolve a review thread. Requires only \"threadId\" parameter with the thread's node ID (e.g., PRRT_kwDOxxx). The owner, repo, and pullNumber parameters are not used for this method. Resolving an already-resolved thread is a no-op.\n- unresolve_thread: Unresolve a previously resolved review thread. Requires only \"threadId\" parameter. The owner, repo, and pullNumber parameters are not used for this method. Unresolving an already-unresolved thread is a no-op.\n",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "string",
+          "description": "Review comment text"
+        },
+        "commitID": {
+          "type": "string",
+          "description": "SHA of commit to review"
+        },
+        "event": {
+          "type": "string",
+          "description": "Review action to perform.",
+          "enum": [
+            "APPROVE",
+            "REQUEST_CHANGES",
+            "COMMENT"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "description": "The write operation to perform on pull request review.",
+          "enum": [
+            "create",
+            "submit_pending",
+            "delete_pending",
+            "resolve_thread",
+            "unresolve_thread"
+          ]
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner",
+          "x-mcp-header": "owner"
+        },
+        "pullNumber": {
+          "type": "number",
+          "description": "Pull request number"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        },
+        "threadId": {
+          "type": "string",
+          "description": "The node ID of the review thread (e.g., PRRT_kwDOxxx). Required for resolve_thread and unresolve_thread methods. Get thread IDs from pull_request_read with method get_review_comments."
+        }
+      },
+      "required": [
+        "method",
+        "owner",
+        "repo",
+        "pullNumber"
+      ]
+    },
+    "name": "pull_request_review_write",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAACwUlEQVRIie2Vz28UZRjHP993pi0QIC3YahNjirtmd3bS3Q1eUHvQEPUiEv8A4kXjwRJ78MCFBLjBBRKCHowHE38cNCbGGx6IUoKiodtNpoNmTJp4oSJNQ3pw29l5POxus2wo3QTwxPc0887zfD7zvu9kXnjEUfdNrjj5vJOmMP4e9JrfR1G02tuQD8tvgpck0dxCPwK30ViqnJTcr4bOmfRlI/PrhUJ5313woDpDpu8ss7f6nYHrvDnGcYlPsoY/bKaXwHY3HWfvgmNnMX0zvMM7069A3c3pkEYWa7UVgFxQPSfs7SSeH3k2rEy5jMubMBoG1yQ+SBbm53of+gCybMkk/H8VAFdbZisZLAFsJ11oyL+BUURcwrjWAZixXeIwxs/5UuVAr0QAYRjubGR+HWy3mb6QCIBXQe8nce0jgIkwfMo3/xLG085x8I9ofkMyUa0O+w2rgS0mcf3lboEDiKJo1cvsIDDr4D1DhTb8407hYhTdTJW+AvrdMnuhG9Je1m9BBzbfjXbyQcXypeqJLQt7+0rVE/mgYr3j7l7FDzOPBY8FDx6vc1EolPeNjI5/Jpgw7Lm9o+Pry//c/K0PhnLFyrSMDxE79jwxvn9079gvt28vrUD7V1EoFHalbltd2C7DfS4sAF4DTSdx7cL96LliZVriPPADuL+geRh0Z8il5SiKVn2ATENvCCYw78U/b8xdBcgHlYuGHQXuK5A4ClxM4vnXW8Lqp5JdWWt6h4CvWnsgxgDSbRZ3Gg0tCJ7sY4nGwDZOt/WBZtzN9FswLgM2sGann5mcPDaw5pWEHQH7cUu86SdkR3LF6tfrA814MNVpwNrM1leUxPXrSKfMeHcwdctyNotY8c3NbMX3LJsB3ZHsymDqlkHvYHYyievXWxPpSj4o75eYIuPWZof+vRKG4c61pncIx6gZsx34/5L/ACy3ElqUYhuvAAAAAElFTkSuQmCC",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABn0lEQVRIie2Vvy5EURDGvyMUkhUU/pS2Q2clwvIKqL0Cm9ArrBcQShJPoLFR2YaIhIjQ7a7E39IiCgqVn8KsPY697E3oTHPumTPf990z986M9Mfm/A0wKGlMUlnSlnPuOQQAE5LOnXOFWErAIvBK1S6BZBAzZ2fzcckHjXwVaAXSwD2wWYN8A2iKK1ABt3m+ZeDRnseIthdgDxioxd1o662tfZIO7Lnf8xcklST1StqRdORxNEualHQIDDvnTmvdIGE5vwdWgLy93bQX0w0UgSdgKMC3AdfA7ndpSgKbduUbYBoI/7Ju4BiYrYFfAl4iBbxAgOyPgV9xWYDQ3xCXKK79C/wL/KJZoeW8QpsJCy0C54AMULaGmQu7sIAW4MpaxTKwbQU3U4dAxmLzwLpxXAIJP2jKgkY8Xx4o1SFwBmx7+7RxTUnVb9Bpa9HDFiR1/SRgWH+6FT3/h2qK6sBpB0aBB7yB880NcpaWtGHXjCsVBmb5PDIvgJ46BJKW84q9AguV87Adp/Q+9O8UMfQjRBKSxiV1SNp3zp3Ug/sVewPruexhKwhGXQAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Push files to repository"
+    },
+    "description": "Push multiple files to a GitHub repository in a single commit",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "Branch to push to"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "content": {
+                "type": "string",
+                "description": "file content"
+              },
+              "path": {
+                "type": "string",
+                "description": "path to the file"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Array of file objects to push, each object with path (string) and content (string)"
+        },
+        "message": {
+          "type": "string",
+          "description": "Commit message"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner",
+          "x-mcp-header": "owner"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        }
+      },
+      "required": [
+        "owner",
+        "repo",
+        "branch",
+        "files",
+        "message"
+      ]
+    },
+    "name": "push_files",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABTklEQVRIie2UPUvDUBSGn5PW2qnYwUXExWhNpY2CUKT+BB10E3R0dnbrppuKLgouHbr5X5qlKRIFB+cuguBHj4O05KYfNsVJ+m7n3Hue54ZcrhDKQqGQTX1YVwg7QIbx0gh8b7VTJMMrqS+5RtgD7oDX2GhhC6UcbhkCVLZVuX1sesex4YCdX6uAGgIrsicjlrTGgQ9KVPDnmQgmgongPwgkXNiOq8ADMAtkx4UGvtflJvus20ANeIlN/vW5/kkt8L3D2HD6P9dRgSI8dQcc9w1IR3acBE3vbFSp8ZMVnoFSqJ/unZDe3pAYXyDIJarn9opbDZrewaAh2y7Oy5S1r6h5QG2Xxbw3piDw6xe244oKyxFmC5ihc+tS1qaqngKJyAEBGmZvSGzHVYT790T7aPozsaFoFZGboFGvDJsbOYuOuxuuc7n1uaV8sRSH8Q1DUVLnYLty3gAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAAA+ElEQVRIie2WLU5DQRRGzwUEirQCQ9BsoSGtZQHgSFgIsg4JXQCGP8V2QCBIEATZkJDgOJi+MJnMo30TFHmfmzvzfeeKyZ2BROpQvVHfrddDmhkZ4BY4Ai6BD7prAowjIoq7i85nFcGNf6qa1tayM1vAvBZQUg74c/WAHtAD/gMgn6YCT8A2MKwOTaZpCfAF3AGvFdlLx7XqdUVw4186rgWeE8Nn4cU67QLNAS/ASG3qmwVPqdaqjWw9A86BK+CkzaTuAseFBse/AiLiQg1gLzs3Bwb8XIp94AxYL/Af2xordap6v/htHKhv6nTlgBUAh9l6Rx11yfgG8ne/zwh2OysAAAAASUVORK5CYII=",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  },
+  {
+    "_meta": {
+      "ui": {
+        "resourceUri": "ui://github-mcp-server/pr-edit",
+        "visibility": [
+          "model",
+          "app"
+        ]
+      }
+    },
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": false,
+      "title": "Edit pull request"
+    },
+    "description": "Update an existing pull request in a GitHub repository.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "string",
+          "description": "New base branch name"
+        },
+        "body": {
+          "type": "string",
+          "description": "New description"
+        },
+        "draft": {
+          "type": "boolean",
+          "description": "Mark pull request as draft (true) or ready for review (false)"
+        },
+        "maintainer_can_modify": {
+          "type": "boolean",
+          "description": "Allow maintainer edits"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Repository owner",
+          "x-mcp-header": "owner"
+        },
+        "pullNumber": {
+          "type": "number",
+          "description": "Pull request number to update"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name",
+          "x-mcp-header": "repo"
+        },
+        "reviewers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "GitHub usernames or ORG/team-slug team reviewers to request reviews from"
+        },
+        "state": {
+          "type": "string",
+          "description": "New state",
+          "enum": [
+            "open",
+            "closed"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "New title"
+        }
+      },
+      "required": [
+        "owner",
+        "repo",
+        "pullNumber"
+      ]
+    },
+    "name": "update_pull_request",
+    "icons": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAACwUlEQVRIie2Vz28UZRjHP993pi0QIC3YahNjirtmd3bS3Q1eUHvQEPUiEv8A4kXjwRJ78MCFBLjBBRKCHowHE38cNCbGGx6IUoKiodtNpoNmTJp4oSJNQ3pw29l5POxus2wo3QTwxPc0887zfD7zvu9kXnjEUfdNrjj5vJOmMP4e9JrfR1G02tuQD8tvgpck0dxCPwK30ViqnJTcr4bOmfRlI/PrhUJ5313woDpDpu8ss7f6nYHrvDnGcYlPsoY/bKaXwHY3HWfvgmNnMX0zvMM7069A3c3pkEYWa7UVgFxQPSfs7SSeH3k2rEy5jMubMBoG1yQ+SBbm53of+gCybMkk/H8VAFdbZisZLAFsJ11oyL+BUURcwrjWAZixXeIwxs/5UuVAr0QAYRjubGR+HWy3mb6QCIBXQe8nce0jgIkwfMo3/xLG085x8I9ofkMyUa0O+w2rgS0mcf3lboEDiKJo1cvsIDDr4D1DhTb8407hYhTdTJW+AvrdMnuhG9Je1m9BBzbfjXbyQcXypeqJLQt7+0rVE/mgYr3j7l7FDzOPBY8FDx6vc1EolPeNjI5/Jpgw7Lm9o+Pry//c/K0PhnLFyrSMDxE79jwxvn9079gvt28vrUD7V1EoFHalbltd2C7DfS4sAF4DTSdx7cL96LliZVriPPADuL+geRh0Z8il5SiKVn2ATENvCCYw78U/b8xdBcgHlYuGHQXuK5A4ClxM4vnXW8Lqp5JdWWt6h4CvWnsgxgDSbRZ3Gg0tCJ7sY4nGwDZOt/WBZtzN9FswLgM2sGann5mcPDaw5pWEHQH7cUu86SdkR3LF6tfrA814MNVpwNrM1leUxPXrSKfMeHcwdctyNotY8c3NbMX3LJsB3ZHsymDqlkHvYHYyievXWxPpSj4o75eYIuPWZof+vRKG4c61pncIx6gZsx34/5L/ACy3ElqUYhuvAAAAAElFTkSuQmCC",
+        "mimeType": "image/png",
+        "theme": "light"
+      },
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAABn0lEQVRIie2Vvy5EURDGvyMUkhUU/pS2Q2clwvIKqL0Cm9ArrBcQShJPoLFR2YaIhIjQ7a7E39IiCgqVn8KsPY697E3oTHPumTPf990z986M9Mfm/A0wKGlMUlnSlnPuOQQAE5LOnXOFWErAIvBK1S6BZBAzZ2fzcckHjXwVaAXSwD2wWYN8A2iKK1ABt3m+ZeDRnseIthdgDxioxd1o662tfZIO7Lnf8xcklST1StqRdORxNEualHQIDDvnTmvdIGE5vwdWgLy93bQX0w0UgSdgKMC3AdfA7ndpSgKbduUbYBoI/7Ju4BiYrYFfAl4iBbxAgOyPgV9xWYDQ3xCXKK79C/wL/KJZoeW8QpsJCy0C54AMULaGmQu7sIAW4MpaxTKwbQU3U4dAxmLzwLpxXAIJP2jKgkY8Xx4o1SFwBmx7+7RxTUnVb9Bpa9HDFiR1/SRgWH+6FT3/h2qK6sBpB0aBB7yB880NcpaWtGHXjCsVBmb5PDIvgJ46BJKW84q9AguV87Adp/Q+9O8UMfQjRBKSxiV1SNp3zp3Ug/sVewPruexhKwhGXQAAAABJRU5ErkJggg==",
+        "mimeType": "image/png",
+        "theme": "dark"
+      }
+    ]
+  }
+]
