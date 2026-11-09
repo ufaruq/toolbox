@@ -155,3 +155,61 @@ func TestReadPinsExactBranch(t *testing.T) {
 		t.Fatal("bad commit accepted")
 	}
 }
+
+func TestMultiFileWriteRequiresSubtreeAndAncestorAuthorization(t *testing.T) {
+	raw := json.RawMessage(`{"branch":"agent/task","message":"fix","files":[{"path":"src/config","content":"x"}]}`)
+	for _, paths := range [][]string{{"src/config"}, {"src/"}, {"src/config/"}} {
+		g := operationGrant()
+		g.Paths = paths
+		if _, e := Build(g, "files.write", raw, time.Now()); e == nil {
+			t.Fatalf("accepted potentially out-of-scope tree replacement with %v", paths)
+		}
+	}
+	g := operationGrant()
+	g.Paths = []string{"src", "src/"}
+	if _, e := Build(g, "files.write", raw, time.Now()); e != nil {
+		t.Fatal(e)
+	}
+	raw = json.RawMessage(`{"branch":"agent/task","message":"fix","files":[{"path":"src","content":"x"}]}`)
+	if _, e := Build(g, "files.write", raw, time.Now()); e == nil {
+		t.Fatal("subtree boundary replacement accepted")
+	}
+	raw = json.RawMessage(`{"branch":"agent/task","message":"fix","files":[{"path":"src/config","content":"x"},{"path":"src/config/a","content":"y"}]}`)
+	if _, e := Build(g, "files.write", raw, time.Now()); e == nil {
+		t.Fatal("conflicting ancestor descendant paths accepted")
+	}
+	g.Paths = []string{".github", ".github/"}
+	raw = json.RawMessage(`{"branch":"agent/task","message":"fix","files":[{"path":".github","content":"x"}]}`)
+	if _, e := Build(g, "files.write", raw, time.Now()); e == nil {
+		t.Fatal("workflow parent replacement accepted")
+	}
+}
+func TestWhitespaceOnlyFileUpdates(t *testing.T) {
+	for _, content := range []string{"\n", " ", "\t\n"} {
+		raw, _ := json.Marshal(map[string]any{"branch": "agent/task", "path": "src/a", "message": "fix", "content": content, "sha": strings.Repeat("a", 40)})
+		if _, e := Build(operationGrant(), "files.update", raw, time.Now()); e != nil {
+			t.Fatalf("valid nonempty content %q rejected: %v", content, e)
+		}
+	}
+}
+
+func TestMultiFileNestedAncestorsAndGrantValidation(t *testing.T) {
+	raw := json.RawMessage(`{"branch":"agent/task","message":"fix","files":[{"path":"src/deep/config","content":"x"}]}`)
+	g := operationGrant()
+	g.Paths = []string{"src/deep", "src/deep/"}
+	if _, e := Build(g, "files.write", raw, time.Now()); e == nil {
+		t.Fatal("unapproved root ancestor accepted")
+	}
+	g.Paths = []string{"src", "src/deep", "src/deep/"}
+	if _, e := Build(g, "files.write", raw, time.Now()); e != nil {
+		t.Fatal(e)
+	}
+	g.Paths = []string{"src/config"}
+	if ValidateGrant(g) == nil {
+		t.Fatal("exact-file-only multi-file grant accepted")
+	}
+	g.Actions = []string{"files.update"}
+	if e := ValidateGrant(g); e != nil {
+		t.Fatalf("exact-file CAS grant rejected: %v", e)
+	}
+}

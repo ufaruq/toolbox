@@ -11,7 +11,12 @@ trusted owner/repository locator back to the approved numeric repository ID.
 Installation-token issuance must restrict `repository_ids` to that ID even when
 the App installation includes other repositories. `Permissions(action)` returns
 only metadata read and the action-specific contents, pull_requests or issues
-permission; account connection is never repository authorization.
+permission; account connection is never repository authorization. These are
+execution permissions, not a union of every preflight need. In particular merge
+execution needs `contents:write`, while mandatory PR metadata preflight needs a
+separately repository-scoped `pull_requests:read` token (or an explicitly scoped
+additional preflight permission). Tree/branch preflight needs `contents:read`.
+Never assume a contents-write execution token authorizes reading PR metadata.
 
 ## Inputs and restrictions
 
@@ -68,6 +73,31 @@ after that internal head read rejects as non-fast-forward. There is **no caller
 expected-head input**, so a stale agent baseline can overwrite file content when
 the branch changed before the tool's internal read. This is not compare-and-set.
 No automatic mutation retry or fabricated CAS is provided.
+
+`push_files` submits mode `100644` blob entries, which can replace an existing
+Git tree at a submitted path and remove all descendants. Consequently exact-file
+grants alone never authorize `files.write`. Every submitted path must be a strict
+descendant of a granted directory prefix, and every proper ancestor must itself
+be granted. For example `Paths: ["src", "src/"]` permits `src/config` (including
+replacement of the entire `src/config` subtree); `Paths: ["src/config"]` and
+`Paths: ["src/"]` alone reject it. The explicit ancestor `src` covers replacement
+of an existing ancestor blob, while `src/` covers descendants. A prefix grants
+its contents, not replacement of its own boundary: this grant rejects submitting
+`src` itself. Conflicting ancestor/descendant entries in the same request reject.
+`.github` replacement rejects because it could delete workflows. There is no
+repository-wide wildcard grant.
+
+Dispatch must inspect exact Git tree modes at the trusted commit, including all
+ancestors, and reject unexpected trees, symlinks (`120000`) and submodules
+(`160000`) for file operations. Expected file modes are `100644`/`100755` and
+ancestor directory mode is `040000`. Contents API responses may dereference
+symlinks, so they cannot establish these checks. Multi-file preflight should
+reject replacing a directory or a non-tree ancestor even where broader subtree
+authority exists. Because upstream subsequently reads its own current head,
+preflight is not atomic; subtree-plus-ancestor authorization bounds the effects
+if a file becomes a tree or an ancestor becomes a blob during that race. Exact
+file confinement cannot be guaranteed by this primitive and remains disabled
+for exact-file-only grants; use `files.update` with blob SHA instead.
 
 The upstream tool may create a missing branch from the default branch and may
 initialize an empty repository, including a default-branch change. Dispatch must

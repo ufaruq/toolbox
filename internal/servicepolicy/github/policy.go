@@ -84,6 +84,33 @@ func allowedPath(g Grant, v string) bool {
 	}
 	return false
 }
+
+// allowedTreeWrite requires authority over every subtree the blob entry could
+// replace and every ancestor blob which Git tree construction could replace.
+// Preflight cannot safely substitute for this authority: upstream reads a newer
+// head internally and offers no caller head precondition.
+func allowedTreeWrite(g Grant, v string) bool {
+	if !allowedPath(g, v) || strings.EqualFold(v, ".github") {
+		return false
+	}
+	covered := false
+	for _, prefix := range g.Paths {
+		if strings.HasSuffix(prefix, "/") && strings.HasPrefix(v, prefix) && len(v) > len(prefix) {
+			covered = true
+			break
+		}
+	}
+	if !covered {
+		return false
+	}
+	for ancestor := path.Dir(v); ancestor != "."; ancestor = path.Dir(ancestor) {
+		if !allowedPath(g, ancestor) {
+			return false
+		}
+	}
+	return true
+}
+
 func build(tool string, args map[string]any) (Call, error) {
 	b, e := json.Marshal(args)
 	if e != nil || len(b) > 16<<10 {
@@ -129,8 +156,13 @@ func Build(g Grant, action string, raw json.RawMessage, now time.Time) (Call, er
 		}
 		seen := map[string]bool{}
 		for _, f := range in.Files {
-			if !allowedPath(g, f.Path) || seen[f.Path] || f.Content == nil || !utf8.ValidString(*f.Content) || strings.ContainsRune(*f.Content, 0) {
+			if !allowedTreeWrite(g, f.Path) || seen[f.Path] || f.Content == nil || !utf8.ValidString(*f.Content) || strings.ContainsRune(*f.Content, 0) {
 				return Call{}, ErrDenied
+			}
+			for existing := range seen {
+				if strings.HasPrefix(existing, f.Path+"/") || strings.HasPrefix(f.Path, existing+"/") {
+					return Call{}, ErrDenied
+				}
 			}
 			seen[f.Path] = true
 		}

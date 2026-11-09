@@ -55,8 +55,20 @@ func ValidateGrant(g Grant) error {
 				return ErrDenied
 			}
 		}
-		if a == "files.write" && !g.AllowUnconditionalWrites {
-			return ErrDenied
+		if a == "files.write" {
+			if !g.AllowUnconditionalWrites {
+				return ErrDenied
+			}
+			usableSubtree := false
+			for _, p := range g.Paths {
+				if strings.HasSuffix(p, "/") && allowedTreeWrite(g, p+"toolbox-policy-probe") {
+					usableSubtree = true
+					break
+				}
+			}
+			if !usableSubtree {
+				return ErrDenied
+			}
 		}
 		if (a == "prs.merge" || a == "prs.review") && !shaPattern.MatchString(g.ExpectedHead) {
 			return ErrDenied
@@ -119,7 +131,7 @@ func buildOperation(g Grant, action string, raw json.RawMessage, args map[string
 			Message string `json:"message"`
 			SHA     string `json:"sha"`
 		}
-		if strict.Decode(raw, &in) != nil || !branch(in.Branch) || !contains(g.Branches, in.Branch) || !allowedPath(g, in.Path) || !shaPattern.MatchString(in.SHA) || !textOK(in.Message, 1024, true) || !textOK(in.Content, 16<<10, true) {
+		if strict.Decode(raw, &in) != nil || !branch(in.Branch) || !contains(g.Branches, in.Branch) || !allowedPath(g, in.Path) || !shaPattern.MatchString(in.SHA) || !textOK(in.Message, 1024, true) || (len(in.Content) == 0 || !textOK(in.Content, 16<<10, false)) {
 			return Call{}, ErrDenied
 		}
 		args["branch"] = in.Branch
