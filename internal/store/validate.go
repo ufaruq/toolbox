@@ -15,7 +15,7 @@ func validate(old, s *domain.State) error {
 	if s.Users == nil || s.Agents == nil || s.Credentials == nil || s.Sessions == nil || s.Connections == nil || s.Resources == nil || s.Requests == nil || s.Grants == nil || s.OAuth == nil || s.OwnerLogins == nil || s.Cleanup == nil {
 		return invalid("nil collection")
 	}
-	if s.CallerProfiles == nil || s.IdentityAliases == nil {
+	if s.CallerCandidates == nil || s.CallerProfiles == nil || s.IdentityAliases == nil {
 		return invalid("nil caller profiles")
 	}
 	identities := map[string]bool{}
@@ -85,6 +85,55 @@ func validate(old, s *domain.State) error {
 		profileIdentities[identity], profileAgents[v.AgentID] = true, true
 		if prev, ok := old.CallerProfiles[k]; ok && (prev.OwnerID != v.OwnerID || prev.AgentID != v.AgentID || prev.Issuer != v.Issuer || prev.UserID != v.UserID || prev.ClientID != v.ClientID) {
 			return invalid("caller profile binding changed")
+		}
+	}
+	oldProfileBindings := map[[3]string]domain.CallerProfile{}
+	for _, profile := range old.CallerProfiles {
+		oldProfileBindings[[3]string{profile.Issuer, profile.UserID, profile.ClientID}] = profile
+	}
+	candidateIdentities := map[[3]string]bool{}
+	for k, v := range s.CallerCandidates {
+		if k == "" || k != v.ID || v.Issuer == "" || v.UserID == "" || v.ClientID == "" || v.FirstSeenAt.IsZero() {
+			return invalid("caller candidate")
+		}
+		owner, ok := domain.ResolveIdentity(s, v.Issuer, v.UserID)
+		if !ok || owner.ID != v.OwnerID {
+			return invalid("caller candidate owner identity")
+		}
+		identity := [3]string{v.Issuer, v.UserID, v.ClientID}
+		if candidateIdentities[identity] {
+			return invalid("duplicate caller candidate identity")
+		}
+		candidateIdentities[identity] = true
+		switch v.Status {
+		case "pending":
+			if !v.DecidedAt.IsZero() {
+				return invalid("pending caller candidate decision")
+			}
+		case "rejected", "approved":
+			if v.DecidedAt.IsZero() || v.DecidedAt.Before(v.FirstSeenAt) {
+				return invalid("caller candidate decision")
+			}
+		default:
+			return invalid("caller candidate status")
+		}
+		if (v.Status == "approved") != profileIdentities[identity] {
+			return invalid("caller candidate profile binding")
+		}
+		if prev, ok := old.CallerCandidates[k]; ok {
+			if prev.Status == "approved" {
+				profile := oldProfileBindings[identity]
+				current, exists := s.CallerProfiles[profile.ID]
+				if !exists || current.AgentID != profile.AgentID {
+					return invalid("approved caller candidate profile changed")
+				}
+			}
+			if prev.OwnerID != v.OwnerID || prev.Issuer != v.Issuer || prev.UserID != v.UserID || prev.ClientID != v.ClientID || !prev.FirstSeenAt.Equal(v.FirstSeenAt) {
+				return invalid("caller candidate identity changed")
+			}
+			if prev.Status == "approved" && v.Status != "approved" || prev.Status == "rejected" && v.Status == "approved" || prev.Status == v.Status && !prev.DecidedAt.Equal(v.DecidedAt) {
+				return invalid("caller candidate decision changed")
+			}
 		}
 	}
 	for k, v := range s.Credentials {

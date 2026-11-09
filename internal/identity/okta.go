@@ -48,6 +48,7 @@ type Service struct {
 	clients                       map[string]string
 	ownerClientID                 string
 	keycloakAudience              string
+	dynamicClientOnboarding       bool
 	client                        *http.Client
 	oauth                         oauth2.Config
 	accessVerifier, ownerVerifier *oidc.IDTokenVerifier
@@ -118,7 +119,7 @@ func newIdentity(ctx context.Context, cfg Config, accessOnly bool) (*Service, er
 // unrelated to IDToken.VerifyAccessToken, which only checks an at_hash binding.
 func (s *Service) VerifyAccess(ctx context.Context, raw string) (Claims, error) {
 	if s.keycloakAudience != "" {
-		return s.verifyKeycloakAccess(ctx, raw)
+		return s.verifyKeycloakAccess(ctx, raw, false)
 	}
 	if len(raw) == 0 || len(raw) > 16384 {
 		return Claims{}, errAccess
