@@ -34,7 +34,7 @@ function clearDocument() { $('file-id').value = ''; $('selected-document').textC
 function clearResult() { resultGeneration++; approvedFile = ''; $('grant-id').value = ''; $('document').textContent = ''; $('result-panel').hidden = true; }
 function showSignedOut() {
  uiEpoch++; resultGeneration++; csrf = ''; approvedFile = ''; invalidateReview();
- $('callers-panel').hidden = true; $('caller-list').replaceChildren();
+ $('callers-panel').hidden = true; $('caller-list').replaceChildren(); $('pending-callers').replaceChildren();
  callerProfiles = []; callerIssuer = ''; $('caller-status').textContent = '';
  $('workspace').hidden = true; $('login-panel').hidden = false; $('logout').hidden = true;
  $('agent-credential').value = ''; $('agent-id').textContent = ''; $('document').textContent = ''; $('audit-output').textContent = '';
@@ -203,6 +203,7 @@ async function loadCallers() {
  syncCallerButton();
  $('callers-panel').hidden = false;
  $('caller-list').replaceChildren();
+ renderPendingCallers(value, epoch);
  for (const profile of value.callers) {
   const row = document.createElement('div'), identity = document.createElement('p'), detail = document.createElement('p'), badge = document.createElement('span');
   const active = profile.status === 'active' && Date.parse(profile.expires_at) > Date.now();
@@ -248,6 +249,39 @@ async function loadCallers() {
   }
   row.append(updateNotice);
   $('caller-list').append(row);
+ }
+}
+function renderPendingCallers(value, epoch) {
+ $('pending-callers').replaceChildren();
+ for (const candidate of value.pending_callers || []) {
+  const row = document.createElement('div'), title = document.createElement('p'), detail = document.createElement('p');
+  row.dataset.candidateId = candidate.id;
+  title.textContent = candidate.status === 'pending' ? 'Pending approval' : 'Rejected';
+  detail.textContent = 'Client: ' + candidate.client_id + ' · Issuer: ' + candidate.issuer + ' · First seen: ' + new Date(candidate.first_seen_at).toLocaleString();
+  row.append(title, detail);
+  const label = document.createElement('label'), name = document.createElement('input'), notice = document.createElement('p');
+  name.id = 'pending-name-' + candidate.id; name.maxLength = 80;
+  label.htmlFor = name.id; label.textContent = 'Name for this client';
+  notice.textContent = 'Choose a name and review the tools and duration above before approving. The client ID identifies the registration; it does not verify a vendor. Each document needs separate approval.';
+  if (candidate.status === 'pending') row.append(label, name, notice);
+  const actions = candidate.status === 'pending' ? [['approve', 'Approve pending client'], ['reject', 'Reject']] : [['reopen', 'Reopen review']];
+  for (const [operation, text] of actions) {
+   const button = document.createElement('button'); button.textContent = text; button.disabled = !value.dynamic_onboarding;
+   button.addEventListener('click', async () => {
+    if (epoch !== uiEpoch) return;
+    const payload = operation === 'approve' ? {label: name.value.trim(), ...callerPermissions()} : {};
+    button.disabled = true;
+    try {
+     await request('/v1/callers/pending/' + encodeURIComponent(candidate.id) + '/' + operation, payload);
+     if (epoch !== uiEpoch) return;
+     await loadCallers();
+     if (epoch !== uiEpoch) return;
+     $('caller-status').textContent = operation === 'approve' ? 'Client approved. Each document still needs its own approval.' : operation === 'reject' ? 'Client rejected. Reconnecting does not reopen review.' : 'Client is pending review again.';
+    } catch (error) { if (epoch === uiEpoch) { $('caller-status').textContent = error.message; button.disabled = false; } }
+   });
+   row.append(button);
+  }
+  $('pending-callers').append(row);
  }
 }
 function syncCallerButton() {

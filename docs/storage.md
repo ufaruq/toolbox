@@ -39,6 +39,16 @@ Before a larger deployment, replace full snapshots with scoped, indexed queries 
 
 The migration creates separate `users`, `agents`, `credentials`, `sessions`, `connections`, `resources`, `grants`, `delegation_requests`, `oauth_transactions`, `cleanup_outbox`, and `audit_events` tables. `toolbox_migrations` records the exact checksum of each applied migration. Never edit an applied migration; add a new one.
 
+`caller_candidates` stores verified issuer/subject/client tuples independently of
+approved `caller_profiles`. Candidates bind to the owner's primary identity or a
+verified identity alias. Identity and first-seen time are immutable; pending rows
+have no decision time, and rejected/approved rows require a decision at or after
+first seen. Rejected rows can reopen as pending for explicit human review.
+Approved candidates retain their exact profile and agent binding, including when
+the profile is disabled or expires. A pending or rejected tuple cannot coexist
+with an approved profile. These records grant no permissions; owner authorization
+and caller admission remain service responsibilities.
+
 Each entity has a JSONB payload containing its complete typed domain record. Stored generated columns expose keys and relevant relational fields without allowing payload/key divergence. Payload key allowlists reject accidental new fields such as `AccessToken`; changing the domain model requires a corresponding migration. Resources and approval requests additionally carry an owner key derived by the adapter from their connection or agent.
 
 Database constraints include:
@@ -57,7 +67,7 @@ The shared Go validator applies these semantic invariants to both adapters befor
 
 ## GitHub authorization records
 
-Migration 007 adds `github_connections`, `github_requests` and `github_grants`;
+`007_github_authorization.sql` adds `github_connections`, `github_requests` and `github_grants`;
 legacy Google tables and document IDs are unchanged. Connections bind owner,
 installation, immutable repository ID, locator and generation. Grants bind the
 same owner and agent to that connection, repository, generation and immutable
@@ -69,6 +79,10 @@ approval records and reversing revocation. SQL additionally validates JSON types
 explicitly so null values cannot pass CHECK constraints. Connection disconnect
 increments its generation and cannot be reversed. A new connection needs new
 grants. See [GitHub access](github-connector.md) for approval semantics.
+
+The independent `007_caller_candidates.sql` migration arrived on main in parallel.
+Migrations are keyed by full filename and checksum, so both apply once; the
+already-applied GitHub migration keeps its original name.
 
 ## Transactions and time
 

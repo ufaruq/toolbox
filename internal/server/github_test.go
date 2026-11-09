@@ -153,3 +153,45 @@ func TestGitHubMutationOutcomeUnknown(t *testing.T) {
 		t.Fatalf("missing unknown outcome audit: %+v", events)
 	}
 }
+
+func TestGitHubDynamicCallerAdmissionRollback(t *testing.T) {
+	s, repo, _ := mcpFixture(t)
+	s.Identity = onboardingIdentity{enabled: true}
+	pendingMCP(s, "new-client")
+	id := candidateID(t, s)
+	cookie, csrf := ownerCookie(t, s, "owner")
+	w := ownerPost(s, "/v1/callers/pending/"+id+"/approve", `{"label":"GitHub client","tools":["github.operation.v1"],"duration_seconds":3600}`, cookie, csrf)
+	if w.Code != 201 {
+		t.Fatal(w.Code, w.Body)
+	}
+	var profile map[string]any
+	if e := json.Unmarshal(w.Body.Bytes(), &profile); e != nil {
+		t.Fatal(e)
+	}
+	agentID := profile["agent_id"].(string)
+	access := agentAccess{AgentID: agentID, CallerProfileID: profile["id"].(string), TokenExpiresAt: time.Now().Add(time.Hour)}
+	stub := &githubStub{}
+	s.GitHub = stub
+	if e := repo.Transact(context.Background(), func(st *domain.State) error {
+		st.GitHubConnections["ghc"] = domain.GitHubConnection{ID: "ghc", OwnerID: "owner", InstallationID: 42, RepositoryID: 99, RepositoryOwner: "org", RepositoryName: "repo", Status: "active", Epoch: 1}
+		st.GitHubGrants["ghg"] = domain.GitHubGrant{ID: "ghg", OwnerID: "owner", AgentID: agentID, ConnectionID: "ghc", RepositoryID: 99, Epoch: 1, Scope: domain.GitHubScope{Actions: []string{"files.read"}, Branches: []string{"main"}, Paths: []string{"README.md"}}, NotBefore: st.Now, ExpiresAt: st.Now.Add(time.Hour)}
+		return nil
+	}); e != nil {
+		t.Fatal(e)
+	}
+	invoke := func() (map[string]any, error) {
+		return s.githubOperation(context.Background(), access, "ghg", "files.read", json.RawMessage(`{"branch":"main","path":"README.md"}`))
+	}
+	if _, e := invoke(); e != nil || stub.calls != 1 {
+		t.Fatalf("approved dynamic caller: %v calls=%d", e, stub.calls)
+	}
+	s.Identity = onboardingIdentity{enabled: false}
+	if result, e := invoke(); e == nil || result != nil || stub.calls != 1 {
+		t.Fatal("disabled dynamic admission dispatched GitHub")
+	}
+	s.Identity = onboardingIdentity{enabled: true}
+	stub.during = func() { s.Identity = onboardingIdentity{enabled: false} }
+	if result, e := invoke(); e == nil || result != nil || stub.calls != 2 {
+		t.Fatal("GitHub released result after dynamic admission rollback")
+	}
+}

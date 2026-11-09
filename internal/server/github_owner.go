@@ -235,7 +235,7 @@ func (s *Server) githubCreateRequest(ctx context.Context, access agentAccess, in
 	}
 	var q domain.GitHubRequest
 	e := s.Repository.Transact(ctx, func(st *domain.State) error {
-		if err := authorizeAgent(st, access, domain.GitHubTool); err != nil {
+		if err := s.authorizeAgent(st, access, domain.GitHubTool); err != nil {
 			return err
 		}
 		a := st.Agents[access.AgentID]
@@ -290,7 +290,7 @@ func (s *Server) githubRequest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) githubPollRequest(ctx context.Context, access agentAccess, id string) (map[string]any, error) {
 	var q domain.GitHubRequest
 	e := s.Repository.Transact(ctx, func(st *domain.State) error {
-		if err := authorizeAgent(st, access, domain.GitHubTool); err != nil {
+		if err := s.authorizeAgent(st, access, domain.GitHubTool); err != nil {
 			return err
 		}
 		var ok bool

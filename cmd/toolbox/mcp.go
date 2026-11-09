@@ -13,8 +13,13 @@ func loadMCPConfig(getenv func(string) string, ownerIssuer, ownerClientID, origi
 	if err != nil {
 		return nil, err
 	}
+	flag := getenv("TOOLBOX_MCP_DYNAMIC_CLIENT_ONBOARDING")
+	if flag != "" && flag != "true" && flag != "false" || flag == "true" && provider != "keycloak" {
+		return nil, errors.New("invalid MCP dynamic onboarding configuration")
+	}
+	dynamic := flag == "true"
 	issuer, raw := getenv("TOOLBOX_MCP_ISSUER"), getenv("TOOLBOX_MCP_CLIENTS")
-	if issuer == "" && raw == "" {
+	if issuer == "" && raw == "" && !dynamic {
 		return nil, nil
 	}
 	invalid := errors.New("invalid MCP tenant/client configuration")
@@ -25,8 +30,11 @@ func loadMCPConfig(getenv func(string) string, ownerIssuer, ownerClientID, origi
 	if !bound || len(raw) > 65536 {
 		return nil, invalid
 	}
+	if raw == "" && dynamic {
+		raw = "{}"
+	}
 	var clients map[string]string
-	if strict.Decode([]byte(raw), &clients) != nil || len(clients) == 0 || len(clients) > 128 {
+	if strict.Decode([]byte(raw), &clients) != nil || len(clients) == 0 && !dynamic || len(clients) > 128 {
 		return nil, invalid
 	}
 	for id, label := range clients {
@@ -34,5 +42,5 @@ func loadMCPConfig(getenv func(string) string, ownerIssuer, ownerClientID, origi
 			return nil, invalid
 		}
 	}
-	return &identity.AccessConfig{Provider: provider, Issuer: issuer, OwnerIssuer: ownerIssuer, Audience: origin + "/mcp", OwnerClientID: ownerClientID, Clients: clients}, nil
+	return &identity.AccessConfig{Provider: provider, DynamicClientOnboarding: dynamic, Issuer: issuer, OwnerIssuer: ownerIssuer, Audience: origin + "/mcp", OwnerClientID: ownerClientID, Clients: clients}, nil
 }

@@ -35,7 +35,7 @@ func (s *Server) createDelegation(ctx context.Context, access agentAccess, tool,
 	}
 	var q domain.Request
 	e := s.Repository.Transact(ctx, func(st *domain.State) error {
-		if e := authorizeAgent(st, access, tool); e != nil {
+		if e := s.authorizeAgent(st, access, tool); e != nil {
 			return e
 		}
 		q = domain.Request{ID: security.ID(), AgentID: access.AgentID, FileID: fileID, Tool: tool, Status: "pending", Version: 1, DurationSeconds: durationSeconds, RequestedExpiry: st.Now.Add(time.Duration(durationSeconds) * time.Second), ExpiresAt: st.Now.Add(10 * time.Minute)}
@@ -59,7 +59,7 @@ func (s *Server) pollDelegation(ctx context.Context, access agentAccess, id stri
 	var q domain.Request
 	e := s.Repository.Transact(ctx, func(st *domain.State) error {
 		v, ok := st.Requests[id]
-		if !ok || v.AgentID != access.AgentID || authorizeAgent(st, access, "") != nil {
+		if !ok || v.AgentID != access.AgentID || s.authorizeAgent(st, access, "") != nil {
 			return domain.ErrDenied
 		}
 		q = v
@@ -80,7 +80,7 @@ func (s *Server) mintDelegation(ctx context.Context, access agentAccess, grantID
 	var raw string
 	e := s.Repository.Transact(ctx, func(st *domain.State) error {
 		g := st.Grants[grantID]
-		g, e := grantAccessCheck(st, access, grantID, g.FileID, nil)
+		g, e := s.grantAccessCheck(st, access, grantID, g.FileID, nil)
 		if e != nil {
 			return e
 		}
@@ -114,7 +114,7 @@ func (s *Server) invokeOperation(ctx context.Context, access agentAccess, tool, 
 		if verifyErr != nil {
 			authorizationErr = domain.ErrDenied
 		} else {
-			grant, authorizationErr = grantAccessCheck(st, access, grantID, fileID, &claims)
+			grant, authorizationErr = s.grantAccessCheck(st, access, grantID, fileID, &claims)
 		}
 		if authorizationErr != nil {
 			// Request and token identifiers are untrusted until the entire grant
@@ -147,7 +147,7 @@ func (s *Server) invokeOperation(ctx context.Context, access agentAccess, tool, 
 	}
 	authorize := func(ctx context.Context) error {
 		return s.Repository.Transact(ctx, func(st *domain.State) error {
-			_, e := grantAccessCheck(st, access, grant.ID, fileID, &claims)
+			_, e := s.grantAccessCheck(st, access, grant.ID, fileID, &claims)
 			return e
 		})
 	}
@@ -171,7 +171,7 @@ func (s *Server) invokeOperation(ctx context.Context, access agentAccess, tool, 
 		return nil, failInvocation(status, code)
 	}
 	e = s.Repository.Transact(ctx, func(st *domain.State) error {
-		_, e := grantAccessCheck(st, access, grant.ID, fileID, &claims)
+		_, e := s.grantAccessCheck(st, access, grant.ID, fileID, &claims)
 		if e != nil {
 			return e
 		}

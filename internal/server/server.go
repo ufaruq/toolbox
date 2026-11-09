@@ -280,7 +280,7 @@ func (s *Server) agent(r *http.Request) (domain.Agent, string, error) {
 	e = s.Repository.Transact(r.Context(), func(st *domain.State) error {
 		c, ok := st.Credentials[id]
 		v := st.Agents[c.AgentID]
-		if !ok || authorizeAgent(st, agentAccess{AgentID: v.ID, CredentialID: id}, "") != nil || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
+		if !ok || s.authorizeAgent(st, agentAccess{AgentID: v.ID, CredentialID: id}, "") != nil || !security.Equal(c.Hash, security.KeyedHash(s.Pepper, secret)) {
 			return domain.ErrDenied
 		}
 		a = v
@@ -323,8 +323,8 @@ func addAudit(st *domain.State, actorType, actorID, subject, action, grant, conn
 	}
 	st.Audits = append(st.Audits, event)
 }
-func grantCheck(st *domain.State, agentID, credentialID, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
-	if authorizeAgent(st, agentAccess{AgentID: agentID, CredentialID: credentialID}, domain.Tool) != nil {
+func (s *Server) grantCheck(st *domain.State, agentID, credentialID, grantID, fileID string, c *security.Claims) (domain.Grant, error) {
+	if s.authorizeAgent(st, agentAccess{AgentID: agentID, CredentialID: credentialID}, domain.Tool) != nil {
 		return domain.Grant{}, domain.ErrDenied
 	}
 	return grantRules(st, agentID, grantID, fileID, c)

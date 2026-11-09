@@ -14,6 +14,7 @@ type AccessConfig struct {
 	Provider                                     string
 	Issuer, OwnerIssuer, Audience, OwnerClientID string
 	Clients                                      map[string]string
+	DynamicClientOnboarding                      bool         // Keycloak identity-only verification; never enables tool access
 	AllowLoopbackHTTP                            bool         // signed local fixtures only
 	HTTPClient                                   *http.Client // trusted TLS roots for embedded callers; Keycloak only
 }
@@ -36,9 +37,25 @@ func NewAccess(ctx context.Context, cfg AccessConfig) (*Service, error) {
 	case "keycloak":
 		return newKeycloakAccess(ctx, cfg)
 	case "", "okta":
+		if cfg.DynamicClientOnboarding {
+			return nil, errConfig
+		}
 	default:
 		return nil, errConfig
 	}
 	return newIdentity(ctx, Config{Issuer: cfg.Issuer, OwnerIssuer: cfg.OwnerIssuer, Audience: cfg.Audience,
 		OwnerClientID: cfg.OwnerClientID, Clients: cfg.Clients, AllowLoopbackHTTP: cfg.AllowLoopbackHTTP}, true)
+}
+
+// DynamicClientOnboarding reports whether the separate identity-only path is enabled.
+func (s *Service) DynamicClientOnboarding() bool { return s.dynamicClientOnboarding }
+
+// VerifyOnboardingAccess verifies a Keycloak user token without admitting its
+// client to execute tools. The caller must separately resolve owner approval.
+// Ordinary VerifyAccess always retains the configured static-client policy.
+func (s *Service) VerifyOnboardingAccess(ctx context.Context, raw string) (Claims, error) {
+	if !s.dynamicClientOnboarding || s.keycloakAudience == "" {
+		return Claims{}, errAccess
+	}
+	return s.verifyKeycloakAccess(ctx, raw, true)
 }

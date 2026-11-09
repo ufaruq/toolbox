@@ -17,7 +17,7 @@ func (s *Server) githubMCPCatalog(catalog *mcp.Server, requestCtx context.Contex
 	if s.GitHub == nil {
 		return
 	}
-	if e := s.Repository.Transact(requestCtx, func(st *domain.State) error { return authorizeAgent(st, access, domain.GitHubTool) }); e != nil {
+	if e := s.Repository.Transact(requestCtx, func(st *domain.State) error { return s.authorizeAgent(st, access, domain.GitHubTool) }); e != nil {
 		return
 	}
 	no := false
@@ -26,7 +26,7 @@ func (s *Server) githubMCPCatalog(catalog *mcp.Server, requestCtx context.Contex
 		defer cancel()
 		items := []map[string]any{}
 		e := s.Repository.Transact(ctx, func(st *domain.State) error {
-			if e := authorizeAgent(st, access, domain.GitHubTool); e != nil {
+			if e := s.authorizeAgent(st, access, domain.GitHubTool); e != nil {
 				return e
 			}
 			owner := st.Agents[access.AgentID].OwnerID

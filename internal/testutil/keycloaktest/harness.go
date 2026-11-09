@@ -34,7 +34,7 @@ const Image = "quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a530317
 type Endpoints struct{ Broker, RealmIssuer, OktaIssuer, GoogleIssuer string }
 
 // Credentials are freshly generated for each run and must never be logged.
-type Credentials struct{ Owner, Okta, Google, Operator string }
+type Credentials struct{ Owner, Okta, Google, Operator, Bootstrap string }
 
 // Harness owns only the Docker resources created by its Start call.
 type Harness struct {
@@ -70,7 +70,7 @@ func Start(t testing.TB, realm string, render func(Endpoints, Credentials) ([]by
 	upstreamIP, brokerIP := append(net.IP(nil), subnet.IP.To4()...), append(net.IP(nil), subnet.IP.To4()...)
 	upstreamIP[3] += 10
 	brokerIP[3] += 11
-	h := &Harness{Endpoints: Endpoints{Broker: "https://" + brokerIP.String() + ":8443", OktaIssuer: "https://" + upstreamIP.String() + ":9443/okta", GoogleIssuer: "https://" + upstreamIP.String() + ":9443/google"}, Credentials: Credentials{Owner: random(t), Okta: random(t), Google: random(t), Operator: random(t)}}
+	h := &Harness{Endpoints: Endpoints{Broker: "https://" + brokerIP.String() + ":8443", OktaIssuer: "https://" + upstreamIP.String() + ":9443/okta", GoogleIssuer: "https://" + upstreamIP.String() + ":9443/google"}, Credentials: Credentials{Owner: random(t), Okta: random(t), Google: random(t), Operator: random(t), Bootstrap: random(t)}}
 	h.RealmIssuer = h.Broker + "/realms/" + realm
 	ca, cert, key := certificates(t, []net.IP{upstreamIP, brokerIP})
 	write(t, filepath.Join(dir, "ca.pem"), ca)
@@ -114,6 +114,7 @@ func Start(t testing.TB, realm string, render func(Endpoints, Credentials) ([]by
 	// Pulling by digest verifies content rather than trusting a mutable local tag.
 	docker(t, ctx, "pull", Image)
 	broker := docker(t, ctx, "run", "--detach", "--name", name+"-broker", "--network", network, "--ip", brokerIP.String(), "--user", uid+":0",
+		"--env", "KC_BOOTSTRAP_ADMIN_USERNAME=fixture-admin", "--env", "KC_BOOTSTRAP_ADMIN_PASSWORD="+h.Credentials.Bootstrap,
 		"--env", "NO_PROXY="+strings.Trim(os.Getenv("NO_PROXY")+","+upstreamIP.String()+","+brokerIP.String(), ","),
 		"--env", "no_proxy="+strings.Trim(os.Getenv("no_proxy")+","+upstreamIP.String()+","+brokerIP.String(), ","),
 		"--mount", mount(dir, "realm.json", "/opt/keycloak/data/import/realm.json"), "--mount", mount(dir, "ca.pem", "/opt/keycloak/conf/truststores/test-ca.pem"),
@@ -127,7 +128,7 @@ func Start(t testing.TB, realm string, render func(Endpoints, Credentials) ([]by
 			output, _ := command(logCtx, "logs", "--tail", "100", broker).CombinedOutput()
 			for _, line := range strings.Split(string(output), "\n") {
 				if strings.Contains(line, "ERROR") || strings.Contains(line, "Exception") || strings.Contains(line, "error=") {
-					for _, secret := range []string{h.Credentials.Owner, h.Credentials.Okta, h.Credentials.Google, h.Credentials.Operator} {
+					for _, secret := range []string{h.Credentials.Owner, h.Credentials.Okta, h.Credentials.Google, h.Credentials.Operator, h.Credentials.Bootstrap} {
 						line = strings.ReplaceAll(line, secret, "[redacted]")
 					}
 					line = regexp.MustCompile(`https?://[^\s]+`).ReplaceAllString(line, "[local URL redacted]")

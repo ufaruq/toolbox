@@ -51,14 +51,18 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 		challenge()
 		return
 	}
-	claims, err := s.Identity.VerifyAccess(r.Context(), parts[1])
+	verify := s.Identity.VerifyAccess
+	if dynamic, ok := s.Identity.(onboardingVerifier); ok && dynamic.DynamicClientOnboarding() {
+		verify = dynamic.VerifyOnboardingAccess
+	}
+	claims, err := verify(r.Context(), parts[1])
 	if err != nil {
 		challenge()
 		return
 	}
 	access, err := s.resolveCaller(r.Context(), claims)
 	if err != nil {
-		fail(w, 403, "CALLER_NOT_APPROVED")
+		operationFailure(w, err)
 		return
 	}
 	if !s.allowed("mcp:"+access.AgentID, 120) {
@@ -67,10 +71,10 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	canRead := false
 	err = s.Repository.Transact(r.Context(), func(st *domain.State) error {
-		if err := authorizeAgent(st, access, ""); err != nil {
+		if err := s.authorizeAgent(st, access, ""); err != nil {
 			return err
 		}
-		canRead = authorizeAgent(st, access, domain.Tool) == nil
+		canRead = s.authorizeAgent(st, access, domain.Tool) == nil
 		return nil
 	})
 	if err != nil {

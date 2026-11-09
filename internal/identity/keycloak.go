@@ -52,12 +52,12 @@ func canonicalKeycloakURL(u *url.URL) bool {
 func newKeycloakAccess(ctx context.Context, cfg AccessConfig) (*Service, error) {
 	if !ValidKeycloakOwnerBinding(cfg.OwnerIssuer, cfg.Issuer, cfg.AllowLoopbackHTTP) ||
 		!boundedInput(cfg.Audience, 2048) || !boundedInput(cfg.OwnerClientID, 256) ||
-		cfg.Audience == cfg.OwnerClientID || len(cfg.Clients) == 0 {
+		cfg.Audience == cfg.OwnerClientID || len(cfg.Clients) == 0 && !cfg.DynamicClientOnboarding {
 		return nil, errConfig
 	}
 	clients := make(map[string]string, len(cfg.Clients))
 	for id, name := range cfg.Clients {
-		if !boundedInput(id, 256) || !boundedInput(name, 256) || id == cfg.Audience || id == cfg.OwnerClientID {
+		if !boundedInput(id, 256) || !boundedInput(name, 256) || !eligibleKeycloakClient(id, cfg.OwnerClientID, cfg.Audience) {
 			return nil, errConfig
 		}
 		clients[id] = name
@@ -83,7 +83,7 @@ func newKeycloakAccess(ctx context.Context, cfg AccessConfig) (*Service, error) 
 		return nil, errDiscovery
 	}
 	return &Service{issuer: cfg.Issuer, ownerIssuer: cfg.OwnerIssuer, ownerClientID: cfg.OwnerClientID,
-		keycloakAudience: cfg.Audience, clients: clients, client: client,
+		keycloakAudience: cfg.Audience, dynamicClientOnboarding: cfg.DynamicClientOnboarding, clients: clients, client: client,
 		accessVerifier: provider.Verifier(&oidc.Config{ClientID: cfg.Audience, SupportedSigningAlgs: []string{oidc.RS256}})}, nil
 }
 
@@ -162,7 +162,7 @@ func (t *keycloakTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return response, nil
 }
 
-func (s *Service) verifyKeycloakAccess(ctx context.Context, raw string) (Claims, error) {
+func (s *Service) verifyKeycloakAccess(ctx context.Context, raw string, onboarding bool) (Claims, error) {
 	if len(raw) == 0 || len(raw) > 16384 {
 		return Claims{}, errAccess
 	}
@@ -205,8 +205,24 @@ func (s *Service) verifyKeycloakAccess(ctx context.Context, raw string) (Claims,
 		!keycloakMCPScope(scope) || !hasIAT || !hasEXP {
 		return Claims{}, errAccess
 	}
-	if _, ok := s.clients[client]; !ok {
+	if !eligibleKeycloakClient(client, s.ownerClientID, s.keycloakAudience) {
 		return Claims{}, errAccess
+	}
+	if !onboarding {
+		if _, ok := s.clients[client]; !ok {
+			return Claims{}, errAccess
+		}
+	}
+	// Session and Bearer claims above reject normal client-credentials tokens.
+	// Also reject explicit signed non-user indicators when a provider emits them.
+	if _, ok := c["service_account_id"]; ok {
+		return Claims{}, errAccess
+	}
+	if _, ok := c["grant_type"]; ok {
+		grant := exactString(c, "grant_type", 64)
+		if grant != "authorization_code" && grant != "refresh_token" {
+			return Claims{}, errAccess
+		}
 	}
 	if !validUserClaims(userClaims{UserID: subject, IssuedAt: iat, ExpiresAt: exp, NotBefore: c["nbf"]}, time.Now()) {
 		return Claims{}, errAccess
@@ -270,6 +286,7 @@ func keycloakMCPScope(scope string) bool {
 // permits case-insensitive struct matches; duplicate decoded names are also
 // rejected throughout the document, including fields this policy does not use.
 var keycloakJSONNames = map[string]bool{
+	"grant_type": true, "service_account_id": true,
 	"iss": true, "aud": true, "sub": true, "azp": true, "typ": true,
 	"scope": true, "sid": true, "iat": true, "exp": true, "nbf": true,
 	"alg": true, "kid": true, "crit": true, "b64": true, "jku": true, "jwk": true,
@@ -337,4 +354,17 @@ func strictKeycloakMembers(d *json.Decoder, depth int, object bool) error {
 		return errAccess
 	}
 	return nil
+}
+
+// Built-in realm clients and the owner/resource identities cannot be MCP callers,
+// even if an operator accidentally includes one in the static client map.
+func eligibleKeycloakClient(id, ownerClientID, audience string) bool {
+	if !boundedInput(id, 256) || id == ownerClientID || id == audience {
+		return false
+	}
+	switch id {
+	case "account", "account-console", "admin-cli", "broker", "realm-management", "security-admin-console":
+		return false
+	}
+	return true
 }

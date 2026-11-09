@@ -158,7 +158,7 @@ func (p *Postgres) Transact(ctx context.Context, fn func(*domain.State) error) e
 	return dbError(tx.Commit(ctx))
 }
 
-var tableNames = []string{"users", "identity_aliases", "agents", "caller_profiles", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "owner_login_transactions", "cleanup_outbox", "audit_events", "github_connections", "github_grants", "github_requests"}
+var tableNames = []string{"users", "identity_aliases", "agents", "caller_profiles", "caller_candidates", "credentials", "sessions", "connections", "resources", "grants", "delegation_requests", "oauth_transactions", "owner_login_transactions", "cleanup_outbox", "audit_events", "github_connections", "github_grants", "github_requests"}
 
 func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 	s := domain.NewState()
@@ -197,6 +197,8 @@ func load(ctx context.Context, tx pgx.Tx) (*domain.State, error) {
 			err = decode(raw, s.IdentityAliases, func(v domain.IdentityAlias) string { return domain.IdentityKey(v.Issuer, v.Subject) })
 		case "agents":
 			err = decode(raw, s.Agents, func(v domain.Agent) string { return v.ID })
+		case "caller_candidates":
+			err = decode(raw, s.CallerCandidates, func(v domain.CallerCandidate) string { return v.ID })
 		case "caller_profiles":
 			err = decode(raw, s.CallerProfiles, func(v domain.CallerProfile) string { return v.ID })
 		case "credentials":
@@ -297,6 +299,7 @@ func remove[T any](ctx context.Context, tx pgx.Tx, table string, old, next map[s
 func syncState(ctx context.Context, tx pgx.Tx, old, s *domain.State) error {
 	// Remove dependants first. Grants and approved requests are never removable.
 	for _, fn := range []func() error{
+		func() error { return remove(ctx, tx, "caller_candidates", old.CallerCandidates, s.CallerCandidates) },
 		func() error { return remove(ctx, tx, "caller_profiles", old.CallerProfiles, s.CallerProfiles) },
 		func() error { return remove(ctx, tx, "owner_login_transactions", old.OwnerLogins, s.OwnerLogins) },
 		func() error { return remove(ctx, tx, "oauth_transactions", old.OAuth, s.OAuth) },
@@ -316,6 +319,9 @@ func syncState(ctx context.Context, tx pgx.Tx, old, s *domain.State) error {
 		},
 		func() error { return upsert(ctx, tx, "github_grants", old.GitHubGrants, s.GitHubGrants, nil) },
 		func() error { return upsert(ctx, tx, "github_requests", old.GitHubRequests, s.GitHubRequests, nil) },
+		func() error {
+			return upsert(ctx, tx, "caller_candidates", old.CallerCandidates, s.CallerCandidates, nil)
+		},
 		func() error { return upsert(ctx, tx, "caller_profiles", old.CallerProfiles, s.CallerProfiles, nil) },
 		func() error { return upsert(ctx, tx, "credentials", old.Credentials, s.Credentials, nil) },
 		func() error { return upsert(ctx, tx, "sessions", old.Sessions, s.Sessions, nil) },

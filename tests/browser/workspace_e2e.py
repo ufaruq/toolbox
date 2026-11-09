@@ -92,6 +92,25 @@ def main():
             page.locator('#callers-panel > summary').click()
             expect(page.locator('#caller-list').get_by_label('Agent name',exact=True)).to_have_value('Codex local')
             expect(page.locator('#create-caller')).to_be_disabled()
+            stage='dynamic client pending approval'
+            response=page.request.post(origin+'/mcp',headers={'Authorization':'Bearer browser-pending'},data='{}')
+            assert response.status==403 and response.json()['error']=='CALLER_PENDING_APPROVAL'
+            page.reload()
+            expect(page.locator('#pending-callers')).to_contain_text('browser-pending')
+            page.locator('#callers-panel > summary').click()
+            pending=page.locator('#pending-callers')
+            pending.get_by_role('button',name='Reject',exact=True).click()
+            expect(pending).to_contain_text('Rejected')
+            response=page.request.post(origin+'/mcp',headers={'Authorization':'Bearer browser-pending'},data='{}')
+            assert response.status==403 and response.json()['error']=='CALLER_NOT_APPROVED'
+            pending.get_by_role('button',name='Reopen review',exact=True).click()
+            expect(pending).to_contain_text('Pending approval')
+            pending.get_by_label('Name for this client').fill('My new client')
+            page.locator('#caller-tool').uncheck()
+            pending.get_by_role('button',name='Approve pending client',exact=True).click()
+            expect(pending).to_be_empty()
+            expect(page.locator('#caller-list')).to_contain_text('My new client')
+            page.locator('#caller-tool').check()
             stage='Picker'
             page.locator('#pick').click()
             page.locator('#synthetic-picker-select').click()
@@ -254,10 +273,25 @@ def main():
             assert page.evaluate('Object.keys(localStorage).length+Object.keys(sessionStorage).length')==0
             assert not errors
             page.screenshot(path=str(artifacts/'workspace.png'),full_page=True,animations="disabled",mask=[page.locator('#agent-credential')])
+            stage='delayed pending response after logout'
+            assert page.request.post(origin+'/mcp',headers={'Authorization':'Bearer browser-delayed'},data='{}').status==403
+            held_callers=[]
+            def hold_callers(route):
+                response=route.fetch()
+                assert response.status==200 and 'browser-delayed' in response.text()
+                held_callers.append((route,response))
+                page.locator('#logout').evaluate("button => button.dataset.held = 'true'")
+            page.route(origin+'/v1/callers',hold_callers)
+            page.evaluate('void loadCallers()')
+            expect(page.locator('#logout')).to_have_attribute('data-held','true')
             stage='logout'
             page.locator('#logout').click()
             expect(page.locator('#login-panel')).to_be_visible()
             expect(page.locator('#workspace')).to_be_hidden()
+            route,response=held_callers.pop()
+            route.fulfill(response=response)
+            expect(page.locator('#pending-callers')).to_be_empty()
+            expect(page.locator('#caller-list')).to_be_empty()
             page.set_viewport_size({'width':390,'height':844})
             page.screenshot(path=str(artifacts/'mobile-signed-out.png'),full_page=True,animations="disabled")
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

@@ -33,7 +33,7 @@ func GitHubPolicyGrant(g domain.GitHubGrant, c domain.GitHubConnection) policy.G
 func (s *Server) githubAccess(st *domain.State, a agentAccess, id string) (domain.GitHubGrant, domain.GitHubConnection, error) {
 	g, ok := st.GitHubGrants[id]
 	c, cok := st.GitHubConnections[g.ConnectionID]
-	if !ok || !cok || authorizeAgent(st, a, domain.GitHubTool) != nil || g.AgentID != a.AgentID || g.OwnerID != st.Agents[a.AgentID].OwnerID || c.OwnerID != g.OwnerID || c.Status != "active" || g.Epoch != c.Epoch || g.RepositoryID != c.RepositoryID || g.RevokedAt != nil || st.Now.Before(g.NotBefore) || !st.Now.Before(g.ExpiresAt) {
+	if !ok || !cok || s.authorizeAgent(st, a, domain.GitHubTool) != nil || g.AgentID != a.AgentID || g.OwnerID != st.Agents[a.AgentID].OwnerID || c.OwnerID != g.OwnerID || c.Status != "active" || g.Epoch != c.Epoch || g.RepositoryID != c.RepositoryID || g.RevokedAt != nil || st.Now.Before(g.NotBefore) || !st.Now.Before(g.ExpiresAt) {
 		return g, c, domain.ErrDenied
 	}
 	return g, c, nil
