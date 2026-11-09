@@ -1,6 +1,6 @@
 # Keep the upstream distribution and licenses; replace only its runtime and Guava.
 FROM quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b AS upstream
-FROM eclipse-temurin:21-jre-alpine@sha256:ac05c3c42b7c2f1a52c9bd52f01041fa1958231b15ebeae7420429cbc5baf474
+FROM eclipse-temurin:24-jre-alpine@sha256:4044b6c87cb088885bcd0220f7dc7a8a4aab76577605fa471945d2e98270741f
 
 COPY --from=upstream --chown=1000:0 /opt/keycloak /opt/keycloak
 # Quarkus records this path in its application model. Keep the path, but retain
