@@ -1,5 +1,5 @@
 # Keep the upstream distribution and licenses; replace only its runtime and Guava.
-FROM quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b AS upstream
+FROM quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0 AS upstream
 # Keycloak supports Java 25 LTS; short-lived Java 24 is not a supported target.
 FROM eclipse-temurin:25-jre-alpine@sha256:e1898fd6a11fc965a994d8ace186fd3585aeb636cf8f05f47a723fcfee0b0918
 
