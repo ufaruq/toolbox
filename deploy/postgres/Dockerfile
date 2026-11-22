@@ -1,5 +1,5 @@
 # Disposable PostgreSQL 18 fixture; Compose mounts the versioned data parent.
-FROM postgres:18.6-alpine3.24@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395
+FROM postgres:18.6-alpine3.24@sha256:9ba53c7d41ea093baf5c1ba635ba5434c4f979880527d49bb7d9237d3193085b
 # The official entrypoint uses gosu only to become postgres. Use Alpine's small
 # C helper instead of shipping gosu's obsolete Go standard library.
 RUN apk add --no-cache su-exec=0.3-r0 \
